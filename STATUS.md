@@ -9,7 +9,7 @@
 | **List Samples** | ✅ Working | `ko2 ls [--page N] [--all]` | Scan by pages (100 slots), show size/duration |
 | **Query Metadata** | ✅ Working | `ko2 info <slot\|range>` | Get name, size, duration |
 | **Download Sample** | ✅ Working | `ko2 get <slot> [file]` | Downloads to WAV (46875Hz) |
-| **Upload Sample** | ✅ Working | `ko2 put <file> <slot>` | Upload with progress |
+| **Upload Sample** | ⚠️ Partial | `ko2 put <file> <slot>` | Audio works, metadata stale |
 | **Delete Sample** | ✅ Working | `ko2 rm <slot>` | `delete` alias also works |
 | **Optimize Sample** | ✅ Working | `ko2 optimize <slot>` | Backup + optimize + replace |
 | **Optimize All** | ✅ Working | `ko2 optimize-all [--min KB]` | Batch optimize oversized samples |
@@ -66,7 +66,9 @@ ko2 optimize-all --force     # Skip confirmation
 | 0x77 | INFO | ✅ Working | Device info |
 | 0x7C | PROJECT | ✅ Documented | Project switching (not implemented) |
 | 0x7D | DOWNLOAD | ✅ Working | GET with chunking |
-| 0x7E | UPLOAD | ✅ Working | PUT with 8-step sequence |
+| 0x6C | UPLOAD_DATA | ✅ Working | Upload init + data chunks |
+| 0x6D | UPLOAD_END | ✅ Working | Upload end marker |
+| 0x7E | UPLOAD | ❌ Deprecated | Old command, use 0x6C/0x6D |
 | 0x37 | RESPONSE | ✅ Working | Standard response parsing |
 | 0x3D | RESPONSE_ALT | ✅ Working | Alternative response parsing |
 
