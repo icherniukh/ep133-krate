@@ -3,14 +3,14 @@
 KO2 - EP-133 KO-II Command Line Tool
 
 Usage:
-    ko2 ls [page]              - List samples by pages (1-10, show all)
+    ko2 ls [--page N]          - List samples by pages
     ko2 info <slot|range>      - Show sample metadata
     ko2 get <slot> [file]      - Download sample
     ko2 put <file> <slot>      - Upload sample
-    ko2 rm <slot>              - Delete sample (alias for delete)
-    ko2 delete <slot>          - Delete sample
+    ko2 rm <slot>              - Delete sample
+    ko2 squash [--page N]      - Squash samples to fill gaps
     ko2 optimize <slot>        - Optimize single sample
-    ko2 optimize-all [--min]   - Optimize all oversized samples
+    ko2 optimize-all           - Optimize all oversized samples
 """
 import sys
 import argparse
@@ -106,16 +106,21 @@ def format_table_row(info: SampleInfo) -> str:
     color = get_size_color(info.size_bytes) if info.size_bytes else ""
     reset = Colors.RESET if info.size_bytes else ""
 
+    # Stereo indicator
+    channels_str = "S" if info.channels == 2 else "M" if info.channels == 1 else "-"
+    channels_color = Colors.FG_YELLOW if info.channels == 2 else Colors.FG_DIM
+
     # Truncate name to fit
-    name = info.name[:20]
-    if len(info.name) > 20:
+    name = info.name[:18]
+    if len(info.name) > 18:
         name += "…"
 
     size_display = f"{color} {size_str:>5} {reset}" if info.size_bytes else f" {size_str:>5} "
 
     return (
         f"  {Colors.FG_DIM}{info.slot:03d}{Colors.RESET}  "
-        f"{name:<22}  "
+        f"{name:<18}  "
+        f"{channels_color}{channels_str}{Colors.RESET}  "
         f"{size_display}  "
         f"{format_duration(info.size_bytes, info.samplerate):>8}"
     )
@@ -172,8 +177,8 @@ def cmd_ls(args):
         print(f"\n  Found {total_samples} samples, {format_size(total_size)} total\n")
 
         # Print header
-        print(f"  {'Slot':>4}  {'Name':<22}  {'Size':>7}  {'Duration':>8}")
-        print(f"  {'-'*4}  {'-'*22}  {'-'*7}  {'-'*8}")
+        print(f"  {'Slot':>4}  {'Name':<18}  {'CH':>2}  {'Size':>7}  {'Duration':>8}")
+        print(f"  {'-'*4}  {'-'*18}  {'--':>2}  {'-'*7}  {'-'*8}")
 
         # Print samples
         for info in samples:
@@ -527,6 +532,118 @@ def cmd_group(args):
     return 0
 
 
+def cmd_squash(args):
+    """Squash samples in page/group to fill slots sequentially."""
+    # Determine range
+    if args.page:
+        start, end = parse_page(args.page)
+        if start is None:
+            print("  ❌ Page must be 1-10")
+            return 1
+    elif args.range:
+        slot_spec = parse_range(args.range)
+        if isinstance(slot_spec, int):
+            start = end = slot_spec
+        else:
+            start, end = slot_spec
+    else:
+        start, end = 1, 99  # Default to page 1
+
+    if start > end:
+        start, end = end, start
+
+    dry_run = not args.execute
+
+    print(f"{Colors.CYAN}Squashing slots {start:03d}-{end:03d}...{Colors.RESET}")
+    if dry_run:
+        print(f"  {Colors.FG_YELLOW}DR RUN MODE{Colors.RESET} (use --execute to apply)")
+
+    with EP133Client(args.device) as client:
+        # Scan all samples in range
+        print(f"  Scanning...")
+        samples = []
+        for slot in range(start, end + 1):
+            show_progress(slot - start + 1, end - start + 1)
+            try:
+                info = client.info(slot, include_size=True)
+                samples.append(info)
+            except SlotEmptyError:
+                pass
+        print()
+
+        if not samples:
+            print(f"  {Colors.FG_DIM}No samples found{Colors.RESET}")
+            return 0
+
+        # Calculate squash mapping
+        mapping = {}  # old_slot -> new_slot
+        target_slot = start
+
+        for info in samples:
+            if info.slot != target_slot:
+                mapping[info.slot] = target_slot
+            target_slot += 1
+
+        if not mapping:
+            print(f"  {Colors.FG_GREEN}✓ Already compacted{Colors.RESET}")
+            return 0
+
+        # Show mapping
+        print(f"  Will move {len(mapping)} samples:\n")
+        for old_slot, new_slot in mapping.items():
+            info = next(s for s in samples if s.slot == old_slot)
+            savings = (old_slot - new_slot) * (end - start + 1)
+            print(f"    {old_slot:03d} → {new_slot:03d}  {info.name[:30]:<30}")
+
+        # TODO: Project reference update
+        # This would require:
+        # 1. Querying project patterns to find references to moved samples
+        # 2. Updating pad assignments in project TAR files
+        # 3. Re-uploading project data via SysEx (if protocol exists)
+        #
+        # Pseudo-code:
+        # for project in [1..16]:
+        #     patterns = download_project_patterns(project)
+        #     for pattern in patterns:
+        #         for event in pattern.events:
+        #             if event.sample_slot in mapping:
+        #                 event.sample_slot = mapping[event.sample_slot]
+        #     upload_project_patterns(project, patterns)
+
+        if dry_run:
+            print(f"\n  {Colors.FG_YELLOW}⚠ Preview mode{Colors.RESET}")
+            print(f"  Run with --execute to apply changes")
+            print(f"\n  {Colors.FG_DIM}NOTE: Project pad references are NOT updated.{Colors.RESET}")
+            print(f"  {Colors.FG_DIM}      (project update protocol not yet available){Colors.RESET}")
+            return 0
+
+        # Execute squash
+        print(f"\n  {Colors.FG_CYAN}Executing...{Colors.RESET}\n")
+
+        for old_slot, new_slot in mapping.items():
+            # Download from old slot
+            print(f"  [{old_slot:03d} → {new_slot:03d}] ", end="", flush=True)
+            try:
+                temp_path = client.get(old_slot, None)
+
+                # Delete old slot
+                client.delete(old_slot)
+
+                # Upload to new slot
+                client.put(temp_path, new_slot, progress=False)
+
+                # Cleanup
+                temp_path.unlink(missing_ok=True)
+                print(f"{Colors.FG_GREEN}✓{Colors.RESET}")
+            except EP133Error as e:
+                print(f"{Colors.FG_RED}✗ {e}{Colors.RESET}")
+
+        print(f"\n  {Colors.FG_GREEN}✓ Squash complete{Colors.RESET}")
+        print(f"  {Colors.FG_DIM}Freed {len(mapping)} slots{Colors.RESET}")
+
+    return 0
+
+
 def parse_range(arg: str) -> tuple[int, int] | int:
     """Parse range argument: '5', '1-10', or '1..10'."""
     match = re.match(r'^(\d+)\.\.(\d+)$', arg)
@@ -595,6 +712,14 @@ def main():
     group_parser.add_argument('-r', '--reverse', action='store_true',
                             help='Compact toward right (default: left)')
 
+    # squash
+    squash_parser = subparsers.add_parser('squash', help='Squash samples to fill gaps')
+    squash_group = squash_parser.add_mutually_exclusive_group()
+    squash_group.add_argument('--page', type=int, metavar='N', help='Page to squash (1-10)')
+    squash_group.add_argument('--range', metavar='N', help='Range like 1-50 or 10..100')
+    squash_parser.add_argument('--execute', action='store_true',
+                               help='Actually perform the move (default: dry-run)')
+
     args = parser.parse_args()
 
     if not args.command:
@@ -621,6 +746,7 @@ def main():
         'optimize': cmd_optimize,
         'optimize-all': cmd_optimize_all,
         'group': cmd_group,
+        'squash': cmd_squash,
     }
 
     handler = commands.get(args.command)

@@ -261,6 +261,7 @@ class EP133Client:
                         sym=metadata.get('sym', ''),
                         samplerate=metadata.get('samplerate', SAMPLE_RATE),
                         format=metadata.get('format', 's16'),
+                        channels=metadata.get('channels', 1),
                         size_bytes=size_bytes,
                     )
 
