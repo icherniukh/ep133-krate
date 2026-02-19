@@ -1,16 +1,41 @@
-# EP-133 KO-II Tools - Status & Wishlist
+# EP-133 KO-II Tools - Status
 
 ## Currently Working Operations
 
 ### Device Operations (via MIDI SysEx)
 
-| Operation | Status | Script | Notes |
-|-----------|--------|--------|-------|
-| **Download Sample** | ✅ Working | `ko2_download.py` | Downloads from slot to WAV (46875Hz) |
-| **Query Metadata** | ✅ Working | `ko2_download.py` | Get sample name, rate, format |
-| **Scan All Slots** | ⚠️ Needs Update | `ko2_scan_slots.py` | Broken after protocol refactor |
-| **Delete Sample** | 🔧 Protocol Known | | 0x06 DELETE op documented |
-| **Upload Sample** | 🔧 Protocol Known | | 0x02 PUT op documented, complex |
+| Operation | Status | Command | Notes |
+|-----------|--------|---------|-------|
+| **List Samples** | ✅ Working | `ko2 ls [--page N] [--all]` | Scan by pages (100 slots), show size/duration |
+| **Query Metadata** | ✅ Working | `ko2 info <slot\|range>` | Get name, size, duration |
+| **Download Sample** | ✅ Working | `ko2 get <slot> [file]` | Downloads to WAV (46875Hz) |
+| **Upload Sample** | ✅ Working | `ko2 put <file> <slot>` | Upload with progress |
+| **Delete Sample** | ✅ Working | `ko2 rm <slot>` | `delete` alias also works |
+| **Optimize Sample** | ✅ Working | `ko2 optimize <slot>` | Backup + optimize + replace |
+| **Optimize All** | ✅ Working | `ko2 optimize-all [--min KB]` | Batch optimize oversized samples |
+| **Compact/Group** | ✅ Preview | `ko2 group <range>` | Preview only (needs move operation) |
+
+### Optimization Features
+
+**Single Sample:**
+```bash
+ko2 optimize 123     # Download, optimize, backup .bak, replace
+```
+
+**Batch Optimization:**
+```bash
+ko2 optimize-all             # Find samples >100KB, optimize all
+ko2 optimize-all --min 50    # Find samples >50KB
+ko2 optimize-all --force     # Skip confirmation
+```
+
+**What it does:**
+1. Scans all 999 slots for oversized samples
+2. Downloads candidate to temp file
+3. Creates `file.wav.bak` backup
+4. Optimizes with audio2ko2 (or sox fallback)
+5. Replaces if savings >5KB
+6. Shows total savings
 
 ### Backup File Operations (.pak files = ZIP)
 
@@ -30,122 +55,93 @@
 
 ---
 
-## Wishlist (for butter-smooth TUI)
+## Protocol Implementation Status
 
-### Audio Preparation (NEW)
+### Device IDs
+| ID | Name | Status | Notes |
+|----|------|--------|-------|
+| 0x61 | INIT | ✅ Working | Initialization sequence |
+| 0x75 | GET_META | ✅ Working | Metadata queries (little-endian) |
+| 0x76 | PLAYBACK | ⏳ Unknown | Audition - needs packet capture |
+| 0x77 | INFO | ✅ Working | Device info |
+| 0x7C | PROJECT | ✅ Documented | Project switching (not implemented) |
+| 0x7D | DOWNLOAD | ✅ Working | GET with chunking |
+| 0x7E | UPLOAD | ✅ Working | PUT with 8-step sequence |
+| 0x37 | RESPONSE | ✅ Working | Standard response parsing |
+| 0x3D | RESPONSE_ALT | ✅ Working | Alternative response parsing |
 
-```
-[ ] ko2-prepare <file>         - Prepare audio for upload
-    ├── Convert to 46875Hz/16-bit/mono
-    ├── Trim silence (start/end)
-    ├── Normalize volume
-    └── Auto-name output
-
-[ ] ko2-prepare --chop <file>   - Chop at transients into parts
-[ ] ko2-prepare --split N <file> - Split into N equal parts
-[ ] ko2-prepare --batch <files>  - Process multiple files
-[ ] ko2-prepare --threshold -40dB <files>  # Custom trim level
-```
-
-**Integration:** Base conversion via `audio2ko2`, output ready for `ko2 put`
-
-### Phase 1 - Core Device Operations
-
-```
-[ ] ko2 ls                    - List all slots on device
-[ ] ko2 get <slot> [file]     - Download sample from slot
-[ ] ko2 put <file> <slot>     - Upload sample to slot
-[ ] ko2 rm <slot>             - Delete sample from slot
-[ ] ko2 info <slot>           - Show sample metadata
-[ ] ko2 play <slot>           - Audition sample (playback)
-```
-
-### Phase 2 - Batch Operations
-
-```
-[ ] ko2 ls --banks            - List samples grouped by bank
-[ ] ko2 get --all             - Download all samples
-[ ] ko2 get --bank 7          - Download entire bank
-[ ] ko2 rm --empty            - Delete all empty slots
-[ ] ko2 backup                - Create full backup (device -> .pak)
-[ ] ko2 restore <file>        - Restore backup to device
-```
-
-### Phase 3 - TUI Interface
-
-```
-[ ] ko2 tui                   - Interactive terminal UI
-    ├── Slot browser (10 banks × 100 slots)
-    ├── Preview playback (audition)
-    ├── Drag-drop reorganization
-    ├── Batch operations
-    └── Visual memory usage
-```
-
-### Phase 4 - Sample Management
-
-```
-[ ] ko2 rename <slot> <name>  - Rename sample on device
-[ ] ko2 mv <src> <dst>         - Move sample between slots
-[ ] ko2 cp <src> <dst>         - Copy sample between slots
-[ ] ko2 normalize <slot>       - Normalize sample volume
-[ ] ko2 trim <slot>            - Trim silence from start/end
-[ ] ko2 reverse <slot>         - Reverse sample
-```
-
-### Phase 5 - Project Operations
-
-```
-[ ] ko2 project ls            - List projects on device
-[ ] ko2 project backup <n>    - Backup single project
-[ ] ko2 project restore <n>   - Restore project to device
-[ ] ko2 project export <n>    - Export project to .ppak
-```
+### File Operations
+| Op | Hex | Name | Status |
+|----|-----|------|--------|
+| 0x01 | INIT | Initialize | ✅ Working |
+| 0x02 | PUT | Upload | ✅ Working |
+| 0x03 | GET | Download | ✅ Working |
+| 0x04 | LIST | List files | ⚠️ Unconfirmed (not needed) |
+| 0x05 | PLAYBACK | Playback | ⏳ Unknown |
+| 0x06 | DELETE | Delete | ✅ Working |
+| 0x07 | METADATA | Metadata ops | ✅ Working |
+| 0x0B | VERIFY | Verify | ✅ Working (upload) |
 
 ---
 
-## Protocol Implementation Status
+## Wishlist / Future Features
 
-### Message Structure (Working)
-```
-F0 00 20 76 33 40 [DEVID] [SEQ] 05 00 [OP] [SUBOP] [DATA] F7
-```
+### Phase 1 - Core (DONE ✅)
+- [x] ko2 ls - List samples by pages
+- [x] ko2 get - Download sample
+- [x] ko2 put - Upload sample
+- [x] ko2 rm/delete - Delete sample
+- [x] ko2 info - Show metadata
+- [ ] ko2 play - Audition (protocol unknown)
 
-### Device IDs (Working)
-| ID | Usage | Status |
-|----|-------|--------|
-| 0x61 | Initialization | ✅ Working |
-| 0x76 | Playback/Audition | 🔧 Protocol known |
-| 0x77 | Info/Metadata | ✅ Working |
-| 0x7D | Download (GET) | ✅ Working |
-| 0x7E | Upload (PUT) | 🔧 Protocol known |
-| 0x37 | Standard Response | ✅ Working |
-| 0x3D | Alternative Response | ✅ Working |
+### Phase 2 - Batch Operations (PARTIAL)
+- [x] ko2 optimize-all - Optimize oversized samples
+- [ ] ko2 get --all - Download all samples
+- [ ] ko2 get --bank 7 - Download entire bank
+- [ ] ko2 backup - Create full backup (device -> .pak)
+- [ ] ko2 restore <file> - Restore backup to device
 
-### Operations (Implemented)
-| Op | Name | Status |
-|----|------|--------|
-| 0x01 | INIT | ✅ Working |
-| 0x02 | PUT (Upload) | 🔧 Protocol documented |
-| 0x03 | GET (Download) | ✅ Working |
-| 0x06 | DELETE | 🔧 Protocol documented |
-| 0x07 | METADATA | ✅ Working |
+### Phase 3 - TUI Interface
+- [ ] ko2 tui - Interactive terminal UI
+  - Slot browser (10 pages × 100 slots)
+  - Preview playback (when protocol known)
+  - Batch operations
+  - Visual memory usage
+
+### Phase 4 - Sample Management
+- [ ] ko2 rename <slot> <name> - Rename sample
+- [ ] ko2 mv <src> <dst> - Move sample
+- [ ] ko2 cp <src> <dst> - Copy sample
+- [ ] ko2 normalize <slot> - Normalize volume
+- [ ] ko2 trim <slot> - Trim silence
+
+### Phase 5 - Project Operations
+- [ ] ko2 project ls - List projects
+- [ ] ko2 project switch <n> - Switch active project
+- [ ] ko2 project backup <n> - Backup project
+- [ ] ko2 project export <n> - Export to .ppak
 
 ---
 
 ## Technical Gaps
 
-1. **Upload Protocol** - Documented but complex (chunked data, commit phase)
-2. **Playback/Audition** - Protocol known, needs implementation
-3. **Project Format** - .pcm format unknown, needs RE
-4. **Slot Renaming** - Metadata SET operation needs testing
+1. **Playback/Audition (0x76)** - Protocol unknown, needs MIDI sniffer
+2. **Project Query** - No command to list/query projects
+3. **Sample Rename** - Metadata SET exists but not tested
+4. **Sample Move/Copy** - Would require download+re-upload
+5. **Memory Statistics** - No command to query free memory
 
 ---
 
-## Next Steps
+## Files
 
-1. Fix `ko2_scan_slots.py` (import errors after protocol refactor)
-2. Implement `ko2 ls` command (scan all slots)
-3. Implement `ko2 rm` command (delete)
-4. Add `ko2 play` (audition)
-5. Start TUI framework (curses/textual?)
+| File | Purpose |
+|------|---------|
+| `ko2.py` | Main CLI tool |
+| `ko2_client.py` | MIDI client implementation |
+| `ko2_protocol.py` | Protocol constants and utilities |
+| `PROTOCOL.md` | Complete protocol documentation |
+| `PPAK_FORMAT.md` | .ppak file format spec |
+| `PROJECT_OPERATIONS.md` | Project switching docs |
+| `PROTOCOL_TEST_RESULTS.md` | Device testing results |
+| `TO_VERIFY.md` | Resolved protocol issues (reference) |
