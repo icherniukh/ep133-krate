@@ -13,7 +13,7 @@
 | **Delete Sample** | ✅ Working | `ko2 rm <slot>` | `delete` alias also works |
 | **Optimize Sample** | ✅ Working | `ko2 optimize <slot>` | Backup + optimize + replace |
 | **Optimize All** | ✅ Working | `ko2 optimize-all [--min KB]` | Batch optimize oversized samples |
-| **Compact/Group** | ✅ Preview | `ko2 group <range>` | Preview only (needs move operation) |
+| **Squash Slots** | ✅ Working | `ko2 squash [--range N] [--execute]` | Fill gaps sequentially (dry-run default) |
 
 ### Optimization Features
 
@@ -120,6 +120,36 @@ ko2 optimize-all --force     # Skip confirmation
 - [ ] ko2 project switch <n> - Switch active project
 - [ ] ko2 project backup <n> - Backup project
 - [ ] ko2 project export <n> - Export to .ppak
+
+---
+
+## Recent Bug Fixes (2025-02-19)
+
+### Critical Download Bug - Page Encoding
+
+**Problem**: Download operations failed with `ValueError: data byte must be in range 0..127` for larger samples.
+
+**Root Cause**: Page numbers were encoded as:
+```python
+page_lo = page & 0xFF      # 0-255
+page_hi = (page >> 8) & 0xFF  # Could be >127
+```
+
+When `page >= 128`, `page_hi` became 1 or higher. When `page >= 32768`, `page_hi` exceeded 127, violating MIDI data byte constraints.
+
+**Fix**: Use 7-bit encoding like slot numbers:
+```python
+page_lo = page & 0x7F       # 0-127
+page_hi = (page >> 7) & 0x7F  # 0-127
+```
+
+Max page with 14 bits: 16383 (sufficient for all samples).
+
+**Files Modified**:
+- `ko2_client.py` - `_download_data()` method
+- `ko2_download.py` - Same fix applied
+- `ko2.py` - Fixed `stat().st` typo → `stat().st_size`
+- `PROTOCOL.md` - Documented 7-bit page encoding
 
 ---
 

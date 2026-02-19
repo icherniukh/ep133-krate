@@ -271,8 +271,9 @@ def download_sample_data(outport, inport, slot):
 
         # Build data request
         # F0 00 20 76 33 40 7D [SEQ] 05 00 03 01 [PAGE_HI] [PAGE_LO] F7
-        page_lo = page & 0xFF
-        page_hi = (page >> 8) & 0xFF
+        # Use 7-bit encoding for page bytes (MIDI data bytes must be 0-127)
+        page_lo = page & 0x7F
+        page_hi = (page >> 7) & 0x7F
         seq = (seq + 1) & 0x7F  # Increment sequence
 
         data_req = bytes([
@@ -350,7 +351,7 @@ def download_sample_data(outport, inport, slot):
             # No more data
             break
 
-        page = (page + 1) & 0xFFFF  # Wrap at 65536
+        page = (page + 1) & 0x3FFF  # 14-bit max (two 7-bit bytes)
 
     print()  # New line after progress
 

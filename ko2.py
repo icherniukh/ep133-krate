@@ -251,7 +251,7 @@ def optimize_sample(input_path: Path, output_path: Optional[Path] = None) -> tup
     Returns:
         (success, message, original_size, optimized_size)
     """
-    original_size = input_path.stat().st
+    original_size = input_path.stat().st_size
 
     if output_path is None:
         output_path = input_path.with_suffix('.opt.wav')
@@ -269,7 +269,7 @@ def optimize_sample(input_path: Path, output_path: Optional[Path] = None) -> tup
                 ko2_output = input_path.with_stem(input_path.stem + '_ko2')
                 if ko2_output.exists():
                     shutil.move(ko2_output, output_path)
-                    opt_size = output_path.stat().st
+                    opt_size = output_path.stat().st_size_size
                     return True, "optimized with audio2ko2", original_size, opt_size
         except (subprocess.TimeoutExpired, FileNotFoundError):
             pass
@@ -280,7 +280,7 @@ def optimize_sample(input_path: Path, output_path: Optional[Path] = None) -> tup
             'sox', str(input_path), '-c', '1', '-r', str(SAMPLE_RATE),
             '-b', '16', str(output_path)
         ], capture_output=True, check=True, timeout=30)
-        opt_size = output_path.stat().st
+        opt_size = output_path.stat().st_size
         return True, "optimized with sox", original_size, opt_size
     except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError) as e:
         return False, f"error: {e}", original_size, 0

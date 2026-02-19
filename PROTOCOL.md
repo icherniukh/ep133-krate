@@ -153,7 +153,10 @@ F0 00 20 76 33 40 7D [seq] 05 00 03 00 [slot_hi] [slot_lo] [offset: 5 bytes] F7
 F0 00 20 76 33 40 7D [seq] 05 00 03 01 [page_hi] [page_lo] F7
 ```
 - Sub-op: `0x01` (GET_DATA)
-- Page: big-endian page number
+- Page: big-endian, **each byte must be 7-bit (0-127)**
+  - `page_lo = page & 0x7F`
+  - `page_hi = (page >> 7) & 0x7F`
+  - Max page: 16383 (14 bits)
 - Response: 7-bit encoded audio chunk
 
 ## 7-Bit Encoding

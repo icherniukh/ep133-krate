@@ -379,8 +379,10 @@ class EP133Client:
             for _ in self._inport.iter_pending():
                 pass
 
-            page_lo = page & 0xFF
-            page_hi = (page >> 8) & 0xFF
+            # Encode page number using 7-bit values (MIDI data bytes must be 0-127)
+            # Uses big-endian like slot encoding in download operations
+            page_lo = page & 0x7F
+            page_hi = (page >> 7) & 0x7F
             seq = (seq + 1) & 0x7F
 
             data_req = bytes([
@@ -422,7 +424,7 @@ class EP133Client:
             if not chunk_received:
                 break
 
-            page = (page + 1) & 0xFFFF
+            page = (page + 1) & 0x3FFF  # 14-bit max (two 7-bit bytes)
 
         return bytes(all_data)
 
