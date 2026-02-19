@@ -184,22 +184,46 @@ def parse_json_from_sysex(data: bytes, offset: int = 10) -> dict | None:
 
     Returns:
         Parsed JSON dict, or None if parsing fails
+
+    Note:
+        The EP-133 inserts null bytes throughout JSON and may truncate responses.
+        This function filters null bytes and extracts key-value pairs manually
+        to handle truncation gracefully.
     """
-    import json
+    import re
 
     if len(data) < offset:
         return None
 
-    # Convert to string, filtering valid ASCII
-    json_str = ''.join(chr(b) if 32 <= b < 127 else '' for b in data[offset:])
+    # Convert to string, keeping valid ASCII and JSON structural chars
+    # EP-133 inserts null bytes between characters, so we filter them out
+    json_str = ''.join(chr(b) if (32 <= b < 127 or b in [123, 125, 58, 44]) else '' for b in data[offset:])
 
     # Extract JSON object
-    if '{' not in json_str or '}' not in json_str:
+    if '{' not in json_str:
         return None
 
-    try:
-        start = json_str.index('{')
-        end = json_str.rindex('}') + 1
-        return json.loads(json_str[start:end])
-    except (json.JSONDecodeError, ValueError):
-        return None
+    # Use regex to extract key-value pairs
+    # Pattern: "key":value where value is string, number, or boolean
+    result = {}
+
+    # Find string key-value pairs like "name":"value"
+    for match in re.finditer(r'"([^"]+)":"([^"]*)"', json_str):
+        key, value = match.groups()
+        result[key] = value
+
+    # Find numeric key-value pairs like "samplerate":46875
+    for match in re.finditer(r'"([^"]+)":(-?\d+)', json_str):
+        key, value = match.groups()
+        try:
+            result[key] = int(value)
+        except ValueError:
+            pass
+
+    # Find boolean key-value pairs
+    for match in re.finditer(r'"([^"]+)":(true|false)', json_str):
+        key, value = match.groups()
+        result[key] = value == 'true'
+
+    # Return result if we found at least one field
+    return result if result else None

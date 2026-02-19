@@ -248,7 +248,7 @@ class EP133Client:
 
         for resp in responses:
             data = list(resp)
-            if len(data) > 10 and data[5] == 0x35:  # RspCmd.META
+            if len(data) > 10 and data[6] == 0x35:  # RspCmd.META (position 6 after header)
                 metadata = parse_json_from_sysex(data, offset=8)
                 if metadata:
                     size_bytes = 0

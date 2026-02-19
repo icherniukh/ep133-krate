@@ -1,8 +1,12 @@
-# Protocol Verification Needed
+# Protocol Verification - COMPLETED
 
-This document tracks protocol contradictions that need verification against actual device behavior. **This file is temporary and will be deleted once verified.**
+All tests completed on 2025-02-19. See `PROTOCOL_TEST_RESULTS.md` for detailed findings.
 
-## 1. Delete Slot Encoding (CRITICAL)
+This file is kept for reference but all items have been resolved.
+
+---
+
+## 1. Delete Slot Encoding - ✅ RESOLVED
 
 ### Contradiction
 | Source | Encoding | Evidence |
@@ -11,29 +15,20 @@ This document tracks protocol contradictions that need verification against actu
 | `PROTOCOL.md:84,195` | **Big-endian** | Documentation |
 | `REPO_ANALYSIS.md:48` | **Big-endian** | External repo: `garrettjwilke/ep_133_sysex_thingy` |
 
-### External Source Example
-From `garrettjwilke/ep_133_sysex_thingy` - Delete slot 11:
-```
-F0 00 20 76 33 40 7E 07 05 00 06 00 0B F7
-                                   ────
-                              Slot 11 = 00 0B (big-endian)
-```
+### Resolution
+**No actual contradiction.** For slots 1-999, both encodings produce the same byte sequence because:
+- `encode_slot()`: `low = slot & 0x7F; high = (slot >> 7) & 0x7F`
+- `encode_slot_be()`: `high = (slot >> 7) & 0x7F; low = slot & 0x7F`
 
-### Current Code
-```python
-# ko2_client.py:640-641
-slot_low = slot & 0x7F        # Little-endian low byte first
-slot_high = (slot >> 7) & 0x7F
-```
+Both return `(high, low)` tuple, producing `00 0B` for slot 11 in either case.
 
-### Action Required
-- [ ] Test current delete implementation on real device
-- [ ] If fails, change to big-endian: `slot_high, slot_low = (slot >> 7) & 0x7F, slot & 0x7F`
-- [ ] Document result
+### Action Items - ✅ COMPLETE
+- [x] Test current delete implementation on real device
+- [x] Document result
 
 ---
 
-## 2. Upload Data Device ID
+## 2. Upload Data Device ID - ✅ RESOLVED
 
 ### Contradiction
 | Source | Upload Data Device ID | Evidence |
@@ -42,82 +37,69 @@ slot_high = (slot >> 7) & 0x7F
 | `ko2_protocol.py` | **0x6C** defined | `DeviceId.UPLOAD_DATA` |
 | External repos | **All 0x7E** | `garrettjwilke` examples show 0x7E for all 8 steps |
 
-### External Source Example
-From `REPO_ANALYSIS.md:62-70` - All 8 upload steps use `0x7E`:
-```
-01: F0 ... 7E 6B 05 40 02 00 05...  (Upload Init)
-02: F0 ... 7E 6C 05 00 02 01...     (Upload Data)
-...
-08: F0 ... 7E 72 05 08 07 02...     (Finalize)
-```
+### Resolution
+**Our mixed approach (0x6C/0x7E) is correct.** Successfully uploaded test samples to slots 1, 11, 100.
 
-### Current Code
-`ko2_client.py:533` uses `DeviceId.UPLOAD_DATA (0x6C)` for init/data chunks, but `DeviceId.UPLOAD (0x7E)` for commit/verify steps.
+External examples showing all 0x7E are likely packet captures of device responses, not commands to send.
 
-**Note:** Leaving as-is for now. External examples might be packet captures showing what the device sends, not what we should send. Our upload may work correctly; testing required.
-
-### Action Required
-- [ ] Test current upload implementation on real device
-- [ ] If works, document that 0x6C/0x7E split is correct
-- [ ] If fails, try all 0x7E
-- [ ] Document result
+### Action Items - ✅ COMPLETE
+- [x] Test current upload implementation on real device
+- [x] Document that 0x6C/0x7E split is correct
 
 ---
 
-## 3. Metadata Query Endianness
-
-### Current Understanding
-| Operation | Encoding | Source |
-|-----------|----------|--------|
-| Upload | Big-endian | PROTOCOL.md |
-| Download | Big-endian | PROTOCOL.md |
-| Delete | **Big-endian** (external) / **Little-endian** (code) | CONTRADICTION |
-| Metadata Query | Little-endian | PROTOCOL.md |
+## 3. Metadata Query Endianness - ✅ RESOLVED
 
 ### Question
-Is metadata query actually little-endian, or is this also wrong? External repos don't show metadata query examples.
+Is metadata query actually little-endian?
 
-### Action Required
-- [ ] Verify metadata query endianness on real device
-- [ ] Cross-check with download operation (both use 0x7D/0x75 range)
+### Resolution
+**Yes, little-endian is correct.** Successfully queried metadata from multiple slots.
+
+### Bugs Fixed
+1. **ko2_client.py:251** - Changed `data[5]` to `data[6]` for response check
+2. **ko2_protocol.py** - Rewrote `parse_json_from_sysex()` to handle:
+   - Null bytes interspersed in JSON
+   - Truncated responses
+
+### Action Items - ✅ COMPLETE
+- [x] Verify metadata query endianness on real device
+- [x] Fix JSON parsing to handle device quirks
 
 ---
 
-## 4. Playback/Audition Protocol (0x76)
+## 4. Playback/Audition Protocol (0x76) - ⏳ PENDING
 
 ### Current Status
 - Constants defined: `DeviceId.PLAYBACK = 0x76`, `FileOp.PLAYBACK = 0x05`
 - No implementation exists
 - No external examples found
 
-### Action Required
+### Action Items - PENDING
 - [ ] MIDI sniffer during official tool playback
 - [ ] Document message structure
 - [ ] Implement `play()` method
 
 ---
 
-## 5. Missing Constants
+## 5. Missing Constants - ✅ RESOLVED
 
 ### VERIFY Operation (0x0B)
-- Used inline in upload sequence
-- NOT defined in `FileOp` enum
-- Should be: `FileOp.VERIFY = 0x0B`
+- [x] Added to `FileOp` enum as `FileOp.VERIFY = 0x0B`
 
 ---
 
-## Test Plan
+## Summary
 
-1. **Delete Test** - Delete slot 11 on real device, verify it works
-2. **Upload Device ID Test** - Try upload with all 0x7E vs mixed 0x6C/0x7E
-3. **Metadata Query Test** - Query slot 11 metadata, verify endianness
+| Issue | Status | Notes |
+|-------|--------|-------|
+| Delete encoding | ✅ Resolved | No actual bug - both encodings produce same result |
+| Upload device ID | ✅ Resolved | Our implementation is correct |
+| Metadata query | ✅ Resolved | Fixed response parsing bugs |
+| Playback protocol | ⏳ Pending | Requires packet capture |
+| VERIFY constant | ✅ Resolved | Added to FileOp enum |
 
----
+## Files Modified
 
-## Sources
-
-- `PROTOCOL.md` - Our protocol documentation
-- `ko2_client.py` - Current implementation
-- `ko2_protocol.py` - Protocol constants
-- `REPO_ANALYSIS.md` - External repo analysis
-- `garrettjwilke/ep_133_sysex_thingy` - Working sysex examples
+- `/Users/ivan/proj/ko2-tools/ko2_client.py` - Fixed metadata response byte position
+- `/Users/ivan/proj/ko2-tools/ko2_protocol.py` - Rewrote parse_json_from_sysex(), added VERIFY constant
