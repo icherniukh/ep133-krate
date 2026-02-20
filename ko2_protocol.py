@@ -7,6 +7,9 @@ Based on PROTOCOL.md and live analysis.
 """
 
 from enum import IntEnum
+import re
+
+from ko2_encoding import decode_node_id, encode_14bit, encode_7bit, unpack_7bit
 
 
 # --- Protocol Constants ---
@@ -132,6 +135,40 @@ UPLOAD_DELAY = 0.02  # Delay between chunks (20ms) - device needs this
 # --- Helper Functions ---
 
 
+def slot_from_sound_entry(entry: dict) -> int | None:
+    """Resolve a sample slot number (1-999) from a /sounds FILE LIST entry.
+
+    /sounds is a filesystem directory (node_id=1000). Child nodes commonly use:
+      node_id 1001..1999  => slot = node_id - 1000
+      node_id 1..999      => slot = node_id (newer firmwares)
+
+    As a fallback, some firmwares include the slot as a filename prefix like
+    "850 ..." or "850.wav". We parse a leading 1-3 digit prefix.
+    """
+    try:
+        node_id = int(entry.get("node_id") or 0)
+    except Exception:
+        node_id = 0
+
+    if 1 <= node_id <= MAX_SLOTS:
+        return node_id
+
+    if 1001 <= node_id <= 1999:
+        slot = node_id - 1000
+        if 1 <= slot <= MAX_SLOTS:
+            return slot
+
+    name = str(entry.get("name") or "")
+    m = re.match(r"^(\d{1,3})", name)
+    if not m:
+        return None
+    try:
+        slot = int(m.group(1))
+    except Exception:
+        return None
+    return slot if 1 <= slot <= MAX_SLOTS else None
+
+
 def build_sysex(data: bytes) -> bytes:
     """Build complete SysEx message with header and end.
 
@@ -144,58 +181,19 @@ def build_sysex(data: bytes) -> bytes:
     return bytes([SYSEX_START]) + TE_MFG_ID + DEVICE_FAMILY + data + bytes([SYSEX_END])
 
 
-def encode_7bit(data: bytes) -> bytes:
-    """Encode true 8-bit data to TE's 7-bit MIDI format.
-    Every 7 bytes becomes 8 bytes, with MSBs in the first flag byte.
-    """
-    result = bytearray()
-    i = 0
-    while i < len(data):
-        chunk = data[i : i + 7]
-        flags = 0
-        encoded_bytes = []
-        for j, b in enumerate(chunk):
-            if b & 0x80:
-                flags |= 1 << j
-            encoded_bytes.append(b & 0x7F)
-        result.append(flags)
-        result.extend(encoded_bytes)
-        i += 7
-    return bytes(result)
-
-
-def unpack_7bit(data: bytes) -> bytes:
-    """Unpack TE's 7-bit encoded data back to 8-bit."""
-    result = bytearray()
-    i = 0
-    while i < len(data):
-        if i >= len(data):
-            break
-        flags = data[i]
-        i += 1
-        for bit in range(7):
-            if i >= len(data):
-                break
-            msb = ((flags >> bit) & 1) << 7
-            result.append((data[i] & 0x7F) | msb)
-            i += 1
-    return bytes(result)
-
-
 def build_info_request(slot: int) -> bytes:
     """Build METADATA GET request. Returns raw bytes (no 7-bit encoding needed).
     Format: 05 08 07 02 [slot_hi_7bit] [slot_lo_7bit] 00 00
     Confirmed working against device. Uses 0x08 as fixed byte (not 0x00).
     """
-    slot_hi = (slot >> 7) & 0x7F
-    slot_lo = slot & 0x7F
+    slot_hi, slot_lo = encode_14bit(slot)
     return bytes([0x05, 0x08, 0x07, 0x02, slot_hi, slot_lo, 0x00, 0x00])
 
 
 def build_download_init_request(slot: int) -> bytes:
-    # Little-endian 7-bit split per CLIENT.py
-    slot_lo = slot & 0x7F
-    slot_hi = (slot >> 7) & 0x7F
+    # Slot uses raw 16-bit bytes inside 7-bit packed payload (little-endian).
+    slot_lo = slot & 0xFF
+    slot_hi = (slot >> 8) & 0xFF
     payload_raw = bytes(
         [
             0x03,  # FileOp.GET
@@ -215,8 +213,7 @@ def build_download_init_request(slot: int) -> bytes:
 
 def build_download_chunk_request(page: int) -> bytes:
     # Little-endian 7-bit split per CLIENT.py
-    page_lo = page & 0x7F
-    page_hi = (page >> 7) & 0x7F
+    page_hi, page_lo = encode_14bit(page)
     payload_raw = bytes([0x03, GET_DATA, page_lo, page_hi])  # FileOp.GET
     payload = encode_7bit(payload_raw)
     return bytes([CMD_FILE]) + payload
@@ -224,8 +221,8 @@ def build_download_chunk_request(page: int) -> bytes:
 
 def build_delete_request(slot: int) -> bytes:
     """Build DELETE request. Slot uses little-endian 7-bit split per CLIENT.py."""
-    slot_lo = slot & 0x7F
-    slot_hi = (slot >> 7) & 0x7F
+    slot_lo = slot & 0xFF
+    slot_hi = (slot >> 8) & 0xFF
     payload_raw = bytes(
         [
             0x06,  # FileOp.DELETE
@@ -332,7 +329,51 @@ def parse_file_list_response(payload: bytes) -> list[dict]:
     offset = 0
 
     while offset + 7 <= len(data):
-        node_id = (data[offset] << 8) | data[offset + 1]
+        hi = data[offset]
+        lo = data[offset + 1]
+        flags = data[offset + 2]
+        size = (
+            (data[offset + 3] << 24)
+            | (data[offset + 4] << 16)
+            | (data[offset + 5] << 8)
+            | data[offset + 6]
+        )
+        offset += 7
+
+        name_bytes = bytearray()
+        while offset < len(data) and data[offset] != 0:
+            name_bytes.append(data[offset])
+            offset += 1
+        offset += 1  # skip null terminator (or end)
+
+        name = bytes(name_bytes).decode("utf-8", errors="replace")
+        node_id = decode_node_id(hi, lo, name)
+        if name:
+            entries.append(
+                {
+                    "node_id": node_id,
+                    "flags": flags,
+                    "size": size,
+                    "name": name,
+                    "is_dir": bool(flags & 0x02),
+                }
+            )
+
+    return entries
+
+
+def parse_file_list_response_raw(payload: bytes) -> list[dict]:
+    """Parse decoded payload from a FILE LIST response without decoding node IDs."""
+    if len(payload) < 2:
+        return []
+
+    data = payload[2:]
+    entries: list[dict] = []
+    offset = 0
+
+    while offset + 7 <= len(data):
+        hi = data[offset]
+        lo = data[offset + 1]
         flags = data[offset + 2]
         size = (
             (data[offset + 3] << 24)
@@ -352,7 +393,8 @@ def parse_file_list_response(payload: bytes) -> list[dict]:
         if name:
             entries.append(
                 {
-                    "node_id": node_id,
+                    "hi": hi,
+                    "lo": lo,
                     "flags": flags,
                     "size": size,
                     "name": name,

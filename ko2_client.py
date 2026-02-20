@@ -40,6 +40,7 @@ from ko2_protocol import (
     SYSEX_START,
     SYSEX_END,
     unpack_7bit as decode_7bit,
+    slot_from_sound_entry,
     build_info_request,
     build_download_init_request,
     build_download_chunk_request,
@@ -51,6 +52,7 @@ from ko2_protocol import (
     parse_file_list_response,
     build_metadata_get_request,
     build_metadata_set_request,
+    parse_file_list_response_raw,
 )
 
 
@@ -249,6 +251,31 @@ class EP133Client:
     # INFO - Query sample metadata
     # ========================================================================
 
+    def device_info(self) -> dict | None:
+        """Query device info (firmware/model/serial when available)."""
+        req_data = bytes([DeviceId.GET_INFO, 0x14, 0x01])
+        for _ in self._inport.iter_pending():
+            pass
+        self._send_sysex(build_sysex(req_data))
+        time.sleep(0.2)
+
+        responses = self._recv_sysex(timeout=0.4)
+        candidates: list[bytes] = []
+        for resp in responses:
+            if len(resp) > 7 and resp[6] in (0x37, DeviceId.GET_INFO):
+                candidates.append(resp)
+        if not candidates and responses:
+            candidates = responses
+
+        for resp in candidates:
+            data = list(resp)
+            info = parse_json_from_sysex(data, offset=8)
+            if not info:
+                info = parse_json_from_sysex(data, offset=10)
+            if info:
+                return info
+        return None
+
     def _get_file_size(self, slot: int) -> int | None:
         """Get file size for a slot without downloading the whole file."""
         seq = 0x2E
@@ -282,7 +309,45 @@ class EP133Client:
                                 return file_size
         return None
 
-    def info(self, slot: int, include_size: bool = True) -> SampleInfo:
+    def _meta_from_get_meta(self, slot: int) -> dict | None:
+        # GET_META uses a slot byte after device id (7-bit), then slot in payload.
+        req_data = bytes([DeviceId.GET_META, slot & 0x7F]) + build_info_request(slot)
+
+        for _ in self._inport.iter_pending():
+            pass
+        self._send_sysex(build_sysex(req_data))
+        time.sleep(0.2)
+
+        responses = self._recv_sysex(timeout=0.4)
+
+        matches: list[bytes] = []
+        fallback: list[bytes] = []
+        for resp in responses:
+            data = list(resp)
+            if len(data) > 10 and data[6] == 0x35:  # RspCmd.META
+                if len(data) > 7 and data[7] == (slot & 0x7F):
+                    matches.append(resp)
+                else:
+                    fallback.append(resp)
+
+        for resp in (matches + fallback):
+            data = list(resp)
+            metadata = parse_json_from_sysex(data, offset=8)
+            if not metadata:
+                metadata = parse_json_from_sysex(data, offset=10)
+            if metadata:
+                return metadata
+
+        return None
+
+    def info(
+        self,
+        slot: int,
+        include_size: bool = True,
+        node_entry: dict | None = None,
+        prefer_node: bool = True,
+        allow_get_meta: bool = True,
+    ) -> SampleInfo:
         """
         Get metadata for a sample slot.
 
@@ -299,38 +364,58 @@ class EP133Client:
         if not 1 <= slot <= MAX_SLOTS:
             raise ValueError(f"Slot must be 1-{MAX_SLOTS}, got {slot}")
 
-        # Note: INFO uses a special GET_META prefix (0x75) and raw slot, not CMD_FILE
-        req_data = bytes([DeviceId.GET_META, slot & 0x7F]) + build_info_request(slot)
+        entry = node_entry
+        if prefer_node and entry is None:
+            try:
+                entry = self.list_sounds().get(slot)
+            except Exception:
+                entry = None
 
-        self._send_sysex(build_sysex(req_data))
-        time.sleep(0.2)
+        node_meta = None
+        if entry:
+            node_id = int(entry.get("node_id") or 0)
+            if node_id:
+                try:
+                    node_meta = self.get_node_metadata(node_id)
+                except Exception:
+                    node_meta = None
 
-        responses = self._recv_sysex(timeout=0.3)
+        metadata: dict = {}
+        if node_meta:
+            metadata.update(node_meta)
 
-        for resp in responses:
-            data = list(resp)
-            if (
-                len(data) > 10 and data[6] == 0x35
-            ):  # RspCmd.META (position 6 after header)
-                metadata = parse_json_from_sysex(data, offset=8)
-                if metadata:
-                    size_bytes = 0
-                    if include_size:
-                        size_bytes = self._get_file_size(slot) or 0
+        if allow_get_meta and (slot <= 127 or not node_meta):
+            meta2 = self._meta_from_get_meta(slot)
+            if meta2:
+                for k, v in meta2.items():
+                    metadata.setdefault(k, v)
 
-                    return SampleInfo(
-                        slot=slot,
-                        name=metadata.get(
-                            "name", metadata.get("sym", f"Slot {slot:03d}")
-                        ),
-                        sym=metadata.get("sym", ""),
-                        samplerate=metadata.get("samplerate", SAMPLE_RATE),
-                        format=metadata.get("format", "s16"),
-                        channels=metadata.get("channels", 1),
-                        size_bytes=size_bytes,
-                    )
+        if not metadata and not entry:
+            raise SlotEmptyError(f"Slot {slot} is empty")
 
-        raise SlotEmptyError(f"Slot {slot} is empty")
+        size_bytes = 0
+        if include_size:
+            if entry and entry.get("size") is not None:
+                size_bytes = int(entry.get("size") or 0)
+            else:
+                size_bytes = self._get_file_size(slot) or 0
+
+        name = (
+            metadata.get("name")
+            or metadata.get("sym")
+            or (entry.get("name") if entry else None)
+            or f"Slot {slot:03d}"
+        )
+
+        return SampleInfo(
+            slot=slot,
+            name=name,
+            sym=metadata.get("sym", ""),
+            samplerate=metadata.get("samplerate", SAMPLE_RATE),
+            format=metadata.get("format", "s16"),
+            channels=metadata.get("channels", 1),
+            size_bytes=size_bytes,
+        )
 
     # ========================================================================
     # LIST - Scan multiple slots
@@ -529,7 +614,7 @@ class EP133Client:
 
             resp = self._send_and_wait(msg, timeout=2.0, expect_cmd=(0x6A - 0x40))
             status = self._check_response_status(resp)
-            if status is None or status != 0:
+            if status is None or resp is None:
                 break
 
             encoded_payload = resp[10:-1] if resp and len(resp) > 11 else b""
@@ -540,10 +625,59 @@ class EP133Client:
 
             all_entries.extend(entries)
             page += 1
+            if status != 0:
+                break
             if page > 200:
                 break
 
         return all_entries
+
+    def list_directory_raw(self, node_id: int = UPLOAD_PARENT_NODE) -> list[dict]:
+        """List entries with raw hi/lo bytes (debug)."""
+        all_entries: list[dict] = []
+        page = 0
+
+        while True:
+            seq = self._next_seq()
+            req_data = bytes([0x6A, seq]) + build_file_list_request(node_id, page)
+            msg = build_sysex(req_data)
+
+            resp = self._send_and_wait(msg, timeout=2.0, expect_cmd=(0x6A - 0x40))
+            status = self._check_response_status(resp)
+            if status is None or resp is None:
+                break
+
+            encoded_payload = resp[10:-1] if resp and len(resp) > 11 else b""
+            payload = decode_7bit(encoded_payload) if encoded_payload else b""
+            entries = parse_file_list_response_raw(payload)
+            if not entries:
+                break
+
+            all_entries.extend(entries)
+            page += 1
+            if status != 0:
+                break
+            if page > 200:
+                break
+
+        return all_entries
+
+    def list_sounds(self) -> dict[int, dict]:
+        """Return ground-truth /sounds listing mapped by slot number.
+
+        Uses FILE LIST against node_id=1000 (/sounds). This reflects actual
+        stored audio files and is preferred over slot-scan for inventory.
+        """
+        entries = self.list_directory(UPLOAD_PARENT_NODE)
+        by_slot: dict[int, dict] = {}
+        for e in entries:
+            if e.get("is_dir"):
+                continue
+            slot = slot_from_sound_entry(e)
+            if slot is None:
+                continue
+            by_slot[slot] = e
+        return by_slot
 
     def get_node_metadata(self, node_id: int) -> dict | None:
         """Fetch metadata JSON for a filesystem node (paged)."""
@@ -592,22 +726,9 @@ class EP133Client:
         Uses /sounds directory listing to resolve slot -> node_id, then attempts
         a METADATA SET on that node.
         """
-        entries = self.list_directory(UPLOAD_PARENT_NODE)
-        node_id = None
-        for e in entries:
-            if e.get("is_dir"):
-                continue
-            name = str(e.get("name", ""))
-            parsed_slot = None
-            if len(name) >= 3 and name[:3].isdigit():
-                parsed_slot = int(name[:3])
-            else:
-                nid = int(e.get("node_id") or 0)
-                if 1000 < nid <= 1999:
-                    parsed_slot = nid - 1000
-            if parsed_slot == slot:
-                node_id = int(e.get("node_id") or 0)
-                break
+        sounds = self.list_sounds()
+        entry = sounds.get(slot)
+        node_id = int(entry.get("node_id") or 0) if entry else 0
 
         if not node_id:
             raise EP133Error(f"Could not resolve node_id for slot {slot}")
@@ -663,8 +784,8 @@ class EP133Client:
                     raise ValueError(
                         f"Sample rate must be {SAMPLE_RATE}Hz, got {samplerate}Hz"
                     )
-                if channels != CHANNELS:
-                    raise ValueError(f"Must be mono, got {channels} channels")
+                if channels not in (1, 2):
+                    raise ValueError(f"Channels must be 1 or 2, got {channels}")
                 if sampwidth != BIT_DEPTH // 8:
                     raise ValueError(f"Must be 16-bit, got {sampwidth * 8}-bit")
 
@@ -693,7 +814,7 @@ class EP133Client:
         init_seq = self._next_seq()
         init_req = (
             bytes([DeviceId.UPLOAD_DATA, init_seq, CMD_FILE])
-            + build_upload_init_request(slot, data_size, CHANNELS, SAMPLE_RATE, name)
+            + build_upload_init_request(slot, data_size, channels, samplerate, name)
         )
         init_msg = build_sysex(init_req)
 

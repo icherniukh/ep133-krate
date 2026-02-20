@@ -4,9 +4,12 @@ KO2 - EP-133 KO-II Command Line Tool
 
 Usage:
     ko2 ls [--page N]          - List samples by pages
+    ko2 status                 - Show device status
     ko2 info <slot|range>      - Show sample metadata
     ko2 get <slot> [file]      - Download sample
     ko2 put <file> <slot>      - Upload sample
+    ko2 mv <src> <dst>         - Move sample
+    ko2 cp <src> <dst>         - Copy sample
     ko2 rm <slot>              - Delete sample
     ko2 squash [--page N]      - Squash samples to fill gaps
     ko2 optimize <slot>        - Optimize single sample
@@ -17,12 +20,21 @@ import argparse
 import re
 import shutil
 import subprocess
+import tempfile
 from pathlib import Path
 from typing import Optional
 
 try:
-    from ko2_client import EP133Client, find_device, SampleInfo, EP133Error, SlotEmptyError
+    from ko2_client import (
+        EP133Client,
+        find_device,
+        SampleInfo,
+        EP133Error,
+        SlotEmptyError,
+    )
+    from ko2_backup import backup_copy
     from ko2_protocol import SAMPLE_RATE, MAX_SLOTS
+    from ko2_encoding import decode_node_id, decode_14bit
 except ImportError as e:
     print(f"Error: {e}")
     sys.exit(1)
@@ -31,6 +43,7 @@ except ImportError as e:
 # ANSI colors
 class Colors:
     RESET = "\033[0m"
+    BOLD = "\033[1m"
     BRIGHT_GREEN = "\033[48;5;22m"
     GREEN = "\033[48;5;28m"
     YELLOW = "\033[48;5;226m"
@@ -42,6 +55,7 @@ class Colors:
     FG_DIM = "\033[90m"
     FG_GREEN = "\033[38;5;82m"
     FG_YELLOW = "\033[38;5;226m"
+    FG_RED = "\033[38;5;196m"
 
 
 def format_size(size_bytes: int) -> str:
@@ -56,35 +70,103 @@ def format_size(size_bytes: int) -> str:
 
 def get_size_color(size_bytes: int) -> str:
     """Get background color based on file size."""
-    if size_bytes < 10 * 1024:
-        return Colors.BRIGHT_GREEN
-    elif size_bytes < 50 * 1024:
-        return Colors.GREEN
-    elif size_bytes < 100 * 1024:
-        return Colors.YELLOW
-    elif size_bytes < 200 * 1024:
-        return Colors.ORANGE
-    elif size_bytes < 500 * 1024:
-        return Colors.RED
-    else:
-        return Colors.BRIGHT_RED
+    if size_bytes <= 0:
+        return ""
+
+    def bg(code: int) -> str:
+        return f"\033[48;5;{code}m"
+
+    # Subtle palettes per range (darker, lower chroma) with intra-range gradation.
+    ranges = [
+        (0, 50 * 1024, [22, 28]),            # dark green
+        (50 * 1024, 200 * 1024, [28, 34]),    # green -> teal
+        (200 * 1024, 500 * 1024, [58, 94]),   # muted yellow
+        (500 * 1024, 1024 * 1024, [94, 130]), # yellow -> orange
+        (1024 * 1024, 2 * 1024 * 1024, [130, 88]),  # orange -> dark red
+        (2 * 1024 * 1024, 10 * 1024 * 1024, [88, 52]),  # deep red
+    ]
+
+    for lo, hi, palette in ranges:
+        if size_bytes < hi:
+            if len(palette) == 1:
+                return bg(palette[0])
+            ratio = (size_bytes - lo) / (hi - lo)
+            idx = min(len(palette) - 1, int(ratio * len(palette)))
+            return bg(palette[idx])
+
+    return bg(52)
 
 
-def format_duration(size_bytes: int, samplerate: int = SAMPLE_RATE) -> str:
-    """Calculate duration from file size."""
+def format_duration(
+    size_bytes: int, samplerate: int = SAMPLE_RATE, channels: int = 1
+) -> str:
+    """Calculate duration from file size (seconds, 3 decimals)."""
     if size_bytes == 0:
         return "-"
-    # 16-bit mono = 2 bytes per sample
-    samples = size_bytes // 2
+    if channels not in (1, 2):
+        channels = 1
+    # 16-bit = 2 bytes per sample per channel
+    bytes_per_frame = 2 * channels
+    samples = size_bytes // bytes_per_frame
     seconds = samples / samplerate
+    dur = f"{seconds:.3f}"
     if seconds < 1:
-        return f"{seconds*1000:.0f}ms"
-    elif seconds < 60:
-        return f"{seconds:.1f}s"
-    else:
-        mins = int(seconds // 60)
-        secs = seconds % 60
-        return f"{mins}m{secs:.0f}s"
+        dur = dur[1:]  # omit leading zero
+    return dur
+
+
+def strip_slot_prefix(name: str, slot: int) -> str:
+    prefix = f"{slot:03d} "
+    if name.startswith(prefix):
+        return name[len(prefix) :].strip()
+    return name
+
+
+def _looks_generic_name(name: str) -> bool:
+    if not name:
+        return True
+    lowered = name.lower().strip()
+    if lowered.startswith("slot "):
+        return True
+    if re.match(r"^\d{3}(\.pcm)?$", lowered):
+        return True
+    if lowered.endswith(".pcm"):
+        return True
+    return False
+
+
+def choose_display_name(
+    fs_name: str,
+    meta_name: str | None,
+    node_name: str | None,
+    slot: int,
+    source: str,
+) -> str:
+    fs_clean = strip_slot_prefix(fs_name, slot).strip()
+    meta_clean = (meta_name or "").strip()
+    node_clean = (node_name or "").strip()
+    if source == "fs":
+        return fs_clean or node_clean or meta_clean or f"Slot {slot:03d}"
+    if source == "meta":
+        return meta_clean or node_clean or fs_clean or f"Slot {slot:03d}"
+    if source == "node":
+        return node_clean or meta_clean or fs_clean or f"Slot {slot:03d}"
+    # auto
+    if node_clean and _looks_generic_name(fs_clean):
+        return node_clean
+    if meta_clean and _looks_generic_name(fs_clean):
+        return meta_clean
+    return fs_clean or node_clean or meta_clean or f"Slot {slot:03d}"
+
+
+def empty_sample(slot: int) -> SampleInfo:
+    return SampleInfo(
+        slot=slot,
+        name="...",
+        samplerate=SAMPLE_RATE,
+        channels=0,
+        size_bytes=0,
+    )
 
 
 def parse_page(arg: str) -> tuple[int, int] | None:
@@ -108,21 +190,30 @@ def format_table_row(info: SampleInfo) -> str:
 
     # Stereo indicator
     channels_str = "S" if info.channels == 2 else "M" if info.channels == 1 else "-"
-    channels_color = Colors.FG_YELLOW if info.channels == 2 else Colors.FG_DIM
+    if info.channels == 2:
+        channels_color = f"{Colors.BOLD}{Colors.FG_RED}"
+    else:
+        channels_color = Colors.FG_DIM
 
-    # Truncate name to fit
-    name = info.name[:18]
-    if len(info.name) > 18:
-        name += "…"
+    # Truncate name to fit (keep width 18)
+    name = info.name
+    if len(name) > 18:
+        name = name[:15] + "..."
 
-    size_display = f"{color} {size_str:>5} {reset}" if info.size_bytes else f" {size_str:>5} "
+    size_width = 7
+    size_display = (
+        f"{color}{size_str:>{size_width}}{reset}"
+        if info.size_bytes
+        else f"{size_str:>{size_width}}"
+    )
+    duration_width = 7
 
     return (
         f"  {Colors.FG_DIM}{info.slot:03d}{Colors.RESET}  "
         f"{name:<18}  "
         f"{channels_color}{channels_str}{Colors.RESET}  "
         f"{size_display}  "
-        f"{format_duration(info.size_bytes, info.samplerate):>8}"
+        f"{format_duration(info.size_bytes, info.samplerate, info.channels):>{duration_width}}"
     )
 
 
@@ -142,52 +233,114 @@ def cmd_ls(args):
     """List samples by pages."""
     with EP133Client(args.device) as client:
         # Determine range
-        if args.page:
-            start, end = parse_page(args.page)
-            if start is None:
+        if args.range:
+            range_spec = parse_range(args.range)
+            if isinstance(range_spec, int):
+                start, end = range_spec, range_spec
+            else:
+                start, end = range_spec
+            if start > end:
+                start, end = end, start
+            if start < 1 or end > MAX_SLOTS:
+                print(f"❌ Range must be within 1-{MAX_SLOTS}")
+                return 1
+        elif args.page:
+            page_range = parse_page(args.page)
+            if page_range is None:
                 print("❌ Page must be 1-10")
                 return 1
+            start, end = page_range
         elif args.all:
             start, end = 1, MAX_SLOTS
         else:
             start, end = 1, 99  # Default to first page
 
         source = args.source
+        stream = args.stream
+        name_source = args.name_source
         # Prefer filesystem listing (/sounds/) for ground truth; slot-scan can be stale.
         samples = []
         entries = None
         if source in ("auto", "fs"):
             try:
-                entries = client.list_directory()
-                by_slot = {}
-                for e in entries:
-                    if e.get("is_dir"):
+                print(f"{Colors.CYAN}Fetching /sounds listing...{Colors.RESET}")
+                sounds = client.list_sounds()
+                entries = list(sounds.values())
+                all_slots = list(range(start, end + 1))
+                total_slots = len(all_slots)
+                if stream:
+                    print(
+                        f"\n  {'Slot':>4}  {'Name':<18}  {'CH':>2}  {'Size':>7}  {'s':>7}"
+                    )
+                    print(f"  {'-'*4}  {'-'*18}  {'--':>2}  {'-'*7}  {'-'*7}")
+                for idx, slot in enumerate(all_slots, 1):
+                    if total_slots:
+                        if stream:
+                            print(
+                                f"  {Colors.FG_DIM}{idx:>3}/{total_slots:<3}{Colors.RESET} ",
+                                end="",
+                            )
+                        else:
+                            show_progress(idx, total_slots, f"(slot {slot})")
+                    e = sounds.get(slot)
+                    if not e:
+                        samples.append(empty_sample(slot))
+                        if stream:
+                            print(format_table_row(samples[-1]))
                         continue
-                    name = str(e.get("name", ""))
-                    slot = None
-                    if len(name) >= 3 and name[:3].isdigit():
-                        slot = int(name[:3])
-                    else:
-                        node_id = int(e.get("node_id") or 0)
-                        if 1000 < node_id <= 1999:
-                            slot = node_id - 1000
-                    if slot is None or not (1 <= slot <= MAX_SLOTS):
-                        continue
-                    if not (start <= slot <= end):
-                        continue
-                    by_slot[slot] = e
 
-                for slot in sorted(by_slot.keys()):
-                    e = by_slot[slot]
+                    size_bytes = int(e.get("size") or 0)
+                    fs_name = str(e.get("name", f"Slot {slot:03d}"))
+                    meta_name = None
+                    node_name = None
+                    samplerate = SAMPLE_RATE
+                    channels = 0
+
+                    node_id = int(e.get("node_id") or 0)
+                    node_meta = None
+                    if name_source in ("auto", "node"):
+                        try:
+                            if node_id:
+                                node_meta = client.get_node_metadata(node_id)
+                        except Exception:
+                            node_meta = None
+                        if node_meta:
+                            node_name = node_meta.get("name") or node_meta.get("sym")
+                            if "samplerate" in node_meta:
+                                samplerate = int(
+                                    node_meta.get("samplerate") or SAMPLE_RATE
+                                )
+                            if "channels" in node_meta:
+                                channels = int(node_meta.get("channels") or 0)
+
+                    need_info = name_source == "meta" or node_meta is None or channels == 0
+                    if need_info:
+                        try:
+                            meta = client.info(
+                                slot, include_size=False, node_entry=e, prefer_node=True
+                            )
+                            samplerate = int(meta.samplerate or samplerate or SAMPLE_RATE)
+                            channels = int(meta.channels or channels or 0)
+                            meta_name = meta.name
+                        except Exception:
+                            pass
+
+                    name = choose_display_name(
+                        fs_name, meta_name, node_name, slot, name_source
+                    )
                     samples.append(
                         SampleInfo(
                             slot=slot,
-                            name=str(e.get("name", f"Slot {slot:03d}")),
-                            samplerate=SAMPLE_RATE,
-                            channels=1,
-                            size_bytes=int(e.get("size") or 0),
+                            name=name,
+                            samplerate=samplerate,
+                            channels=channels,
+                            size_bytes=size_bytes,
                         )
                     )
+                    if stream:
+                        print(format_table_row(samples[-1]))
+                if total_slots and not stream:
+                    print()
             except Exception as e:
                 if source == "fs":
                     print(f"❌ Failed to list /sounds via filesystem API: {e}")
@@ -207,40 +360,62 @@ def cmd_ls(args):
 
         if entries is None and source in ("auto", "scan"):
             print(f"{Colors.CYAN}Scanning slots {start:03d}-{end:03d}...{Colors.RESET}")
+            if stream:
+                print(
+                    f"\n  {'Slot':>4}  {'Name':<18}  {'CH':>2}  {'Size':>7}  {'s':>7}"
+                )
+                print(f"  {'-'*4}  {'-'*18}  {'--':>2}  {'-'*7}  {'-'*7}")
             for slot in range(start, end + 1):
-                show_progress(slot - start + 1, end - start + 1, f"(slot {slot})")
+                if stream:
+                    print(
+                        f"  {Colors.FG_DIM}{slot - start + 1:>3}/{end - start + 1:<3}{Colors.RESET} ",
+                        end="",
+                    )
+                else:
+                    show_progress(slot - start + 1, end - start + 1, f"(slot {slot})")
                 try:
                     info = client.info(slot, include_size=True)
                     # Metadata can persist after delete; treat size==0 as empty for listing.
                     if info.size_bytes:
                         samples.append(info)
+                    else:
+                        samples.append(empty_sample(slot))
                 except SlotEmptyError:
-                    pass
-            print()  # Clear progress line
+                    samples.append(empty_sample(slot))
+                if stream:
+                    print(format_table_row(samples[-1]))
+            if not stream:
+                print()  # Clear progress line
 
-        if not samples:
-            print(f"  {Colors.FG_DIM}No samples found{Colors.RESET}")
-            return 0
+        samples = [s for s in samples if start <= s.slot <= end]
 
         # Calculate totals
-        total_size = sum(s.size_bytes for s in samples)
-        total_samples = len(samples)
+        used_samples = [s for s in samples if s.size_bytes]
+        total_size = sum(s.size_bytes for s in used_samples)
+        total_samples = len(used_samples)
 
         # Show summary
-        print(f"\n  Found {total_samples} samples, {format_size(total_size)} total\n")
+        print(f"\n  Slots {start:03d}-{end:03d}")
+        print(f"  Found {total_samples} samples, {format_size(total_size)} total\n")
 
-        # Print header
-        print(f"  {'Slot':>4}  {'Name':<18}  {'CH':>2}  {'Size':>7}  {'Duration':>8}")
-        print(f"  {'-'*4}  {'-'*18}  {'--':>2}  {'-'*7}  {'-'*8}")
+        if not stream:
+            # Print header
+            print(
+                f"  {'Slot':>4}  {'Name':<18}  {'CH':>2}  {'Size':>7}  {'s':>7}"
+            )
+            print(f"  {'-'*4}  {'-'*18}  {'--':>2}  {'-'*7}  {'-'*7}")
 
-        # Print samples
-        for info in samples:
-            print(format_table_row(info))
+        # Print samples (including empty slots)
+        if not stream:
+            for info in samples:
+                print(format_table_row(info))
 
         # Show oversized warning
-        oversized = [s for s in samples if s.size_bytes > 100 * 1024]
+        oversized = [s for s in used_samples if s.size_bytes > 100 * 1024]
         if oversized:
-            print(f"\n  {Colors.FG_YELLOW}⚠ {len(oversized)} samples over 100KB{Colors.RESET}")
+            print(
+                f"\n  {Colors.FG_YELLOW}⚠ {len(oversized)} samples over 100KB{Colors.RESET}"
+            )
             print(f"  Run {Colors.FG_GREEN}ko2 optimize-all{Colors.RESET} to optimize")
 
     return 0
@@ -254,6 +429,26 @@ def cmd_info(args):
         if isinstance(slot_spec, int):
             try:
                 info = client.info(slot_spec, include_size=True)
+                # Prefer filesystem node metadata for name/format if available.
+                try:
+                    sounds = client.list_sounds()
+                    entry = sounds.get(slot_spec)
+                    node_id = int(entry.get("node_id") or 0) if entry else 0
+                    if node_id:
+                        node_meta = client.get_node_metadata(node_id)
+                        if node_meta:
+                            if node_meta.get("name") or node_meta.get("sym"):
+                                info.name = node_meta.get("name") or node_meta.get("sym")
+                            if node_meta.get("sym"):
+                                info.sym = node_meta.get("sym")
+                            if "samplerate" in node_meta:
+                                info.samplerate = int(node_meta.get("samplerate") or info.samplerate)
+                            if "channels" in node_meta:
+                                info.channels = int(node_meta.get("channels") or info.channels)
+                            if "format" in node_meta:
+                                info.format = str(node_meta.get("format") or info.format)
+                except Exception:
+                    pass
                 print(f"📵 Slot {info.slot:03d}")
                 print(f"   Name: {info.name}")
                 if info.sym:
@@ -263,7 +458,9 @@ def cmd_info(args):
                 print(f"   Channels: {info.channels}")
                 if info.size_bytes:
                     print(f"   Size: {format_size(info.size_bytes)}")
-                    print(f"   Duration: {format_duration(info.size_bytes, info.samplerate)}")
+                    print(
+                        f"   Duration: {format_duration(info.size_bytes, info.samplerate, info.channels)}s"
+                    )
             except SlotEmptyError:
                 print(f"Slot {slot_spec} is empty")
                 return 1
@@ -297,7 +494,157 @@ def cmd_info(args):
     return 0
 
 
-def optimize_sample(input_path: Path, output_path: Optional[Path] = None) -> tuple[bool, str, int, int]:
+def _print_kv(label: str, value: str) -> None:
+    print(f"  {label:<14} {value}")
+
+
+def _confirm(prompt: str, assume_yes: bool) -> bool:
+    if assume_yes:
+        return True
+    try:
+        resp = input(f"{prompt} [y/N]: ").strip().lower()
+    except EOFError:
+        return False
+    return resp in ("y", "yes")
+
+
+def _resolve_transfer_name(
+    client: EP133Client, slot: int, entry: dict | None, raw: bool
+) -> str:
+    fs_name = str(entry.get("name") if entry else f"{slot:03d}.pcm")
+    if raw:
+        return fs_name
+
+    node_name = None
+    node_id = int(entry.get("node_id") or 0) if entry else 0
+    if node_id:
+        try:
+            node_meta = client.get_node_metadata(node_id)
+        except Exception:
+            node_meta = None
+        if node_meta:
+            node_name = node_meta.get("name") or node_meta.get("sym")
+            if node_name:
+                return str(node_name)
+
+    try:
+        meta = client.info(
+            slot, include_size=False, node_entry=entry, prefer_node=False
+        )
+        if meta.name:
+            return meta.name
+    except Exception:
+        pass
+
+    return fs_name
+
+
+def _format_bar(used: int, total: int, width: int = 28) -> str:
+    if total <= 0:
+        return ""
+    ratio = min(1.0, max(0.0, used / total))
+    filled = int(round(ratio * width))
+    return "█" * filled + "░" * (width - filled)
+
+
+def _extract_total_memory(info: dict | None) -> int | None:
+    if not info:
+        return None
+    keys = [
+        "memory_total_bytes",
+        "mem_total_bytes",
+        "total_memory_bytes",
+        "memory_bytes",
+        "mem_bytes",
+    ]
+    for key in keys:
+        val = info.get(key)
+        if isinstance(val, (int, float)) and val > 0:
+            return int(val)
+        if isinstance(val, str) and val.isdigit():
+            return int(val)
+    return None
+
+
+def cmd_status(args):
+    """Show quick device status."""
+    with EP133Client(args.device) as client:
+        print(f"{Colors.CYAN}Device status{Colors.RESET}")
+
+        info = None
+        try:
+            info = client.device_info()
+        except Exception:
+            info = None
+
+        if info:
+            name = info.get("device_name") or info.get("model") or info.get("name")
+            version = info.get("device_version") or info.get("firmware") or info.get("version")
+            serial = info.get("serial") or info.get("serial_number")
+            sku = info.get("device_sku") or info.get("sku")
+            _print_kv("Device", str(name) if name else "(unknown)")
+            if version:
+                _print_kv("Firmware", str(version))
+            if sku:
+                _print_kv("SKU", str(sku))
+            if serial:
+                _print_kv("Serial", str(serial))
+
+            # Print any remaining keys as extras
+            extras = {}
+            for k, v in info.items():
+                if k in {
+                    "device_name",
+                    "model",
+                    "name",
+                    "device_version",
+                    "firmware",
+                    "version",
+                    "serial",
+                    "serial_number",
+                    "device_sku",
+                    "sku",
+                }:
+                    continue
+                extras[k] = v
+            if extras:
+                for k in sorted(extras.keys()):
+                    _print_kv(k, str(extras[k]))
+        else:
+            _print_kv("Device", "(info unavailable)")
+
+        try:
+            sounds = client.list_sounds()
+        except Exception as e:
+            _print_kv("Samples", f"(list failed: {e})")
+            return 1
+
+        used = len(sounds)
+        total_size = sum(int(e.get("size") or 0) for e in sounds.values())
+        empty = MAX_SLOTS - used
+        _print_kv("Samples", f"{used} used, {empty} empty")
+
+        total_mem = _extract_total_memory(info)
+        assumed = False
+        if total_mem is None:
+            total_mem = 64 * 1024 * 1024
+            assumed = True
+        pct = (total_size / total_mem) * 100 if total_mem else 0.0
+        _print_kv(
+            "Memory",
+            f"{format_size(total_size)} / {format_size(total_mem)} ({pct:.0f}%)"
+            + (" (assumed total)" if assumed else ""),
+        )
+        bar = _format_bar(total_size, total_mem)
+        if bar:
+            print(f"  {'':<14} {bar}")
+
+    return 0
+
+
+def optimize_sample(
+    input_path: Path, output_path: Optional[Path] = None
+) -> tuple[bool, str, int, int]:
     """
     Optimize a WAV file for EP-133 using audio2ko2 or sox.
 
@@ -307,35 +654,53 @@ def optimize_sample(input_path: Path, output_path: Optional[Path] = None) -> tup
     original_size = input_path.stat().st_size
 
     if output_path is None:
-        output_path = input_path.with_suffix('.opt.wav')
+        output_path = input_path.with_suffix(".opt.wav")
 
     # Try audio2ko2 first
-    audio2ko2 = Path.home() / 'proj' / 'audio2ko2' / 'audio2ko2'
+    audio2ko2 = Path.home() / "proj" / "audio2ko2" / "audio2ko2"
     if audio2ko2.exists():
         try:
             result = subprocess.run(
                 [str(audio2ko2), str(input_path)],
-                capture_output=True, text=True, timeout=30
+                capture_output=True,
+                text=True,
+                timeout=30,
             )
             if result.returncode == 0:
                 # audio2ko2 creates output with _ko2 suffix
-                ko2_output = input_path.with_stem(input_path.stem + '_ko2')
+                ko2_output = input_path.with_stem(input_path.stem + "_ko2")
                 if ko2_output.exists():
                     shutil.move(ko2_output, output_path)
-                    opt_size = output_path.stat().st_size_size
+                    opt_size = output_path.stat().st_size
                     return True, "optimized with audio2ko2", original_size, opt_size
         except (subprocess.TimeoutExpired, FileNotFoundError):
             pass
 
     # Fall back to sox
     try:
-        subprocess.run([
-            'sox', str(input_path), '-c', '1', '-r', str(SAMPLE_RATE),
-            '-b', '16', str(output_path)
-        ], capture_output=True, check=True, timeout=30)
+        subprocess.run(
+            [
+                "sox",
+                str(input_path),
+                "-c",
+                "1",
+                "-r",
+                str(SAMPLE_RATE),
+                "-b",
+                "16",
+                str(output_path),
+            ],
+            capture_output=True,
+            check=True,
+            timeout=30,
+        )
         opt_size = output_path.stat().st_size
         return True, "optimized with sox", original_size, opt_size
-    except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError) as e:
+    except (
+        subprocess.CalledProcessError,
+        subprocess.TimeoutExpired,
+        FileNotFoundError,
+    ) as e:
         return False, f"error: {e}", original_size, 0
 
 
@@ -355,6 +720,10 @@ def cmd_optimize(args):
         print(f"Slot {slot}: {info.name}")
         print(f"  Size: {format_size(original_size)}")
 
+        if not _confirm(f"Optimize slot {slot:03d}?", bool(args.yes)):
+            print("  Cancelled")
+            return 0
+
         # Check if already optimized
         if original_size < 50 * 1024:
             print(f"  {Colors.FG_GREEN}✓ Already optimized (small file){Colors.RESET}")
@@ -362,47 +731,41 @@ def cmd_optimize(args):
 
         # Download sample
         print(f"  {Colors.FG_DIM}Downloading...{Colors.RESET}")
-        temp_path = client.get(slot, None)
+        with tempfile.TemporaryDirectory(prefix=f"ko2-slot{slot:03d}-") as td:
+            temp_path = Path(td) / f"slot{slot:03d}.wav"
+            client.get(slot, temp_path)
+            backup_path = backup_copy(temp_path, slot=slot, name_hint=info.name)
+            print(f"  {Colors.FG_DIM}Backup:{Colors.RESET} {backup_path}")
 
-        # Backup original
-        backup_path = Path(str(temp_path) + '.bak')
-        shutil.copy(temp_path, backup_path)
+            # Optimize
+            print(f"  {Colors.FG_DIM}Optimizing...{Colors.RESET}")
+            success, msg, _, opt_size = optimize_sample(temp_path)
 
-        # Optimize
-        print(f"  {Colors.FG_DIM}Optimizing...{Colors.RESET}")
-        success, msg, _, opt_size = optimize_sample(temp_path)
+            if not success:
+                print(f"  ❌ {msg}")
+                return 1
 
-        if not success:
-            print(f"  ❌ {msg}")
-            return 1
+            savings = original_size - opt_size
+            savings_pct = (savings / original_size) * 100
 
-        savings = original_size - opt_size
-        savings_pct = (savings / original_size) * 100
+            print(f"  Optimized: {format_size(opt_size)}")
+            print(f"  Savings: {format_size(savings)} ({savings_pct:.1f}%)")
 
-        print(f"  Optimized: {format_size(opt_size)}")
-        print(f"  Savings: {format_size(savings)} ({savings_pct:.1f}%)")
+            # Check if savings are meaningful
+            if savings < 5 * 1024:  # Less than 5KB savings
+                print(
+                    f"  {Colors.FG_YELLOW}⚠ Savings too small (<5KB), skipping upload{Colors.RESET}"
+                )
+                return 0
 
-        # Check if savings are meaningful
-        if savings < 5 * 1024:  # Less than 5KB savings
-            print(f"  {Colors.FG_YELLOW}⚠ Savings too small (<5KB), skipping upload{Colors.RESET}")
-            # Restore backup
-            shutil.copy(backup_path, temp_path)
-            return 0
-
-        # Re-upload optimized version
-        print(f"  {Colors.FG_DIM}Uploading optimized version...{Colors.RESET}")
-        try:
-            client.put(temp_path, slot, name=info.name, progress=False)
-            print(f"  {Colors.FG_GREEN}✓ Optimized and replaced{Colors.RESET}")
-
-            # Cleanup
-            temp_path.unlink(missing_ok=True)
-            backup_path.unlink(missing_ok=True)
-        except EP133Error as e:
-            print(f"  ❌ Upload failed: {e}")
-            # Restore backup
-            shutil.copy(backup_path, temp_path)
-            return 1
+            # Re-upload optimized version
+            print(f"  {Colors.FG_DIM}Uploading optimized version...{Colors.RESET}")
+            try:
+                client.put(temp_path, slot, name=info.name, progress=False)
+                print(f"  {Colors.FG_GREEN}✓ Optimized and replaced{Colors.RESET}")
+            except EP133Error as e:
+                print(f"  ❌ Upload failed: {e}")
+                return 1
 
     return 0
 
@@ -412,37 +775,44 @@ def cmd_optimize_all(args):
     min_size = args.min * 1024 if args.min else 100 * 1024
 
     with EP133Client(args.device) as client:
-        print(f"{Colors.CYAN}Scanning for samples over {format_size(min_size)}...{Colors.RESET}\n")
+        print(
+            f"{Colors.CYAN}Scanning for samples over {format_size(min_size)}...{Colors.RESET}\n"
+        )
 
-        # Scan all slots
+        sounds = client.list_sounds()
         candidates = []
-        for slot in range(1, MAX_SLOTS + 1):
-            show_progress(slot, MAX_SLOTS)
-            try:
-                info = client.info(slot, include_size=True)
-                if info.size_bytes > min_size:
-                    candidates.append(info)
-            except SlotEmptyError:
-                pass
-        print()
+        for slot, e in sorted(sounds.items()):
+            size_bytes = int(e.get("size") or 0)
+            if size_bytes > min_size:
+                try:
+                    info = client.info(slot, include_size=False)
+                except Exception:
+                    info = SampleInfo(
+                        slot=slot, name=str(e.get("name", f"Slot {slot:03d}"))
+                    )
+                info.size_bytes = size_bytes
+                candidates.append(info)
 
         if not candidates:
-            print(f"  {Colors.FG_GREEN}No samples over {format_size(min_size)} found{Colors.RESET}")
+            print(
+                f"  {Colors.FG_GREEN}No samples over {format_size(min_size)} found{Colors.RESET}"
+            )
             return 0
 
         print(f"  Found {len(candidates)} candidates:\n")
         total_original = 0
         for info in candidates:
             total_original += info.size_bytes
-            print(f"    Slot {info.slot:03d}: {info.name[:30]:<30} {format_size(info.size_bytes)}")
+            print(
+                f"    Slot {info.slot:03d}: {info.name[:30]:<30} {format_size(info.size_bytes)}"
+            )
 
         print(f"\n  Total: {format_size(total_original)}")
 
-        if not args.force:
-            response = input(f"\n  Optimize {len(candidates)} samples? [y/N] ")
-            if response.lower() != 'y':
-                print("  Cancelled")
-                return 0
+        assume_yes = bool(args.yes)
+        if not _confirm(f"Optimize {len(candidates)} samples?", assume_yes):
+            print("  Cancelled")
+            return 0
 
         # Process each sample
         print()
@@ -452,48 +822,45 @@ def cmd_optimize_all(args):
         for i, info in enumerate(candidates, 1):
             print(f"\n[{i}/{len(candidates)}] Slot {info.slot}: {info.name}")
 
-            # Download
-            try:
-                temp_path = client.get(info.slot, None)
-            except EP133Error as e:
-                print(f"  ❌ Download failed: {e}")
-                continue
+            with tempfile.TemporaryDirectory(prefix=f"ko2-slot{info.slot:03d}-") as td:
+                temp_path = Path(td) / f"slot{info.slot:03d}.wav"
+                # Download
+                try:
+                    client.get(info.slot, temp_path)
+                except EP133Error as e:
+                    print(f"  ❌ Download failed: {e}")
+                    continue
 
-            # Backup
-            backup_path = Path(str(temp_path) + '.bak')
-            shutil.copy(temp_path, backup_path)
+                # Backup
+                backup_path = backup_copy(
+                    temp_path, slot=info.slot, name_hint=info.name
+                )
+                print(f"  {Colors.FG_DIM}Backup:{Colors.RESET} {backup_path}")
 
-            # Optimize
-            success, msg, _, opt_size = optimize_sample(temp_path)
+                # Optimize
+                success, msg, _, opt_size = optimize_sample(temp_path)
 
-            if not success:
-                print(f"  ❌ {msg}")
-                temp_path.unlink(missing_ok=True)
-                continue
+                if not success:
+                    print(f"  ❌ {msg}")
+                    continue
 
-            savings = info.size_bytes - opt_size
+                savings = info.size_bytes - opt_size
 
-            # Skip if savings too small
-            if savings < 5 * 1024:
-                print(f"  ⊘ Skipped (savings: {format_size(savings)})")
-                shutil.copy(backup_path, temp_path)
-                temp_path.unlink(missing_ok=True)
-                backup_path.unlink(missing_ok=True)
-                continue
+                # Skip if savings too small
+                if savings < 5 * 1024:
+                    print(f"  ⊘ Skipped (savings: {format_size(savings)})")
+                    continue
 
-            # Upload
-            try:
-                client.put(temp_path, info.slot, name=info.name, progress=False)
-                print(f"  {Colors.FG_GREEN}✓ Saved {format_size(savings)} ({savings/info.size_bytes*100:.1f}%){Colors.RESET}")
-                optimized += 1
-                total_savings += savings
-            except EP133Error as e:
-                print(f"  ❌ Upload failed: {e}")
-                shutil.copy(backup_path, temp_path)
-
-            # Cleanup
-            temp_path.unlink(missing_ok=True)
-            backup_path.unlink(missing_ok=True)
+                # Upload
+                try:
+                    client.put(temp_path, info.slot, name=info.name, progress=False)
+                    print(
+                        f"  {Colors.FG_GREEN}✓ Saved {format_size(savings)} ({savings/info.size_bytes*100:.1f}%){Colors.RESET}"
+                    )
+                    optimized += 1
+                    total_savings += savings
+                except EP133Error as e:
+                    print(f"  ❌ Upload failed: {e}")
 
         print(f"\n{Colors.CYAN}{'='*40}{Colors.RESET}")
         print(f"  Optimized: {optimized}/{len(candidates)} samples")
@@ -545,11 +912,158 @@ def cmd_put(args):
     return 0
 
 
+def _download_to_path(client: EP133Client, slot: int, path: Path) -> None:
+    client.get(slot, path)
+
+
+def cmd_move(args):
+    """Move sample between slots (swap if destination occupied)."""
+    src = int(args.src)
+    dst = int(args.dst)
+    raw = bool(args.raw)
+    assume_yes = bool(args.yes)
+
+    if src == dst:
+        print("  No-op: source and destination are the same")
+        return 0
+
+    with EP133Client(args.device) as client:
+        sounds = client.list_sounds()
+        src_entry = sounds.get(src)
+        if not src_entry:
+            print(f"  ❌ Slot {src:03d} is empty")
+            return 1
+        dst_entry = sounds.get(dst)
+
+        src_name = _resolve_transfer_name(client, src, src_entry, raw)
+        dst_name = _resolve_transfer_name(client, dst, dst_entry, raw) if dst_entry else ""
+
+        if dst_entry:
+            prompt = (
+                f"Swap slot {src:03d} ({src_name}) with {dst:03d} ({dst_name})?"
+            )
+        else:
+            prompt = f"Move slot {src:03d} ({src_name}) → {dst:03d}?"
+
+        if not _confirm(prompt, assume_yes):
+            print("  Cancelled")
+            return 0
+
+        with tempfile.TemporaryDirectory(prefix="ko2-move-") as td:
+            temp_dir = Path(td)
+            src_path = temp_dir / f"slot{src:03d}.wav"
+            dst_path = temp_dir / f"slot{dst:03d}.wav"
+
+            try:
+                _download_to_path(client, src, src_path)
+                backup_copy(src_path, slot=src, name_hint=src_name)
+
+                if dst_entry:
+                    _download_to_path(client, dst, dst_path)
+                    backup_copy(dst_path, slot=dst, name_hint=dst_name)
+
+                if dst_entry:
+                    client.delete(src)
+                    client.delete(dst)
+                    client.put(src_path, dst, name=src_name, progress=False)
+                    client.put(dst_path, src, name=dst_name, progress=False)
+                    print(
+                        f"  {Colors.FG_GREEN}✓{Colors.RESET} Swapped {src:03d} ↔ {dst:03d}"
+                    )
+                else:
+                    client.put(src_path, dst, name=src_name, progress=False)
+                    client.delete(src)
+                    print(
+                        f"  {Colors.FG_GREEN}✓{Colors.RESET} Moved {src:03d} → {dst:03d}"
+                    )
+            except EP133Error as e:
+                if dst_entry:
+                    try:
+                        client.put(src_path, src, name=src_name, progress=False)
+                    except Exception:
+                        pass
+                    try:
+                        client.put(dst_path, dst, name=dst_name, progress=False)
+                    except Exception:
+                        pass
+                print(f"  ❌ Move failed: {e}")
+                return 1
+
+    return 0
+
+
+def cmd_copy(args):
+    """Copy sample between slots."""
+    src = int(args.src)
+    dst = int(args.dst)
+    raw = bool(args.raw)
+    assume_yes = bool(args.yes)
+
+    if src == dst:
+        print("  No-op: source and destination are the same")
+        return 0
+
+    with EP133Client(args.device) as client:
+        sounds = client.list_sounds()
+        src_entry = sounds.get(src)
+        if not src_entry:
+            print(f"  ❌ Slot {src:03d} is empty")
+            return 1
+        dst_entry = sounds.get(dst)
+
+        src_name = _resolve_transfer_name(client, src, src_entry, raw)
+        dst_name = _resolve_transfer_name(client, dst, dst_entry, raw) if dst_entry else ""
+
+        if dst_entry:
+            prompt = (
+                f"Overwrite slot {dst:03d} ({dst_name}) with {src:03d} ({src_name})?"
+            )
+        else:
+            prompt = f"Copy slot {src:03d} ({src_name}) → {dst:03d}?"
+
+        if not _confirm(prompt, assume_yes):
+            print("  Cancelled")
+            return 0
+
+        with tempfile.TemporaryDirectory(prefix="ko2-copy-") as td:
+            temp_dir = Path(td)
+            src_path = temp_dir / f"slot{src:03d}.wav"
+            dst_path = temp_dir / f"slot{dst:03d}.wav"
+
+            try:
+                _download_to_path(client, src, src_path)
+                backup_copy(src_path, slot=src, name_hint=src_name)
+
+                if dst_entry:
+                    _download_to_path(client, dst, dst_path)
+                    backup_copy(dst_path, slot=dst, name_hint=dst_name)
+                    client.delete(dst)
+
+                client.put(src_path, dst, name=src_name, progress=False)
+                print(
+                    f"  {Colors.FG_GREEN}✓{Colors.RESET} Copied {src:03d} → {dst:03d}"
+                )
+            except EP133Error as e:
+                if dst_entry:
+                    try:
+                        client.put(dst_path, dst, name=dst_name, progress=False)
+                    except Exception:
+                        pass
+                print(f"  ❌ Copy failed: {e}")
+                return 1
+
+    return 0
+
+
 def cmd_delete(args):
     """Delete sample from slot."""
     with EP133Client(args.device) as client:
         try:
             info = client.info(args.slot)
+            prompt = f"Delete slot {args.slot:03d} ({info.name})?"
+            if not _confirm(prompt, bool(args.yes)):
+                print("  Cancelled")
+                return 0
             print(f"  Deleting: {info.name} from slot {args.slot}")
             client.delete(args.slot)
             print(f"  {Colors.FG_GREEN}✓{Colors.RESET} Deleted slot {args.slot}")
@@ -589,10 +1103,11 @@ def cmd_squash(args):
     """Squash samples in page/group to fill slots sequentially."""
     # Determine range
     if args.page:
-        start, end = parse_page(args.page)
-        if start is None:
+        page_range = parse_page(args.page)
+        if page_range is None:
             print("  ❌ Page must be 1-10")
             return 1
+        start, end = page_range
     elif args.range:
         slot_spec = parse_range(args.range)
         if isinstance(slot_spec, int):
@@ -606,25 +1121,20 @@ def cmd_squash(args):
         start, end = end, start
 
     dry_run = not args.execute
+    raw = bool(args.raw)
+    assume_yes = bool(args.yes)
 
     print(f"{Colors.CYAN}Squashing slots {start:03d}-{end:03d}...{Colors.RESET}")
     if dry_run:
-        print(f"  {Colors.FG_YELLOW}DR RUN MODE{Colors.RESET} (use --execute to apply)")
+        print(
+            f"  {Colors.FG_YELLOW}DRY RUN MODE{Colors.RESET} (use --execute to apply)"
+        )
 
     with EP133Client(args.device) as client:
-        # Scan all samples in range
-        print(f"  Scanning...")
-        samples = []
-        for slot in range(start, end + 1):
-            show_progress(slot - start + 1, end - start + 1)
-            try:
-                info = client.info(slot, include_size=True)
-                samples.append(info)
-            except SlotEmptyError:
-                pass
-        print()
+        sounds = client.list_sounds()
+        used_slots = [s for s in sorted(sounds.keys()) if start <= s <= end]
 
-        if not samples:
+        if not used_slots:
             print(f"  {Colors.FG_DIM}No samples found{Colors.RESET}")
             return 0
 
@@ -632,9 +1142,9 @@ def cmd_squash(args):
         mapping = {}  # old_slot -> new_slot
         target_slot = start
 
-        for info in samples:
-            if info.slot != target_slot:
-                mapping[info.slot] = target_slot
+        for slot in used_slots:
+            if slot != target_slot:
+                mapping[slot] = target_slot
             target_slot += 1
 
         if not mapping:
@@ -644,9 +1154,9 @@ def cmd_squash(args):
         # Show mapping
         print(f"  Will move {len(mapping)} samples:\n")
         for old_slot, new_slot in mapping.items():
-            info = next(s for s in samples if s.slot == old_slot)
-            savings = (old_slot - new_slot) * (end - start + 1)
-            print(f"    {old_slot:03d} → {new_slot:03d}  {info.name[:30]:<30}")
+            entry = sounds.get(old_slot)
+            name = _resolve_transfer_name(client, old_slot, entry, raw)
+            print(f"    {old_slot:03d} → {new_slot:03d}  {name[:30]:<30}")
 
         # TODO: Project reference update
         # This would require:
@@ -666,8 +1176,16 @@ def cmd_squash(args):
         if dry_run:
             print(f"\n  {Colors.FG_YELLOW}⚠ Preview mode{Colors.RESET}")
             print(f"  Run with --execute to apply changes")
-            print(f"\n  {Colors.FG_DIM}NOTE: Project pad references are NOT updated.{Colors.RESET}")
-            print(f"  {Colors.FG_DIM}      (project update protocol not yet available){Colors.RESET}")
+            print(
+                f"\n  {Colors.FG_DIM}NOTE: Project pad references are NOT updated.{Colors.RESET}"
+            )
+            print(
+                f"  {Colors.FG_DIM}      (project update protocol not yet available){Colors.RESET}"
+            )
+            return 0
+
+        if not _confirm(f"Execute squash for {len(mapping)} moves?", assume_yes):
+            print("  Cancelled")
             return 0
 
         # Execute squash
@@ -677,16 +1195,35 @@ def cmd_squash(args):
             # Download from old slot
             print(f"  [{old_slot:03d} → {new_slot:03d}] ", end="", flush=True)
             try:
-                temp_path = client.get(old_slot, None)
+                entry = sounds.get(old_slot)
+                name = _resolve_transfer_name(client, old_slot, entry, raw)
+                with tempfile.TemporaryDirectory(
+                    prefix=f"ko2-move{old_slot:03d}-"
+                ) as td:
+                    temp_path = Path(td) / f"slot{old_slot:03d}.wav"
+                    client.get(old_slot, temp_path)
+                    backup_copy(temp_path, slot=old_slot, name_hint=name)
 
-                # Delete old slot
-                client.delete(old_slot)
+                    deleted = False
+                    try:
+                        # Delete old slot
+                        client.delete(old_slot)
+                        deleted = True
 
-                # Upload to new slot
-                client.put(temp_path, new_slot, progress=False)
-
-                # Cleanup
-                temp_path.unlink(missing_ok=True)
+                        # Upload to new slot
+                        client.put(temp_path, new_slot, name=name, progress=False)
+                    except EP133Error:
+                        if deleted:
+                            try:
+                                client.put(
+                                    temp_path, old_slot, name=name, progress=False
+                                )
+                                print(
+                                    f"\n  {Colors.FG_YELLOW}⚠ Restored slot {old_slot:03d} after failure{Colors.RESET}"
+                                )
+                            except Exception:
+                                pass
+                        raise
                 print(f"{Colors.FG_GREEN}✓{Colors.RESET}")
             except EP133Error as e:
                 print(f"{Colors.FG_RED}✗ {e}{Colors.RESET}")
@@ -697,13 +1234,115 @@ def cmd_squash(args):
     return 0
 
 
+def cmd_fs_ls(args):
+    """Debug: list filesystem entries (FILE LIST) for a node (default: /sounds)."""
+    node_id = int(args.node)
+    slot_spec = parse_range(args.range) if args.range else None
+    if slot_spec is None:
+        start, end = 1, MAX_SLOTS
+    elif isinstance(slot_spec, int):
+        start = end = slot_spec
+    else:
+        start, end = slot_spec
+
+    with EP133Client(args.device) as client:
+        if args.raw:
+            entries = client.list_directory_raw(node_id=node_id)
+            if not entries:
+                print("  (no entries)")
+                return 0
+
+            print(f"  Node {node_id}: {len(entries)} entries (raw)\n")
+            print(
+                f"  {'Hi':>2}  {'Lo':>2}  {'N14':>5}  {'N16':>5}  {'Dec':>5}  {'Slot':>4}  {'Flags':>5}  {'Size':>7}  Name"
+            )
+            print(
+                f"  {'-'*2}  {'-'*2}  {'-'*5}  {'-'*5}  {'-'*5}  {'-'*4}  {'-'*5}  {'-'*7}  {'-'*30}"
+            )
+
+            for e in entries:
+                is_dir = bool(e.get("is_dir"))
+                hi = int(e.get("hi") or 0)
+                lo = int(e.get("lo") or 0)
+                flags = int(e.get("flags") or 0)
+                size = int(e.get("size") or 0)
+                name = str(e.get("name") or "")
+                n14 = decode_14bit(hi, lo)
+                n16 = (hi << 8) | lo
+                dec = decode_node_id(hi, lo, name)
+                slot = dec - 1000 if (1001 <= dec <= 1999) else 0
+
+                slot_from_name = 0
+                m = re.match(r"^(\d{1,3})", name)
+                if m:
+                    slot_from_name = int(m.group(1))
+                slot_display = slot_from_name or slot
+                if not is_dir and not (start <= slot_display <= end):
+                    continue
+                slot_str = f"{slot_display:03d}" if not is_dir and slot_display else "DIR"
+                print(
+                    f"  {hi:02X}  {lo:02X}  {n14:>5}  {n16:>5}  {dec:>5}  {slot_str:>4}  0x{flags:02X}  {format_size(size):>7}  {name}"
+                )
+        else:
+            entries = client.list_directory(node_id=node_id)
+            if not entries:
+                print("  (no entries)")
+                return 0
+
+            print(f"  Node {node_id}: {len(entries)} entries\n")
+            print(f"  {'Slot':>4}  {'Node':>4}  {'Flags':>5}  {'Size':>7}  Name")
+            print(f"  {'-'*4}  {'-'*4}  {'-'*5}  {'-'*7}  {'-'*30}")
+
+            for e in entries:
+                is_dir = bool(e.get("is_dir"))
+                nid = int(e.get("node_id") or 0)
+                flags = int(e.get("flags") or 0)
+                size = int(e.get("size") or 0)
+                name = str(e.get("name") or "")
+                slot = nid - 1000 if (1001 <= nid <= 1999) else 0
+                if not is_dir and not (start <= slot <= end):
+                    continue
+                slot_str = f"{slot:03d}" if not is_dir and slot else "DIR"
+                print(
+                    f"  {slot_str:>4}  {nid:>4}  0x{flags:02X}  {format_size(size):>7}  {name}"
+                )
+
+    return 0
+
+
+def cmd_rename(args):
+    """Rename a sample slot via filesystem metadata (backs up audio first)."""
+    slot = int(args.slot)
+    new_name = str(args.name)
+
+    with EP133Client(args.device) as client:
+        try:
+            info = client.info(slot, include_size=False)
+        except SlotEmptyError:
+            print(f"  ❌ Slot {slot:03d} is empty")
+            return 1
+
+        with tempfile.TemporaryDirectory(prefix=f"ko2-rename{slot:03d}-") as td:
+            temp_path = Path(td) / f"slot{slot:03d}.wav"
+            client.get(slot, temp_path)
+            backup_path = backup_copy(temp_path, slot=slot, name_hint=info.name)
+            print(f"  {Colors.FG_DIM}Backup:{Colors.RESET} {backup_path}")
+
+        client.rename(slot, new_name)
+        print(
+            f"  {Colors.FG_GREEN}✓{Colors.RESET} Renamed slot {slot:03d} → {new_name}"
+        )
+
+    return 0
+
+
 def parse_range(arg: str) -> tuple[int, int] | int:
     """Parse range argument: '5', '1-10', or '1..10'."""
-    match = re.match(r'^(\d+)\.\.(\d+)$', arg)
+    match = re.match(r"^(\d+)\.\.(\d+)$", arg)
     if match:
         return int(match.group(1)), int(match.group(2))
 
-    match = re.match(r'^(\d+)-(\d+)$', arg)
+    match = re.match(r"^(\d+)-(\d+)$", arg)
     if match:
         return int(match.group(1)), int(match.group(2))
 
@@ -715,69 +1354,273 @@ def main():
         description="KO2 - EP-133 KO-II Command Line Tool",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    parser.add_argument('--device', help='MIDI device name (auto-detect if omitted)')
+    parser.add_argument("--device", help="MIDI device name (auto-detect if omitted)")
 
-    subparsers = parser.add_subparsers(dest='command', help='Available commands')
+    subparsers = parser.add_subparsers(dest="command", help="Available commands")
 
     # ls: list by pages
-    ls_parser = subparsers.add_parser('ls', help='List samples by pages')
+    ls_parser = subparsers.add_parser("ls", help="List samples by pages")
     ls_group = ls_parser.add_mutually_exclusive_group()
-    ls_group.add_argument('--page', type=int, metavar='N', help='Show page N (1-10)')
-    ls_group.add_argument('--all', '-a', action='store_true', help='List all samples')
+    ls_group.add_argument("--page", type=int, metavar="N", help="Show page N (1-10)")
+    ls_group.add_argument("--all", "-a", action="store_true", help="List all samples")
+    ls_group.add_argument(
+        "--range", help="Slot range (e.g. 100-160 or 100..160)"
+    )
     ls_parser.add_argument(
         "--source",
         choices=("auto", "fs", "scan"),
         default="auto",
         help="Listing source: filesystem (/sounds), slot-scan, or auto (default: auto)",
     )
+    ls_parser.add_argument(
+        "--name-source",
+        choices=("auto", "fs", "meta", "node"),
+        default="auto",
+        help="Name source: auto (default), fs (/sounds filename), meta (slot metadata), or node (filesystem metadata)",
+    )
+    ls_parser.add_argument(
+        "--stream",
+        action="store_true",
+        help="Print samples as they are discovered (disables progress bar)",
+    )
 
     # info: slot or range
-    info_parser = subparsers.add_parser('info', help='Show sample metadata')
-    info_parser.add_argument('slot', help='Slot (5) or range (1-10, 1..10)')
+    info_parser = subparsers.add_parser("info", help="Show sample metadata")
+    info_parser.add_argument("slot", help="Slot (5) or range (1-10, 1..10)")
+
+    # status: quick device status
+    status_parser = subparsers.add_parser(
+        "status", help="Show device status (info + sample memory)"
+    )
 
     # get
-    get_parser = subparsers.add_parser('get', help='Download sample')
-    get_parser.add_argument('slot', type=int, help='Slot number (1-999)')
-    get_parser.add_argument('output', nargs='?', help='Output filename')
+    get_parser = subparsers.add_parser("get", help="Download sample")
+    get_parser.add_argument("slot", type=int, help="Slot number (1-999)")
+    get_parser.add_argument("output", nargs="?", help="Output filename")
 
     # put
-    put_parser = subparsers.add_parser('put', help='Upload sample')
-    put_parser.add_argument('file', help='WAV file to upload')
-    put_parser.add_argument('slot', type=int, help='Target slot (1-999)')
-    put_parser.add_argument('--name', help='Sample name')
+    put_parser = subparsers.add_parser("put", help="Upload sample")
+    put_parser.add_argument("file", help="WAV file to upload")
+    put_parser.add_argument("slot", type=int, help="Target slot (1-999)")
+    put_parser.add_argument("--name", help="Sample name")
+
+    # move
+    mv_parser = subparsers.add_parser("mv", help="Move sample between slots")
+    mv_parser.add_argument("src", type=int, help="Source slot (1-999)")
+    mv_parser.add_argument("dst", type=int, help="Destination slot (1-999)")
+    mv_parser.add_argument(
+        "--raw", "--original", dest="raw", action="store_true", help="Use raw filename"
+    )
+    mv_parser.add_argument(
+        "-y",
+        "--yes",
+        "-f",
+        "--force",
+        "-q",
+        "--quiet",
+        dest="yes",
+        action="store_true",
+        help="Skip confirmation",
+    )
+
+    move_parser = subparsers.add_parser("move", help="Move sample between slots")
+    move_parser.add_argument("src", type=int, help="Source slot (1-999)")
+    move_parser.add_argument("dst", type=int, help="Destination slot (1-999)")
+    move_parser.add_argument(
+        "--raw", "--original", dest="raw", action="store_true", help="Use raw filename"
+    )
+    move_parser.add_argument(
+        "-y",
+        "--yes",
+        "-f",
+        "--force",
+        "-q",
+        "--quiet",
+        dest="yes",
+        action="store_true",
+        help="Skip confirmation",
+    )
+
+    # copy
+    cp_parser = subparsers.add_parser("cp", help="Copy sample between slots")
+    cp_parser.add_argument("src", type=int, help="Source slot (1-999)")
+    cp_parser.add_argument("dst", type=int, help="Destination slot (1-999)")
+    cp_parser.add_argument(
+        "--raw", "--original", dest="raw", action="store_true", help="Use raw filename"
+    )
+    cp_parser.add_argument(
+        "-y",
+        "--yes",
+        "-f",
+        "--force",
+        "-q",
+        "--quiet",
+        dest="yes",
+        action="store_true",
+        help="Skip confirmation",
+    )
+
+    copy_parser = subparsers.add_parser("copy", help="Copy sample between slots")
+    copy_parser.add_argument("src", type=int, help="Source slot (1-999)")
+    copy_parser.add_argument("dst", type=int, help="Destination slot (1-999)")
+    copy_parser.add_argument(
+        "--raw", "--original", dest="raw", action="store_true", help="Use raw filename"
+    )
+    copy_parser.add_argument(
+        "-y",
+        "--yes",
+        "-f",
+        "--force",
+        "-q",
+        "--quiet",
+        dest="yes",
+        action="store_true",
+        help="Skip confirmation",
+    )
 
     # delete
-    delete_parser = subparsers.add_parser('delete', help='Delete sample')
-    delete_parser.add_argument('slot', type=int, help='Slot number (1-999)')
+    delete_parser = subparsers.add_parser("delete", help="Delete sample")
+    delete_parser.add_argument("slot", type=int, help="Slot number (1-999)")
+    delete_parser.add_argument(
+        "-y",
+        "--yes",
+        "-f",
+        "--force",
+        "-q",
+        "--quiet",
+        dest="yes",
+        action="store_true",
+        help="Skip confirmation",
+    )
 
     # rm: alias for delete
-    rm_parser = subparsers.add_parser('rm', help='Delete sample (alias)')
-    rm_parser.add_argument('slot', type=int, help='Slot number (1-999)')
+    rm_parser = subparsers.add_parser("rm", help="Delete sample (alias)")
+    rm_parser.add_argument("slot", type=int, help="Slot number (1-999)")
+    rm_parser.add_argument(
+        "-y",
+        "--yes",
+        "-f",
+        "--force",
+        "-q",
+        "--quiet",
+        dest="yes",
+        action="store_true",
+        help="Skip confirmation",
+    )
+
+    # remove: alias for delete
+    remove_parser = subparsers.add_parser("remove", help="Delete sample (alias)")
+    remove_parser.add_argument("slot", type=int, help="Slot number (1-999)")
+    remove_parser.add_argument(
+        "-y",
+        "--yes",
+        "-f",
+        "--force",
+        "-q",
+        "--quiet",
+        dest="yes",
+        action="store_true",
+        help="Skip confirmation",
+    )
 
     # optimize
-    opt_parser = subparsers.add_parser('optimize', help='Optimize single sample')
-    opt_parser.add_argument('slot', type=int, help='Slot number (1-999)')
+    opt_parser = subparsers.add_parser("optimize", help="Optimize single sample")
+    opt_parser.add_argument("slot", type=int, help="Slot number (1-999)")
+    opt_parser.add_argument(
+        "-y",
+        "--yes",
+        "-f",
+        "--force",
+        "-q",
+        "--quiet",
+        dest="yes",
+        action="store_true",
+        help="Skip confirmation",
+    )
 
     # optimize-all
-    optall_parser = subparsers.add_parser('optimize-all', help='Optimize all oversized samples')
-    optall_parser.add_argument('--min', type=int, metavar='KB', default=100,
-                               help='Minimum size to consider (KB, default: 100)')
-    optall_parser.add_argument('--force', '-f', action='store_true',
-                               help='Skip confirmation')
+    optall_parser = subparsers.add_parser(
+        "optimize-all", help="Optimize all oversized samples"
+    )
+    optall_parser.add_argument(
+        "-y",
+        "--yes",
+        "-f",
+        "--force",
+        "-q",
+        "--quiet",
+        dest="yes",
+        action="store_true",
+        help="Skip confirmation",
+    )
+    optall_parser.add_argument(
+        "--min",
+        type=int,
+        metavar="KB",
+        default=100,
+        help="Minimum size to consider (KB, default: 100)",
+    )
 
     # group
-    group_parser = subparsers.add_parser('group', help='Compact samples in range (preview)')
-    group_parser.add_argument('range', help='Range like 1-50 or 10..100')
-    group_parser.add_argument('-r', '--reverse', action='store_true',
-                            help='Compact toward right (default: left)')
+    group_parser = subparsers.add_parser(
+        "group", help="Compact samples in range (preview)"
+    )
+    group_parser.add_argument("range", help="Range like 1-50 or 10..100")
+    group_parser.add_argument(
+        "-r",
+        "--reverse",
+        action="store_true",
+        help="Compact toward right (default: left)",
+    )
 
     # squash
-    squash_parser = subparsers.add_parser('squash', help='Squash samples to fill gaps')
+    squash_parser = subparsers.add_parser("squash", help="Squash samples to fill gaps")
     squash_group = squash_parser.add_mutually_exclusive_group()
-    squash_group.add_argument('--page', type=int, metavar='N', help='Page to squash (1-10)')
-    squash_group.add_argument('--range', metavar='N', help='Range like 1-50 or 10..100')
-    squash_parser.add_argument('--execute', action='store_true',
-                               help='Actually perform the move (default: dry-run)')
+    squash_group.add_argument(
+        "--page", type=int, metavar="N", help="Page to squash (1-10)"
+    )
+    squash_group.add_argument("--range", metavar="N", help="Range like 1-50 or 10..100")
+    squash_parser.add_argument(
+        "--execute",
+        action="store_true",
+        help="Actually perform the move (default: dry-run)",
+    )
+    squash_parser.add_argument(
+        "--raw", "--original", dest="raw", action="store_true", help="Use raw filename"
+    )
+    squash_parser.add_argument(
+        "-y",
+        "--yes",
+        "-f",
+        "--force",
+        "-q",
+        "--quiet",
+        dest="yes",
+        action="store_true",
+        help="Skip confirmation",
+    )
+
+    # fs-ls: debug filesystem listing
+    fs_parser = subparsers.add_parser("fs-ls", help="List filesystem entries (debug)")
+    fs_parser.add_argument(
+        "--node",
+        type=int,
+        default=1000,
+        help="Node ID to list (default: 1000 = /sounds)",
+    )
+    fs_parser.add_argument(
+        "--range", metavar="N", help="Filter slots like 1-50 or 10..100 (files only)"
+    )
+    fs_parser.add_argument(
+        "--raw", action="store_true", help="Show raw hi/lo and decoded node IDs"
+    )
+
+    # rename
+    rename_parser = subparsers.add_parser(
+        "rename", help="Rename a sample slot (backs up first)"
+    )
+    rename_parser.add_argument("slot", type=int, help="Slot number (1-999)")
+    rename_parser.add_argument("name", help="New name")
 
     args = parser.parse_args()
 
@@ -796,16 +1639,24 @@ def main():
 
     # Dispatch
     commands = {
-        'ls': cmd_ls,
-        'info': cmd_info,
-        'get': cmd_get,
-        'put': cmd_put,
-        'delete': cmd_delete,
-        'rm': cmd_delete,  # Alias
-        'optimize': cmd_optimize,
-        'optimize-all': cmd_optimize_all,
-        'group': cmd_group,
-        'squash': cmd_squash,
+        "ls": cmd_ls,
+        "info": cmd_info,
+        "status": cmd_status,
+        "get": cmd_get,
+        "put": cmd_put,
+        "mv": cmd_move,
+        "move": cmd_move,
+        "cp": cmd_copy,
+        "copy": cmd_copy,
+        "delete": cmd_delete,
+        "rm": cmd_delete,  # Alias
+        "remove": cmd_delete,
+        "optimize": cmd_optimize,
+        "optimize-all": cmd_optimize_all,
+        "group": cmd_group,
+        "squash": cmd_squash,
+        "fs-ls": cmd_fs_ls,
+        "rename": cmd_rename,
     }
 
     handler = commands.get(args.command)
@@ -815,5 +1666,5 @@ def main():
     return 0
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     sys.exit(main())
