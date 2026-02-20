@@ -152,43 +152,60 @@ def cmd_ls(args):
         else:
             start, end = 1, 99  # Default to first page
 
-        # Prefer filesystem listing (/sounds/) for ground truth; fall back to slot scan.
+        source = args.source
+        # Prefer filesystem listing (/sounds/) for ground truth; slot-scan can be stale.
         samples = []
-        try:
-            entries = client.list_directory()
-            by_slot = {}
-            for e in entries:
-                if e.get("is_dir"):
-                    continue
-                name = str(e.get("name", ""))
-                slot = None
-                if len(name) >= 3 and name[:3].isdigit():
-                    slot = int(name[:3])
-                else:
-                    node_id = int(e.get("node_id") or 0)
-                    if 1000 < node_id <= 1999:
-                        slot = node_id - 1000
-                if slot is None or not (1 <= slot <= MAX_SLOTS):
-                    continue
-                if not (start <= slot <= end):
-                    continue
-                by_slot[slot] = e
+        entries = None
+        if source in ("auto", "fs"):
+            try:
+                entries = client.list_directory()
+                by_slot = {}
+                for e in entries:
+                    if e.get("is_dir"):
+                        continue
+                    name = str(e.get("name", ""))
+                    slot = None
+                    if len(name) >= 3 and name[:3].isdigit():
+                        slot = int(name[:3])
+                    else:
+                        node_id = int(e.get("node_id") or 0)
+                        if 1000 < node_id <= 1999:
+                            slot = node_id - 1000
+                    if slot is None or not (1 <= slot <= MAX_SLOTS):
+                        continue
+                    if not (start <= slot <= end):
+                        continue
+                    by_slot[slot] = e
 
-            for slot in sorted(by_slot.keys()):
-                e = by_slot[slot]
-                samples.append(
-                    SampleInfo(
-                        slot=slot,
-                        name=str(e.get("name", f"Slot {slot:03d}")),
-                        samplerate=SAMPLE_RATE,
-                        channels=1,
-                        size_bytes=int(e.get("size") or 0),
+                for slot in sorted(by_slot.keys()):
+                    e = by_slot[slot]
+                    samples.append(
+                        SampleInfo(
+                            slot=slot,
+                            name=str(e.get("name", f"Slot {slot:03d}")),
+                            samplerate=SAMPLE_RATE,
+                            channels=1,
+                            size_bytes=int(e.get("size") or 0),
+                        )
                     )
-                )
-        except Exception:
-            entries = None
+            except Exception as e:
+                if source == "fs":
+                    print(f"❌ Failed to list /sounds via filesystem API: {e}")
+                    return 1
+                entries = None
 
         if entries is None:
+            if source == "auto":
+                print(
+                    f"{Colors.FG_YELLOW}⚠ Falling back to slot-scan (may be stale).{Colors.RESET}"
+                )
+            elif source == "scan":
+                pass
+            else:
+                print("❌ Invalid source")
+                return 1
+
+        if entries is None and source in ("auto", "scan"):
             print(f"{Colors.CYAN}Scanning slots {start:03d}-{end:03d}...{Colors.RESET}")
             for slot in range(start, end + 1):
                 show_progress(slot - start + 1, end - start + 1, f"(slot {slot})")
@@ -707,6 +724,12 @@ def main():
     ls_group = ls_parser.add_mutually_exclusive_group()
     ls_group.add_argument('--page', type=int, metavar='N', help='Show page N (1-10)')
     ls_group.add_argument('--all', '-a', action='store_true', help='List all samples')
+    ls_parser.add_argument(
+        "--source",
+        choices=("auto", "fs", "scan"),
+        default="auto",
+        help="Listing source: filesystem (/sounds), slot-scan, or auto (default: auto)",
+    )
 
     # info: slot or range
     info_parser = subparsers.add_parser('info', help='Show sample metadata')
