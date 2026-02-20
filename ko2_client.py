@@ -340,6 +340,12 @@ class EP133Client:
 
         return None
 
+    def get_meta(self, slot: int) -> dict | None:
+        """Return raw GET_META metadata for a slot (may be stale or offset)."""
+        if not 1 <= slot <= MAX_SLOTS:
+            raise ValueError(f"Slot must be 1-{MAX_SLOTS}, got {slot}")
+        return self._meta_from_get_meta(slot)
+
     def info(
         self,
         slot: int,
@@ -384,11 +390,16 @@ class EP133Client:
         if node_meta:
             metadata.update(node_meta)
 
-        if allow_get_meta and (slot <= 127 or not node_meta):
+        if allow_get_meta:
             meta2 = self._meta_from_get_meta(slot)
             if meta2:
-                for k, v in meta2.items():
-                    metadata.setdefault(k, v)
+                if slot <= 127:
+                    for k, v in meta2.items():
+                        metadata.setdefault(k, v)
+                else:
+                    for k in ("channels", "samplerate", "format"):
+                        if k in meta2 and k not in metadata:
+                            metadata[k] = meta2[k]
 
         if not metadata and not entry:
             raise SlotEmptyError(f"Slot {slot} is empty")

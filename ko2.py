@@ -5,6 +5,7 @@ KO2 - EP-133 KO-II Command Line Tool
 Usage:
     ko2 ls [--page N]          - List samples by pages
     ko2 status                 - Show device status
+    ko2 audit                  - Audit metadata mismatches
     ko2 info <slot|range>      - Show sample metadata
     ko2 get <slot> [file]      - Download sample
     ko2 put <file> <slot>      - Upload sample
@@ -19,6 +20,7 @@ import sys
 import argparse
 import re
 import shutil
+import json
 import subprocess
 import tempfile
 from pathlib import Path
@@ -508,6 +510,23 @@ def _confirm(prompt: str, assume_yes: bool) -> bool:
     return resp in ("y", "yes")
 
 
+def _short(text: str, width: int) -> str:
+    if text is None:
+        text = ""
+    text = str(text)
+    if len(text) <= width:
+        return text
+    if width <= 3:
+        return text[:width]
+    return text[: width - 3] + "..."
+
+
+def _sanitize_field(text: str) -> str:
+    if text is None:
+        return ""
+    return str(text).replace("\t", " ").replace("\n", " ").replace("\r", " ")
+
+
 def _resolve_transfer_name(
     client: EP133Client, slot: int, entry: dict | None, raw: bool
 ) -> str:
@@ -638,6 +657,163 @@ def cmd_status(args):
         bar = _format_bar(total_size, total_mem)
         if bar:
             print(f"  {'':<14} {bar}")
+
+    return 0
+
+
+def cmd_audit(args):
+    """Compare metadata sources for mismatches."""
+    if args.range:
+        slot_spec = parse_range(args.range)
+        if isinstance(slot_spec, int):
+            start = end = slot_spec
+        else:
+            start, end = slot_spec
+    elif args.page:
+        page_range = parse_page(args.page)
+        if page_range is None:
+            print("❌ Page must be 1-10")
+            return 1
+        start, end = page_range
+    elif args.all:
+        start, end = 1, MAX_SLOTS
+    else:
+        start, end = 1, 99
+
+    if start > end:
+        start, end = end, start
+
+    show_all = bool(args.show_all)
+    dump_path = args.dump
+    dump_json = args.dump_json
+    compare_fields = []
+    if args.compare:
+        compare_fields = [f.strip() for f in args.compare.split(",") if f.strip()]
+
+    with EP133Client(args.device) as client:
+        sounds = client.list_sounds()
+
+        print(f"{Colors.CYAN}Metadata audit {start:03d}-{end:03d}{Colors.RESET}\n")
+        print(
+            f"  {'Slot':>4}  {'FS Name':<18}  {'Node Name':<18}  {'Meta Name':<18}  Flags"
+        )
+        print(f"  {'-'*4}  {'-'*18}  {'-'*18}  {'-'*18}  {'-'*12}")
+
+        rows = 0
+        dump_rows = []
+        dump_json_rows = []
+        stale = 0
+        field_mismatch = 0
+        node_missing = 0
+
+        for slot in range(start, end + 1):
+            entry = sounds.get(slot)
+            fs_name = str(entry.get("name") or "") if entry else ""
+
+            node_name = ""
+            node_meta = None
+            if entry:
+                node_id = int(entry.get("node_id") or 0)
+                if node_id:
+                    try:
+                        node_meta = client.get_node_metadata(node_id)
+                    except Exception:
+                        node_meta = None
+                    if node_meta:
+                        node_name = str(
+                            node_meta.get("name") or node_meta.get("sym") or ""
+                        )
+
+            meta_name = ""
+            try:
+                meta = client.get_meta(slot)
+            except Exception:
+                meta = None
+            if meta:
+                meta_name = str(meta.get("name") or meta.get("sym") or "")
+
+            flags = []
+            if not entry and meta_name:
+                flags.append("stale")
+                stale += 1
+            if entry and not node_name:
+                flags.append("node-miss")
+                node_missing += 1
+            if compare_fields and node_meta and meta:
+                has_field_diff = False
+                for field in compare_fields:
+                    node_val = node_meta.get(field)
+                    meta_val = meta.get(field)
+                    if node_val is None and meta_val is None:
+                        continue
+                    if node_val != meta_val:
+                        flags.append(f"{field}:diff")
+                        has_field_diff = True
+                if has_field_diff:
+                    field_mismatch += 1
+
+            issue = bool(flags)
+            if show_all or issue:
+                rows += 1
+                print(
+                    f"  {slot:>4}  "
+                    f"{_short(fs_name, 18):<18}  "
+                    f"{_short(node_name, 18):<18}  "
+                    f"{_short(meta_name, 18):<18}  "
+                    f"{', '.join(flags)}"
+                )
+            if dump_path:
+                dump_rows.append(
+                    (
+                        slot,
+                        _sanitize_field(fs_name),
+                        _sanitize_field(node_name),
+                        _sanitize_field(meta_name),
+                        ",".join(flags),
+                    )
+                )
+            if dump_json:
+                dump_json_rows.append(
+                    {
+                        "slot": slot,
+                        "fs": entry or None,
+                        "node": node_meta or None,
+                        "meta": meta or None,
+                        "flags": flags,
+                    }
+                )
+
+        print()
+        print(f"  Slots scanned: {end - start + 1}")
+        print(f"  Rows shown:    {rows}")
+        print(f"  Stale meta:    {stale}")
+        print(f"  Node missing:  {node_missing}")
+        if compare_fields:
+            print(f"  Field mismatch: {field_mismatch}")
+
+        if dump_path:
+            try:
+                with open(dump_path, "w", encoding="utf-8") as f:
+                    f.write("slot\tfs_name\tnode_name\tmeta_name\tflags\n")
+                    for slot, fs_name, node_name, meta_name, flags in dump_rows:
+                        f.write(
+                            f"{slot}\t{fs_name}\t{node_name}\t{meta_name}\t{flags}\n"
+                        )
+                print(f"\n  Wrote audit file: {dump_path}")
+            except OSError as e:
+                print(f"\n  ❌ Failed to write audit file: {e}")
+
+        if dump_json:
+            try:
+                with open(dump_json, "w", encoding="utf-8") as f:
+                    for row in dump_json_rows:
+                        f.write(
+                            json.dumps(row, sort_keys=True, separators=(",", ":"))
+                            + "\n"
+                        )
+                print(f"\n  Wrote audit JSONL: {dump_json}")
+            except OSError as e:
+                print(f"\n  ❌ Failed to write audit JSONL: {e}")
 
     return 0
 
@@ -1393,6 +1569,36 @@ def main():
         "status", help="Show device status (info + sample memory)"
     )
 
+    # audit: compare metadata sources
+    audit_parser = subparsers.add_parser(
+        "audit", help="Audit metadata mismatches across sources"
+    )
+    audit_group = audit_parser.add_mutually_exclusive_group()
+    audit_group.add_argument("--page", type=int, metavar="N", help="Page (1-10)")
+    audit_group.add_argument("--range", metavar="N", help="Range like 1-50 or 10..100")
+    audit_group.add_argument(
+        "--all", "-a", action="store_true", help="Audit all slots"
+    )
+    audit_parser.add_argument(
+        "--show-all", action="store_true", help="Show slots without issues"
+    )
+    audit_parser.add_argument(
+        "--dump",
+        metavar="FILE",
+        help="Write a diff-friendly TSV file (includes all slots)",
+    )
+    audit_parser.add_argument(
+        "--dump-json",
+        metavar="FILE",
+        help="Write raw fs/node/meta JSONL for each slot",
+    )
+    audit_parser.add_argument(
+        "--compare",
+        metavar="FIELDS",
+        default="name,sym,channels,samplerate,format",
+        help="Comma-separated fields to compare between node and GET_META",
+    )
+
     # get
     get_parser = subparsers.add_parser("get", help="Download sample")
     get_parser.add_argument("slot", type=int, help="Slot number (1-999)")
@@ -1642,6 +1848,7 @@ def main():
         "ls": cmd_ls,
         "info": cmd_info,
         "status": cmd_status,
+        "audit": cmd_audit,
         "get": cmd_get,
         "put": cmd_put,
         "mv": cmd_move,
