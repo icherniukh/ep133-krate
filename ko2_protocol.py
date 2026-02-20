@@ -81,6 +81,7 @@ class DeviceId(IntEnum):
     GET_META = 0x75  # Get sample metadata
     PROJECT = 0x7C  # Project switching (NEW - from external repos)
     UPLOAD_DATA = 0x6C  # Upload data transfer (init + chunks)
+    UPLOAD_END = 0x6D  # Upload end marker (end-of-upload)
     UPLOAD = 0x7E  # Upload operations (commit, delete, move)
     DOWNLOAD = 0x7D  # File download (GET)
     RESPONSE = 0x37  # Standard device response
@@ -102,21 +103,21 @@ END = bytes([SYSEX_END])
 
 # Command groups
 CMD_FILE = 0x05  # FILE operations command group
-
-# Common patterns in requests
-PAT_META_REQ = bytes([0x05, 0x08, 0x07, 0x02])  # Metadata request pattern
-PAT_DATA_REQ = bytes([0x05, 0x08, 0x03, 0x01, 0x00])  # Data request pattern
-PAT_DATA_PREP = bytes([0x05, 0x00, 0x03, 0x01, 0x00])  # Data preparation pattern
-PAT_DATA_RSP = bytes([0x05, 0x00, 0x02, 0x00])  # Data response header
-
-# Fixed bytes
 FIXED_BYTE = 0x00  # Fixed byte in most messages
-E_EMPTY = bytes([0x00, 0x00])  # Empty slot marker in requests
 
+# Command sub-operations
+GET_INIT = 0x00
+GET_DATA = 0x01
+PUT_INIT = 0x00
+PUT_DATA = 0x01
+
+# Metadata sub-operations
+META_GET = 0x02
+META_SET = 0x01
 
 # --- Sample/Device Constants ---
 
-SAMPLE_RATE = 44100  # EP-133 sample rate (Hz) - must be 44100 for uploads
+SAMPLE_RATE = 46875  # EP-133 native sample rate (Hz)
 BIT_DEPTH = 16  # 16-bit audio
 CHANNELS = 1  # Mono
 MAX_SLOTS = 999  # Maximum sample slots
@@ -124,61 +125,11 @@ MAX_SLOTS = 999  # Maximum sample slots
 # --- Upload Constants ---
 
 UPLOAD_CHUNK_SIZE = 433  # Max bytes per chunk (after 7-bit unpacking)
-UPLOAD_PARENT_NODE = 1000  # Parent node ID for /sounds/ directory
+UPLOAD_PARENT_NODE = 1000  # Parent node ID for /sounds/ directory (0x03E8)
 UPLOAD_DELAY = 0.02  # Delay between chunks (20ms) - device needs this
 
 
 # --- Helper Functions ---
-
-
-def encode_slot(slot: int) -> tuple[int, int]:
-    """Encode slot number (1-999) to 7-bit MIDI bytes (little-endian).
-
-    Used for metadata queries and other operations.
-
-    Returns:
-        (high_byte, low_byte) - little-endian order
-    """
-    if not (1 <= slot <= MAX_SLOTS):
-        raise ValueError(f"Slot must be 1-{MAX_SLOTS}, got {slot}")
-
-    low = slot & 0x7F
-    high = (slot >> 7) & 0x7F
-    return high, low
-
-
-def encode_slot_be(slot: int) -> tuple[int, int]:
-    """Encode slot number (1-999) to 7-bit MIDI bytes (big-endian).
-
-    Used for download operations (GET).
-
-    Returns:
-        (high_byte, low_byte) - big-endian order
-    """
-    if not (1 <= slot <= MAX_SLOTS):
-        raise ValueError(f"Slot must be 1-{MAX_SLOTS}, got {slot}")
-
-    high = (slot >> 7) & 0x7F
-    low = slot & 0x7F
-    return high, low
-
-
-def decode_slot(high: int, low: int) -> int:
-    """Decode 7-bit MIDI bytes to slot number (little-endian).
-
-    Returns:
-        Slot number (1-999)
-    """
-    return ((high & 0x7F) << 7) | (low & 0x7F)
-
-
-def decode_slot_be(high: int, low: int) -> int:
-    """Decode 7-bit MIDI bytes to slot number (big-endian).
-
-    Returns:
-        Slot number (1-999)
-    """
-    return ((high & 0x7F) << 7) | (low & 0x7F)
 
 
 def build_sysex(data: bytes) -> bytes:
@@ -190,7 +141,260 @@ def build_sysex(data: bytes) -> bytes:
     Returns:
         Complete SysEx message (F0 ... data ... F7)
     """
-    return bytes([SYSEX_START]) + TE_MFG_ID + DEVICE_FAMILY + data + END
+    return bytes([SYSEX_START]) + TE_MFG_ID + DEVICE_FAMILY + data + bytes([SYSEX_END])
+
+
+def encode_7bit(data: bytes) -> bytes:
+    """Encode true 8-bit data to TE's 7-bit MIDI format.
+    Every 7 bytes becomes 8 bytes, with MSBs in the first flag byte.
+    """
+    result = bytearray()
+    i = 0
+    while i < len(data):
+        chunk = data[i : i + 7]
+        flags = 0
+        encoded_bytes = []
+        for j, b in enumerate(chunk):
+            if b & 0x80:
+                flags |= 1 << j
+            encoded_bytes.append(b & 0x7F)
+        result.append(flags)
+        result.extend(encoded_bytes)
+        i += 7
+    return bytes(result)
+
+
+def unpack_7bit(data: bytes) -> bytes:
+    """Unpack TE's 7-bit encoded data back to 8-bit."""
+    result = bytearray()
+    i = 0
+    while i < len(data):
+        if i >= len(data):
+            break
+        flags = data[i]
+        i += 1
+        for bit in range(7):
+            if i >= len(data):
+                break
+            msb = ((flags >> bit) & 1) << 7
+            result.append((data[i] & 0x7F) | msb)
+            i += 1
+    return bytes(result)
+
+
+def build_info_request(slot: int) -> bytes:
+    """Build METADATA GET request. Returns raw bytes (no 7-bit encoding needed).
+    Format: 05 08 07 02 [slot_hi_7bit] [slot_lo_7bit] 00 00
+    Confirmed working against device. Uses 0x08 as fixed byte (not 0x00).
+    """
+    slot_hi = (slot >> 7) & 0x7F
+    slot_lo = slot & 0x7F
+    return bytes([0x05, 0x08, 0x07, 0x02, slot_hi, slot_lo, 0x00, 0x00])
+
+
+def build_download_init_request(slot: int) -> bytes:
+    # Little-endian 7-bit split per CLIENT.py
+    slot_lo = slot & 0x7F
+    slot_hi = (slot >> 7) & 0x7F
+    payload_raw = bytes(
+        [
+            0x03,  # FileOp.GET
+            GET_INIT,
+            slot_lo,
+            slot_hi,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,  # 5-byte offset/padding
+        ]
+    )
+    payload = encode_7bit(payload_raw)
+    return bytes([CMD_FILE]) + payload
+
+
+def build_download_chunk_request(page: int) -> bytes:
+    # Little-endian 7-bit split per CLIENT.py
+    page_lo = page & 0x7F
+    page_hi = (page >> 7) & 0x7F
+    payload_raw = bytes([0x03, GET_DATA, page_lo, page_hi])  # FileOp.GET
+    payload = encode_7bit(payload_raw)
+    return bytes([CMD_FILE]) + payload
+
+
+def build_delete_request(slot: int) -> bytes:
+    """Build DELETE request. Slot uses little-endian 7-bit split per CLIENT.py."""
+    slot_lo = slot & 0x7F
+    slot_hi = (slot >> 7) & 0x7F
+    payload_raw = bytes(
+        [
+            0x06,  # FileOp.DELETE
+            slot_lo,
+            slot_hi,
+        ]
+    )
+    payload = encode_7bit(payload_raw)
+    return bytes([CMD_FILE]) + payload
+
+
+def build_upload_init_request(
+    slot: int, file_size: int, channels: int, samplerate: int, name: str
+) -> bytes:
+    name_bytes = name.encode("utf-8")
+    metadata = f'{{"channels":{channels},"samplerate":{samplerate}}}'.encode("utf-8")
+    size_bytes = file_size.to_bytes(4, "big")
+
+    # Slot encoding in upload init is big-endian (per UPLOAD_PROTOCOL_DETAILS.md)
+    payload_raw = bytearray(
+        [
+            0x02,  # FileOp.PUT
+            PUT_INIT,
+            0x05,  # Audio file type
+            (slot >> 8) & 0xFF,
+            slot & 0xFF,
+            (UPLOAD_PARENT_NODE >> 8) & 0xFF,
+            UPLOAD_PARENT_NODE & 0xFF,
+        ]
+    )
+    payload_raw.extend(size_bytes)
+    payload_raw.extend(name_bytes)
+    payload_raw.append(0x00)
+    payload_raw.extend(metadata)
+
+    # 7-bit pack the raw bytes. Note: the first byte after CMD_FILE is a 7-bit
+    # packing MSB bitmap (not a semantic "operation flags" byte).
+    return encode_7bit(bytes(payload_raw))
+
+
+def build_upload_chunk_request(chunk_index: int, audio_data: bytes) -> bytes:
+    payload_raw = bytearray(
+        [
+            0x02,  # FileOp.PUT
+            PUT_DATA,
+            (chunk_index >> 8) & 0xFF,
+            chunk_index & 0xFF,
+        ]
+    )
+    payload_raw.extend(audio_data)
+    payload = encode_7bit(bytes(payload_raw))
+    return bytes([CMD_FILE]) + payload
+
+
+def build_upload_end_request(final_chunk_index: int) -> bytes:
+    payload_raw = bytes(
+        [
+            0x02,  # FileOp.PUT
+            PUT_DATA,
+            (final_chunk_index >> 8) & 0xFF,
+            final_chunk_index & 0xFF,
+        ]
+    )
+    payload = encode_7bit(payload_raw)
+    return bytes([CMD_FILE]) + payload
+
+
+def build_file_list_request(node_id: int, page: int = 0) -> bytes:
+    """Build FILE LIST request payload for a directory node.
+
+    This is the mechanism used by the official tool / rcy to enumerate the
+    EP-133 filesystem (e.g. node 1000 = /sounds/).
+
+    Args:
+        node_id: Directory node ID (e.g. 1000 for /sounds/)
+        page: Page number (pagination)
+    """
+    payload_raw = bytes(
+        [
+            FileOp.LIST,
+            (page >> 8) & 0xFF,
+            page & 0xFF,
+            (node_id >> 8) & 0xFF,
+            node_id & 0xFF,
+        ]
+    )
+    payload = encode_7bit(payload_raw)
+    return bytes([CMD_FILE]) + payload
+
+
+def parse_file_list_response(payload: bytes) -> list[dict]:
+    """Parse decoded payload from a FILE LIST response.
+
+    Payload format (decoded/unpacked) matches references/rcy:
+    - First 2 bytes: header/unknown
+    - Then repeated entries:
+      [node_hi node_lo flags size_b3 size_b2 size_b1 size_b0] [name 0-terminated]
+    """
+    if len(payload) < 2:
+        return []
+
+    data = payload[2:]
+    entries: list[dict] = []
+    offset = 0
+
+    while offset + 7 <= len(data):
+        node_id = (data[offset] << 8) | data[offset + 1]
+        flags = data[offset + 2]
+        size = (
+            (data[offset + 3] << 24)
+            | (data[offset + 4] << 16)
+            | (data[offset + 5] << 8)
+            | data[offset + 6]
+        )
+        offset += 7
+
+        name_bytes = bytearray()
+        while offset < len(data) and data[offset] != 0:
+            name_bytes.append(data[offset])
+            offset += 1
+        offset += 1  # skip null terminator (or end)
+
+        name = bytes(name_bytes).decode("utf-8", errors="replace")
+        if name:
+            entries.append(
+                {
+                    "node_id": node_id,
+                    "flags": flags,
+                    "size": size,
+                    "name": name,
+                    "is_dir": bool(flags & 0x02),
+                }
+            )
+
+    return entries
+
+
+def build_metadata_get_request(node_id: int, page: int = 0) -> bytes:
+    """Build FILE METADATA GET request payload for a node ID (filesystem node)."""
+    payload_raw = bytes(
+        [
+            FileOp.METADATA,
+            MetaType.GET,
+            (node_id >> 8) & 0xFF,
+            node_id & 0xFF,
+            (page >> 8) & 0xFF,
+            page & 0xFF,
+        ]
+    )
+    payload = encode_7bit(payload_raw)
+    return bytes([CMD_FILE]) + payload
+
+
+def build_metadata_set_request(node_id: int, metadata_json: str) -> bytes:
+    """Build FILE METADATA SET request payload for a node ID (filesystem node)."""
+    metadata_bytes = metadata_json.encode("utf-8") + b"\x00"
+    payload_raw = (
+        bytes(
+            [
+                FileOp.METADATA,
+                MetaType.SET,
+                (node_id >> 8) & 0xFF,
+                node_id & 0xFF,
+            ]
+        )
+        + metadata_bytes
+    )
+    payload = encode_7bit(payload_raw)
+    return bytes([CMD_FILE]) + payload
 
 
 def parse_json_from_sysex(data: bytes, offset: int = 10) -> dict | None:

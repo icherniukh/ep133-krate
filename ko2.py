@@ -152,18 +152,54 @@ def cmd_ls(args):
         else:
             start, end = 1, 99  # Default to first page
 
-        print(f"{Colors.CYAN}Scanning slots {start:03d}-{end:03d}...{Colors.RESET}")
-
-        # Scan with progress
+        # Prefer filesystem listing (/sounds/) for ground truth; fall back to slot scan.
         samples = []
-        for slot in range(start, end + 1):
-            show_progress(slot - start + 1, end - start + 1, f"(slot {slot})")
-            try:
-                info = client.info(slot, include_size=True)
-                samples.append(info)
-            except SlotEmptyError:
-                pass
-        print()  # Clear progress line
+        try:
+            entries = client.list_directory()
+            by_slot = {}
+            for e in entries:
+                if e.get("is_dir"):
+                    continue
+                name = str(e.get("name", ""))
+                slot = None
+                if len(name) >= 3 and name[:3].isdigit():
+                    slot = int(name[:3])
+                else:
+                    node_id = int(e.get("node_id") or 0)
+                    if 1000 < node_id <= 1999:
+                        slot = node_id - 1000
+                if slot is None or not (1 <= slot <= MAX_SLOTS):
+                    continue
+                if not (start <= slot <= end):
+                    continue
+                by_slot[slot] = e
+
+            for slot in sorted(by_slot.keys()):
+                e = by_slot[slot]
+                samples.append(
+                    SampleInfo(
+                        slot=slot,
+                        name=str(e.get("name", f"Slot {slot:03d}")),
+                        samplerate=SAMPLE_RATE,
+                        channels=1,
+                        size_bytes=int(e.get("size") or 0),
+                    )
+                )
+        except Exception:
+            entries = None
+
+        if entries is None:
+            print(f"{Colors.CYAN}Scanning slots {start:03d}-{end:03d}...{Colors.RESET}")
+            for slot in range(start, end + 1):
+                show_progress(slot - start + 1, end - start + 1, f"(slot {slot})")
+                try:
+                    info = client.info(slot, include_size=True)
+                    # Metadata can persist after delete; treat size==0 as empty for listing.
+                    if info.size_bytes:
+                        samples.append(info)
+                except SlotEmptyError:
+                    pass
+            print()  # Clear progress line
 
         if not samples:
             print(f"  {Colors.FG_DIM}No samples found{Colors.RESET}")

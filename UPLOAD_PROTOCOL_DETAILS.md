@@ -117,11 +117,12 @@ Starting value may vary; observed starting at `0x6B`.
 
 ### Flags Byte (after CMD_FILE):
 
-| Value | Meaning |
-|-------|---------|
-| 0x00 | Data/verify mode |
-| 0x08 | Finalize mode |
-| 0x40 | Upload init mode |
+The byte immediately after `CMD_FILE (0x05)` in these messages is **often just the 7-bit pack MSB bitmap** (the “pack flags” byte),
+not a semantic “operation flags” field. For example, `0x40` commonly appears because the 7th raw byte in the first 7-byte group
+is `0xE8` (parent node low byte for node 1000), which has MSB=1.
+
+You’ll also see values like `0x50` for slots where the slot low byte has MSB=1 (e.g. slot 900 has low byte `0x84`), because the pack bitmap
+reflects multiple MSBs in that first group.
 
 ## Slot Encoding
 

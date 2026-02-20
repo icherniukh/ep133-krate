@@ -23,9 +23,7 @@ except ImportError:
 
 from ko2_protocol import (
     DeviceId,
-    FileOp,
     GetType,
-    MetaType,
     SAMPLE_RATE,
     BIT_DEPTH,
     CHANNELS,
@@ -33,9 +31,6 @@ from ko2_protocol import (
     UPLOAD_CHUNK_SIZE,
     UPLOAD_PARENT_NODE,
     UPLOAD_DELAY,
-    encode_slot,
-    encode_slot_be,
-    decode_slot,
     build_sysex,
     parse_json_from_sysex,
     CMD_FILE,
@@ -44,45 +39,19 @@ from ko2_protocol import (
     DEVICE_FAMILY,
     SYSEX_START,
     SYSEX_END,
-    PAT_META_REQ,
-    E_EMPTY,
+    unpack_7bit as decode_7bit,
+    build_info_request,
+    build_download_init_request,
+    build_download_chunk_request,
+    build_upload_init_request,
+    build_upload_chunk_request,
+    build_upload_end_request,
+    build_delete_request,
+    build_file_list_request,
+    parse_file_list_response,
+    build_metadata_get_request,
+    build_metadata_set_request,
 )
-
-
-def encode_7bit(data: bytes) -> bytes:
-    """Encode 8-bit data to 7-bit MIDI SysEx format."""
-    result = bytearray()
-    i = 0
-    while i < len(data):
-        chunk = data[i : i + 7]
-        high_bits = 0
-        for j, byte in enumerate(chunk):
-            high_bits |= (byte >> 7) << j
-        result.append(high_bits)
-        for byte in chunk:
-            result.append(byte & 0x7F)
-        i += 7
-    return bytes(result)
-
-
-def decode_7bit(data: bytes) -> bytes:
-    """Decode 7-bit MIDI SysEx data back to 8-bit format."""
-    result = bytearray()
-    i = 0
-    while i < len(data):
-        if i + 8 > len(data):
-            high_bits = data[i]
-            for j in range(min(7, len(data) - i - 1)):
-                if i + 1 + j < len(data):
-                    result.append(data[i + 1 + j] | (((high_bits >> j) & 0x01) << 7))
-            break
-
-        high_bits = data[i]
-        for j in range(7):
-            if i + 1 + j < len(data):
-                result.append(data[i + 1 + j] | (((high_bits >> j) & 0x01) << 7))
-        i += 8
-    return bytes(result)
 
 
 @dataclass
@@ -214,9 +183,18 @@ class EP133Client:
         self._outport.send(msg)
 
     def _send_and_wait(
-        self, data: bytes, timeout: float = 2.0, debug: bool = False
+        self,
+        data: bytes,
+        timeout: float = 2.0,
+        debug: bool = False,
+        expect_cmd: int | None = None,
     ) -> bytes | None:
-        """Send SysEx and wait for response. Returns response or None on timeout."""
+        """Send SysEx and wait for a real TE response.
+
+        The EP-133 emits async notifications; we ignore anything that isn't a
+        response (cmd in 0x2x range). If expect_cmd is provided, we only return
+        a response with that cmd byte.
+        """
         # Drain pending messages first
         for _ in self._inport.iter_pending():
             pass
@@ -225,7 +203,20 @@ class EP133Client:
         while time.time() < deadline:
             for msg in self._inport.iter_pending():
                 if msg.type == "sysex":
-                    return bytes([SYSEX_START]) + bytes(msg.data) + bytes([SYSEX_END])
+                    raw = bytes([SYSEX_START]) + bytes(msg.data) + bytes([SYSEX_END])
+                    # TE responses have cmd in 0x2x range (see references/rcy).
+                    if len(raw) < 8:
+                        continue
+                    if raw[0] != SYSEX_START or raw[-1] != SYSEX_END:
+                        continue
+                    if raw[1:4] != TE_MFG_ID or raw[4:6] != DEVICE_FAMILY:
+                        continue
+                    cmd = raw[6]
+                    if (cmd & 0xF0) != 0x20:
+                        continue
+                    if expect_cmd is not None and cmd != (expect_cmd & 0x7F):
+                        continue
+                    return raw
             time.sleep(0.01)
         return None
 
@@ -260,30 +251,10 @@ class EP133Client:
 
     def _get_file_size(self, slot: int) -> int | None:
         """Get file size for a slot without downloading the whole file."""
-        slot_high, slot_low = encode_slot_be(slot)
         seq = 0x2E
-        offset = bytes([0x00, 0x00, 0x00, 0x00, 0x00])
-
         # Send GET INIT
-        init_msg = (
-            bytes(
-                [
-                    SYSEX_START,
-                    *TE_MFG_ID,
-                    *DEVICE_FAMILY,
-                    DeviceId.DOWNLOAD,
-                    seq,
-                    CMD_FILE,
-                    FIXED_BYTE,
-                    FileOp.GET,
-                    GetType.INIT,
-                    slot_high,
-                    slot_low,
-                ]
-            )
-            + offset
-            + bytes([SYSEX_END])
-        )
+        init_req = bytes([DeviceId.DOWNLOAD, seq]) + build_download_init_request(slot)
+        init_msg = build_sysex(init_req)
 
         for _ in self._inport.iter_pending():
             pass
@@ -328,19 +299,8 @@ class EP133Client:
         if not 1 <= slot <= MAX_SLOTS:
             raise ValueError(f"Slot must be 1-{MAX_SLOTS}, got {slot}")
 
-        slot_high, slot_low = encode_slot(slot)
-
-        req_data = (
-            bytes(
-                [
-                    0x75,  # GET_META command
-                    slot & 0x7F,
-                ]
-            )
-            + PAT_META_REQ
-            + bytes([slot_high, slot_low])
-            + E_EMPTY
-        )
+        # Note: INFO uses a special GET_META prefix (0x75) and raw slot, not CMD_FILE
+        req_data = bytes([DeviceId.GET_META, slot & 0x7F]) + build_info_request(slot)
 
         self._send_sysex(build_sysex(req_data))
         time.sleep(0.2)
@@ -431,37 +391,22 @@ class EP133Client:
         # Download data
         data = self._download_data(slot)
 
-        # Save as WAV
-        self._save_wav(data, output_path)
+        # Save as WAV (use metadata for correct header)
+        self._save_wav(
+            data,
+            output_path,
+            channels=max(1, int(metadata.channels or 1)),
+            samplerate=int(metadata.samplerate or SAMPLE_RATE),
+        )
 
         return output_path
 
     def _download_data(self, slot: int) -> bytes:
         """Download raw sample data from device."""
-        slot_high, slot_low = encode_slot_be(slot)
         seq = 0x2E
-        offset = bytes([0x00, 0x00, 0x00, 0x00, 0x00])
-
         # Send GET INIT
-        init_msg = (
-            bytes(
-                [
-                    SYSEX_START,
-                    *TE_MFG_ID,
-                    *DEVICE_FAMILY,
-                    DeviceId.DOWNLOAD,
-                    seq,
-                    CMD_FILE,
-                    FIXED_BYTE,
-                    FileOp.GET,
-                    GetType.INIT,
-                    slot_high,
-                    slot_low,
-                ]
-            )
-            + offset
-            + bytes([SYSEX_END])
-        )
+        init_msg = bytes([DeviceId.DOWNLOAD, seq]) + build_download_init_request(slot)
+        init_msg = build_sysex(init_msg)
 
         # Clear pending
         for _ in self._inport.iter_pending():
@@ -510,21 +455,8 @@ class EP133Client:
             page_hi = (page >> 7) & 0x7F
             seq = (seq + 1) & 0x7F
 
-            data_req = bytes(
-                [
-                    SYSEX_START,
-                    *TE_MFG_ID,
-                    *DEVICE_FAMILY,
-                    DeviceId.DOWNLOAD,
-                    seq,
-                    CMD_FILE,
-                    FIXED_BYTE,
-                    FileOp.GET,
-                    GetType.DATA,
-                    page_hi,
-                    page_lo,
-                    SYSEX_END,
-                ]
+            data_req = build_sysex(
+                bytes([DeviceId.DOWNLOAD, seq]) + build_download_chunk_request(page)
             )
 
             self._send_sysex(data_req)
@@ -566,23 +498,131 @@ class EP133Client:
 
         return bytes(all_data)
 
-    def _save_wav(self, data: bytes, output_path: Path) -> None:
-        """Save data as WAV file."""
+    def _save_wav(
+        self, data: bytes, output_path: Path, channels: int, samplerate: int
+    ) -> None:
+        """Save raw PCM data as WAV file."""
         import wave
 
         with wave.open(str(output_path), "wb") as wav:
-            wav.setnchannels(CHANNELS)
+            wav.setnchannels(channels)
             wav.setsampwidth(BIT_DEPTH // 8)
-            wav.setframerate(SAMPLE_RATE)
+            wav.setframerate(samplerate)
 
-            samples = []
-            for i in range(0, len(data) - 1, 2):
-                if i + 1 < len(data):
-                    sample = struct.unpack("<h", bytes([data[i], data[i + 1]]))[0]
-                    samples.append(struct.pack("<h", sample))
+            # Data from the device is already s16 little-endian PCM. Write as-is.
+            if data:
+                wav.writeframes(data)
 
-            if samples:
-                wav.writeframes(b"".join(samples))
+    # ========================================================================
+    # FILE LIST - Enumerate /sounds directory (ground truth listing)
+    # ========================================================================
+
+    def list_directory(self, node_id: int = UPLOAD_PARENT_NODE) -> list[dict]:
+        """List entries in a filesystem directory node (e.g. node 1000 = /sounds/)."""
+        all_entries: list[dict] = []
+        page = 0
+
+        while True:
+            seq = self._next_seq()
+            req_data = bytes([0x6A, seq]) + build_file_list_request(node_id, page)
+            msg = build_sysex(req_data)
+
+            resp = self._send_and_wait(msg, timeout=2.0, expect_cmd=(0x6A - 0x40))
+            status = self._check_response_status(resp)
+            if status is None or status != 0:
+                break
+
+            encoded_payload = resp[10:-1] if resp and len(resp) > 11 else b""
+            payload = decode_7bit(encoded_payload) if encoded_payload else b""
+            entries = parse_file_list_response(payload)
+            if not entries:
+                break
+
+            all_entries.extend(entries)
+            page += 1
+            if page > 200:
+                break
+
+        return all_entries
+
+    def get_node_metadata(self, node_id: int) -> dict | None:
+        """Fetch metadata JSON for a filesystem node (paged)."""
+        import json as _json
+
+        all_bytes = bytearray()
+        page = 0
+        while True:
+            seq = self._next_seq()
+            req_data = bytes([0x6A, seq]) + build_metadata_get_request(node_id, page)
+            msg = build_sysex(req_data)
+
+            resp = self._send_and_wait(msg, timeout=2.0, expect_cmd=(0x6A - 0x40))
+            status = self._check_response_status(resp)
+            if status is None or status != 0:
+                break
+
+            encoded_payload = resp[10:-1] if resp and len(resp) > 11 else b""
+            payload = decode_7bit(encoded_payload) if encoded_payload else b""
+            if len(payload) < 2:
+                break
+            fragment = payload[2:]
+            if not fragment or fragment == b"\x00":
+                break
+            all_bytes.extend(fragment.rstrip(b"\x00"))
+            page += 1
+            if page > 200:
+                break
+
+        if not all_bytes:
+            return None
+
+        text = "".join(chr(b) for b in all_bytes if b != 0)
+        start = text.find("{")
+        end = text.rfind("}")
+        if start == -1 or end == -1 or end <= start:
+            return None
+        try:
+            return _json.loads(text[start : end + 1])
+        except Exception:
+            return None
+
+    def rename(self, slot: int, new_name: str) -> None:
+        """Rename a sound slot by setting filesystem-node metadata.
+
+        Uses /sounds directory listing to resolve slot -> node_id, then attempts
+        a METADATA SET on that node.
+        """
+        entries = self.list_directory(UPLOAD_PARENT_NODE)
+        node_id = None
+        for e in entries:
+            if e.get("is_dir"):
+                continue
+            name = str(e.get("name", ""))
+            parsed_slot = None
+            if len(name) >= 3 and name[:3].isdigit():
+                parsed_slot = int(name[:3])
+            else:
+                nid = int(e.get("node_id") or 0)
+                if 1000 < nid <= 1999:
+                    parsed_slot = nid - 1000
+            if parsed_slot == slot:
+                node_id = int(e.get("node_id") or 0)
+                break
+
+        if not node_id:
+            raise EP133Error(f"Could not resolve node_id for slot {slot}")
+
+        seq = self._next_seq()
+        req_data = bytes([0x6A, seq]) + build_metadata_set_request(
+            node_id, json.dumps({"name": new_name}, separators=(",", ":"), ensure_ascii=False)
+        )
+        msg = build_sysex(req_data)
+        resp = self._send_and_wait(msg, timeout=2.0, expect_cmd=(0x6A - 0x40))
+        status = self._check_response_status(resp)
+        if status is None:
+            raise EP133Error("No response to rename")
+        if status != 0:
+            raise EP133Error(f"Rename failed: status={status}")
 
     # ========================================================================
     # PUT - Upload sample to device
@@ -641,56 +681,28 @@ class EP133Client:
 
         data_size = len(audio_data)
 
-        # Generate filename
         if name is None:
             name = input_path.stem
-        # Sanitize name for EP-133 format (e.g., "1_kick_01")
-        filename = f"{slot}_{name[:20]}"
 
-        # Slot encoding for upload init (big-endian: high byte first)
-        slot_high = (slot >> 7) & 0x7F
-        slot_low = slot & 0x7F
+        # Upload uses TE command bytes 0x6C (init + chunks) and 0x6D (end marker),
+        # matching the working reference implementation (see UPLOAD_INVESTIGATION.md).
+        # The byte after CMD_FILE (0x05) is *7-bit pack flags* (MSB bitmap), not a
+        # semantic "operation flags" field.
 
-        seq = 0x13  # Starting sequence for uploads (19, as seen in protocol examples)
-
-        # Step 1: Upload Init
-        # Based on working rcy implementation:
-        # [PUT] [0x00] [filetype] [slot_hi] [slot_lo] [parent_hi] [parent_lo]
-        # [size_be_4bytes] [filename] [null] [metadata_json]
-
-        # Build init payload (will be 7-bit encoded)
-        payload_raw = bytearray(
-            [
-                FileOp.PUT,  # 0x02
-                0x00,
-                0x05,  # File type (audio)
-                (slot >> 8) & 0xFF,
-                slot & 0xFF,
-                (UPLOAD_PARENT_NODE >> 8) & 0xFF,
-                UPLOAD_PARENT_NODE & 0xFF,
-            ]
+        # Step 1: Upload Init (0x6C)
+        init_seq = self._next_seq()
+        init_req = (
+            bytes([DeviceId.UPLOAD_DATA, init_seq, CMD_FILE])
+            + build_upload_init_request(slot, data_size, CHANNELS, SAMPLE_RATE, name)
         )
-        # File size in big-endian (4 bytes)
-        payload_raw.extend(data_size.to_bytes(4, "big"))
-        # Filename and metadata
-        payload_raw.extend(name[:32].encode("utf-8"))
-        payload_raw.append(0x00)
-        metadata = f'{{"channels":{CHANNELS},"samplerate":{SAMPLE_RATE}}}'
-        payload_raw.extend(metadata.encode("utf-8"))
+        init_msg = build_sysex(init_req)
 
-        var_payload_encoded = encode_7bit(bytes(payload_raw))
-
-        init_msg = (
-            bytes([SYSEX_START])
-            + TE_MFG_ID
-            + DEVICE_FAMILY
-            + bytes([DeviceId.UPLOAD_DATA, seq])
-            + bytes([CMD_FILE])
-            + var_payload_encoded
-            + bytes([SYSEX_END])
+        response = self._send_and_wait(
+            init_msg,
+            timeout=5.0,
+            debug=debug,
+            expect_cmd=(DeviceId.UPLOAD_DATA - 0x40),
         )
-
-        response = self._send_and_wait(init_msg, timeout=5.0, debug=debug)
         status = self._check_response_status(response)
         if status is None:
             raise EP133Error("No response to upload init")
@@ -700,44 +712,27 @@ class EP133Client:
         if progress:
             print(f"  Uploading {data_size} bytes...", end="", flush=True)
 
-        # Step 2: Send data chunks
-        # Based on rcy: chunks use index (not byte offset), 433 bytes max
+        # Step 2: Send data chunks (0x6C)
+        # Chunks use an index (not a byte offset), 433 bytes max after unpacking.
         chunk_index = 0
         offset = 0
 
         while offset < data_size:
             chunk_data = bytes(audio_data[offset : offset + UPLOAD_CHUNK_SIZE])
 
-            # Chunk payload: [PUT] [0x01] [index_hi] [index_lo] [audio_data]
-            chunk_payload = bytearray(
-                [
-                    FileOp.PUT,  # 0x02
-                    0x01,  # Data chunk indicator
-                    (chunk_index >> 8) & 0xFF,
-                    chunk_index & 0xFF,
-                ]
+            # Chunk payload
+            chunk_seq = self._next_seq()
+            chunk_req = bytes([DeviceId.UPLOAD_DATA, chunk_seq]) + build_upload_chunk_request(
+                chunk_index, chunk_data
             )
-            chunk_payload.extend(chunk_data)
-            chunk_encoded = encode_7bit(bytes(chunk_payload))
+            chunk_msg = build_sysex(chunk_req)
 
-            seq = (seq + 1) & 0x7F
-
-            chunk_msg = (
-                bytes(
-                    [
-                        SYSEX_START,
-                        *TE_MFG_ID,
-                        *DEVICE_FAMILY,
-                        DeviceId.UPLOAD_DATA,
-                        seq,
-                        CMD_FILE,
-                    ]
-                )
-                + chunk_encoded
-                + bytes([SYSEX_END])
+            response = self._send_and_wait(
+                chunk_msg,
+                timeout=2.0,
+                debug=debug,
+                expect_cmd=(DeviceId.UPLOAD_DATA - 0x40),
             )
-
-            response = self._send_and_wait(chunk_msg, timeout=2.0, debug=debug)
             status = self._check_response_status(response)
             if status is None:
                 raise EP133Error(f"No response to chunk {chunk_index}")
@@ -755,40 +750,28 @@ class EP133Client:
         if progress:
             print(" done", flush=True)
 
-        # Step 3: End marker
-        end_payload = bytearray(
-            [
-                FileOp.PUT,
-                0x01,
-                (chunk_index >> 8) & 0xFF,
-                chunk_index & 0xFF,
-            ]
+        # Step 3: End marker (0x6D)
+        end_seq = self._next_seq()
+        end_req = bytes([DeviceId.UPLOAD_END, end_seq]) + build_upload_end_request(
+            chunk_index
         )
-        end_encoded = encode_7bit(bytes(end_payload))
+        end_msg = build_sysex(end_req)
 
-        seq = (seq + 1) & 0x7F
-        end_msg = (
-            bytes(
-                [
-                    SYSEX_START,
-                    *TE_MFG_ID,
-                    *DEVICE_FAMILY,
-                    0x6D,  # End marker command
-                    seq,
-                    CMD_FILE,
-                ]
-            )
-            + end_encoded
-            + bytes([SYSEX_END])
+        response = self._send_and_wait(
+            end_msg,
+            timeout=5.0,
+            debug=debug,
+            expect_cmd=(DeviceId.UPLOAD_END - 0x40),
         )
-        response = self._send_and_wait(end_msg, timeout=5.0, debug=debug)
         status = self._check_response_status(response)
         if status is None:
             raise EP133Error("No response to upload end marker")
-        if status != 0:
-            raise EP133Error(f"Upload end marker failed: status={status}")
+        # Observed: end marker may return non-zero even when the upload persists.
+        # Treat it as a warning (rcy only enforces "response exists").
+        if status != 0 and debug:
+            print(f"  ⚠ Upload end marker status={status} (continuing)")
 
-        # Step 4: Sync - re-init file protocol to refresh device state
+        # Step 4: Sync
         self._initialize()
 
     # ========================================================================
@@ -803,26 +786,10 @@ class EP133Client:
             slot: Slot number (1-999)
         """
         # F0 00 20 76 33 40 7E [SEQ] 05 00 06 [SLOT_HI] [SLOT_LO] F7
-        # Slot encoding: big-endian per external sources (garrettjwilke/ep_133_sysex_thingy)
-        # Example: slot 11 = 00 0B
-        slot_high = (slot >> 7) & 0x7F
-        slot_low = slot & 0x7F
-
-        msg = bytes(
-            [
-                SYSEX_START,
-                *TE_MFG_ID,
-                *DEVICE_FAMILY,
-                DeviceId.UPLOAD,
-                self._next_seq(),
-                CMD_FILE,
-                FIXED_BYTE,
-                FileOp.DELETE,
-                slot_high,
-                slot_low,
-                SYSEX_END,
-            ]
+        req_data = bytes([DeviceId.UPLOAD, self._next_seq()]) + build_delete_request(
+            slot
         )
+        msg = build_sysex(req_data)
 
         for _ in self._inport.iter_pending():
             pass
