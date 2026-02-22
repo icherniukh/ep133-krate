@@ -12,6 +12,25 @@ tmp/
 *.log
 .DS_Store
 
+# Audio samples and captures
+*.wav
+*.bin
+*.mid
+*.pcm
+captures/
+
+# Audit/debug dumps
+*.jsonl
+*.tsv
+
+# Reference codebases (large, vendored)
+
+# Experiments (scratch work)
+experiments/
+
+# Backups created by ko2 optimize/move/copy
+.ko2-backups/
+
 # Virtual environments
 venv/
 env/
