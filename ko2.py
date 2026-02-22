@@ -260,6 +260,7 @@ def cmd_ls(args):
         source = args.source
         stream = args.stream
         name_source = args.name_source
+        use_meta = bool(getattr(args, "use_meta", False))
         # Prefer filesystem listing (/sounds/) for ground truth; slot-scan can be stale.
         samples = []
         entries = None
@@ -315,11 +316,16 @@ def cmd_ls(args):
                             if "channels" in node_meta:
                                 channels = int(node_meta.get("channels") or 0)
 
+                    allow_get_meta = use_meta or name_source == "meta"
                     need_info = name_source == "meta" or node_meta is None or channels == 0
                     if need_info:
                         try:
                             meta = client.info(
-                                slot, include_size=False, node_entry=e, prefer_node=True
+                                slot,
+                                include_size=False,
+                                node_entry=e,
+                                prefer_node=True,
+                                allow_get_meta=allow_get_meta,
                             )
                             samplerate = int(meta.samplerate or samplerate or SAMPLE_RATE)
                             channels = int(meta.channels or channels or 0)
@@ -376,7 +382,11 @@ def cmd_ls(args):
                 else:
                     show_progress(slot - start + 1, end - start + 1, f"(slot {slot})")
                 try:
-                    info = client.info(slot, include_size=True)
+                    info = client.info(
+                        slot,
+                        include_size=True,
+                        allow_get_meta=use_meta,
+                    )
                     # Metadata can persist after delete; treat size==0 as empty for listing.
                     if info.size_bytes:
                         samples.append(info)
@@ -426,11 +436,12 @@ def cmd_ls(args):
 def cmd_info(args):
     """Show sample metadata for slot or range."""
     slot_spec = parse_range(args.slot)
+    use_meta = bool(getattr(args, "use_meta", False))
 
     with EP133Client(args.device) as client:
         if isinstance(slot_spec, int):
             try:
-                info = client.info(slot_spec, include_size=True)
+                info = client.info(slot_spec, include_size=True, allow_get_meta=use_meta)
                 # Prefer filesystem node metadata for name/format if available.
                 try:
                     sounds = client.list_sounds()
@@ -477,7 +488,7 @@ def cmd_info(args):
             for slot in range(start, end + 1):
                 show_progress(slot - start + 1, end - start + 1)
                 try:
-                    info = client.info(slot, include_size=True)
+                    info = client.info(slot, include_size=True, allow_get_meta=use_meta)
                     samples.append(info)
                 except SlotEmptyError:
                     empty_count += 1
@@ -705,11 +716,13 @@ def cmd_audit(args):
         stale = 0
         field_mismatch = 0
         node_missing = 0
+        node_name_empty = 0
 
         for slot in range(start, end + 1):
             entry = sounds.get(slot)
             fs_name = str(entry.get("name") or "") if entry else ""
 
+            flags = []
             node_name = ""
             node_meta = None
             if entry:
@@ -719,10 +732,14 @@ def cmd_audit(args):
                         node_meta = client.get_node_metadata(node_id)
                     except Exception:
                         node_meta = None
-                    if node_meta:
-                        node_name = str(
-                            node_meta.get("name") or node_meta.get("sym") or ""
-                        )
+                if node_meta:
+                    node_name = str(node_meta.get("name") or node_meta.get("sym") or "")
+                    if not node_name:
+                        flags.append("node-name-empty")
+                        node_name_empty += 1
+                else:
+                    flags.append("node-meta-miss")
+                    node_missing += 1
 
             meta_name = ""
             try:
@@ -732,13 +749,9 @@ def cmd_audit(args):
             if meta:
                 meta_name = str(meta.get("name") or meta.get("sym") or "")
 
-            flags = []
             if not entry and meta_name:
                 flags.append("stale")
                 stale += 1
-            if entry and not node_name:
-                flags.append("node-miss")
-                node_missing += 1
             if compare_fields and node_meta and meta:
                 has_field_diff = False
                 for field in compare_fields:
@@ -787,7 +800,8 @@ def cmd_audit(args):
         print(f"  Slots scanned: {end - start + 1}")
         print(f"  Rows shown:    {rows}")
         print(f"  Stale meta:    {stale}")
-        print(f"  Node missing:  {node_missing}")
+        print(f"  Node meta missing: {node_missing}")
+        print(f"  Node name empty:  {node_name_empty}")
         if compare_fields:
             print(f"  Field mismatch: {field_mismatch}")
 
@@ -1559,10 +1573,20 @@ def main():
         action="store_true",
         help="Print samples as they are discovered (disables progress bar)",
     )
+    ls_parser.add_argument(
+        "--use-meta",
+        action="store_true",
+        help="Allow GET_META fallback (known stale)",
+    )
 
     # info: slot or range
     info_parser = subparsers.add_parser("info", help="Show sample metadata")
     info_parser.add_argument("slot", help="Slot (5) or range (1-10, 1..10)")
+    info_parser.add_argument(
+        "--use-meta",
+        action="store_true",
+        help="Allow GET_META fallback (known stale)",
+    )
 
     # status: quick device status
     status_parser = subparsers.add_parser(

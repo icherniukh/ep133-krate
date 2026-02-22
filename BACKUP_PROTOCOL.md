@@ -53,11 +53,11 @@ Device might:
 
 ## How to Investigate
 
-### Method 1: MIDI Sniffer (Recommended)
+### Method 1: MIDI Proxy Capture (Recommended)
 ```bash
-python3 midi_sniffer.py
+python midi_proxy.py --proxy captures/sniffer-backup.jsonl
 # Then trigger backup in official tool
-# Watch for SysEx messages
+# Stop capture with Ctrl+C
 ```
 
 ### Method 2: Browser DevTools

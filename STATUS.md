@@ -1,5 +1,17 @@
 # EP-133 KO-II Tools - Status
 
+## Progress Overview (rough estimates)
+
+**Protocol Understanding:** `[########--] 80%`
+- Confirmed: LIST/GET/PUT/DELETE, METADATA SET, VERIFY, upload metadata fields, pad mapping A + partial B/C/D
+- Partial: GET_META reliability, project ops, memory reporting
+- Unknown: PLAYBACK/AUDITION wire protocol
+
+**Project Phases:**
+- Phase 1 (CLI): `[########--] 80%`
+- Phase 2 (TUI): `[----------] 0%`
+- Phase 3 (Desktop/Web/Mobile): `[----------] 0%`
+
 ## Currently Working Operations
 
 ### Device Operations (via MIDI SysEx)
@@ -9,7 +21,7 @@
 | **List Samples** | ✅ Working | `ko2 ls [--page N] [--all]` | Scan by pages (100 slots), show size/duration |
 | **Query Metadata** | ✅ Working | `ko2 info <slot\|range>` | Get name, size, duration |
 | **Download Sample** | ✅ Working | `ko2 get <slot> [file]` | Downloads to WAV (46875Hz) |
-| **Upload Sample** | ⚠️ Partial | `ko2 put <file> <slot>` | Audio works, metadata stale |
+| **Upload Sample** | ✅ Working | `ko2 put <file> <slot>` | Audio + metadata set (channels/samplerate; loop fields when small) |
 | **Delete Sample** | ✅ Working | `ko2 rm <slot>` | `delete` alias also works |
 | **Optimize Sample** | ✅ Working | `ko2 optimize <slot>` | Backup + optimize + replace |
 | **Optimize All** | ✅ Working | `ko2 optimize-all [--min KB]` | Batch optimize oversized samples |
@@ -61,7 +73,7 @@ ko2 optimize-all --force     # Skip confirmation
 | ID | Name | Status | Notes |
 |----|------|--------|-------|
 | 0x61 | INIT | ✅ Working | Initialization sequence |
-| 0x75 | GET_META | ✅ Working | Metadata queries (little-endian) |
+| 0x75 | GET_META | ⚠️ Unreliable | Stale/offset results; official app does not use it |
 | 0x76 | PLAYBACK | ⏳ Unknown | Audition - needs packet capture |
 | 0x77 | INFO | ✅ Working | Device info |
 | 0x7C | PROJECT | ✅ Documented | Project switching (not implemented) |
@@ -78,7 +90,7 @@ ko2 optimize-all --force     # Skip confirmation
 | 0x01 | INIT | Initialize | ✅ Working |
 | 0x02 | PUT | Upload | ✅ Working |
 | 0x03 | GET | Download | ✅ Working |
-| 0x04 | LIST | List files | ⚠️ Unconfirmed (not needed) |
+| 0x04 | LIST | List files | ✅ Working | Confirmed via captures |
 | 0x05 | PLAYBACK | Playback | ⏳ Unknown |
 | 0x06 | DELETE | Delete | ✅ Working |
 | 0x07 | METADATA | Metadata ops | ✅ Working |
@@ -159,9 +171,12 @@ Max page with 14 bits: 16383 (sufficient for all samples).
 
 1. **Playback/Audition (0x76)** - Protocol unknown, needs MIDI sniffer
 2. **Project Query** - No command to list/query projects
-3. **Sample Rename** - Metadata SET exists but not tested
-4. **Sample Move/Copy** - Would require download+re-upload
+3. **Sample Rename** - Wire-verified (METADATA SET), CLI not implemented
+4. **Sample Move/Copy** - Would require download+re-upload (not implemented)
 5. **Memory Statistics** - No command to query free memory
+6. **Pad Mapping** - A complete; B/C partial; D partial
+7. **Node hierarchy** - META_SET shows `active` toggles on nodes 2000/5100/5300/5400/9100/9300/9500; semantics still unclear
+8. **GET_META Reliability** - Audit 001-160: 20 stale, 23 node-name-empty, 60 field mismatches; use node metadata
 
 ---
 

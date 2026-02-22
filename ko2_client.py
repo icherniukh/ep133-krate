@@ -352,7 +352,7 @@ class EP133Client:
         include_size: bool = True,
         node_entry: dict | None = None,
         prefer_node: bool = True,
-        allow_get_meta: bool = True,
+        allow_get_meta: bool = False,
     ) -> SampleInfo:
         """
         Get metadata for a sample slot.
@@ -360,6 +360,7 @@ class EP133Client:
         Args:
             slot: Slot number (1-999)
             include_size: Whether to fetch file size (adds roundtrip)
+            allow_get_meta: Allow GET_META fallback (known stale)
 
         Returns:
             SampleInfo with metadata
@@ -760,6 +761,23 @@ class EP133Client:
     # PUT - Upload sample to device
     # ========================================================================
 
+    @staticmethod
+    def build_upload_metadata(channels: int, samplerate: int, frames: int) -> dict[str, object]:
+        meta: dict[str, object] = {
+            "channels": channels,
+            "samplerate": samplerate,
+        }
+        loop_end = max(0, frames - 1)
+        if loop_end <= 0x1FFFF:
+            meta.update(
+                {
+                    "sound.loopstart": 0,
+                    "sound.loopend": loop_end,
+                    "sound.rootnote": 60,
+                }
+            )
+        return meta
+
     def put(
         self,
         input_path: Path,
@@ -779,6 +797,7 @@ class EP133Client:
             debug: Print hex dumps of messages sent
         """
         import wave
+        import json as _json
 
         if not 1 <= slot <= MAX_SLOTS:
             raise ValueError(f"Slot must be 1-{MAX_SLOTS}, got {slot}")
@@ -903,7 +922,26 @@ class EP133Client:
         if status != 0 and debug:
             print(f"  ⚠ Upload end marker status={status} (continuing)")
 
-        # Step 4: Sync
+        # Step 4: Metadata SET (official tool writes channels/samplerate; sometimes loop info)
+        meta_payload = self.build_upload_metadata(channels, samplerate, frames)
+
+        try:
+            seq = self._next_seq()
+            req_data = bytes([0x6A, seq]) + build_metadata_set_request(
+                slot,
+                _json.dumps(meta_payload, separators=(",", ":"), ensure_ascii=False),
+            )
+            msg = build_sysex(req_data)
+            resp = self._send_and_wait(msg, timeout=2.0, debug=debug, expect_cmd=(0x6A - 0x40))
+            status = self._check_response_status(resp)
+            if status is None or status != 0:
+                if debug:
+                    print(f"  ⚠ Metadata SET status={status}")
+        except EP133Error as e:
+            if debug:
+                print(f"  ⚠ Metadata SET failed: {e}")
+
+        # Step 5: Sync
         self._initialize()
 
     # ========================================================================

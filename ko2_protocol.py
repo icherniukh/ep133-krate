@@ -220,14 +220,14 @@ def build_download_chunk_request(page: int) -> bytes:
 
 
 def build_delete_request(slot: int) -> bytes:
-    """Build DELETE request. Slot uses little-endian 7-bit split per CLIENT.py."""
-    slot_lo = slot & 0xFF
+    """Build DELETE request. Slot uses big-endian encoding (hi, lo)."""
     slot_hi = (slot >> 8) & 0xFF
+    slot_lo = slot & 0xFF
     payload_raw = bytes(
         [
             0x06,  # FileOp.DELETE
-            slot_lo,
             slot_hi,
+            slot_lo,
         ]
     )
     payload = encode_7bit(payload_raw)
@@ -459,12 +459,11 @@ def parse_json_from_sysex(data: bytes, offset: int = 10) -> dict | None:
     if len(data) < offset:
         return None
 
-    # Convert to string, keeping valid ASCII and JSON structural chars
-    # EP-133 inserts null bytes between characters, so we filter them out
-    json_str = "".join(
-        chr(b) if (32 <= b < 127 or b in [123, 125, 58, 44]) else ""
-        for b in data[offset:]
-    )
+    # Convert to string, dropping only null bytes (EP-133 inserts 0x00 between chars)
+    raw = bytes(b for b in data[offset:] if b != 0)
+    json_str = raw.decode("utf-8", errors="ignore")
+    if "{" in json_str:
+        json_str = json_str[json_str.find("{") :]
 
     # Extract JSON object
     if "{" not in json_str:

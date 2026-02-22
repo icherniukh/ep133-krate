@@ -12,6 +12,13 @@ ko2-list backup.pak
 ko2-optimize backup.pak
 ```
 
+## Progress (rough estimates)
+
+**Protocol Understanding:** `[########--] 80%`  
+**Phase 1 (CLI):** `[########--] 80%`  
+**Phase 2 (TUI):** `[----------] 0%`  
+**Phase 3 (Desktop/Web/Mobile):** `[----------] 0%`
+
 ## Tools
 
 ### 1. ko2-list - Backup Sample Lister
@@ -75,6 +82,41 @@ ko2-optimize old.pak new.pak
 ```
 
 **Note:** Uses `audio2ko2` from parent directory
+
+---
+
+## MIDI Sniffer / Proxy
+
+Use `midi_proxy.py` to capture SysEx traffic (official tool or ko2 commands).
+
+Capture (TX+RX) via proxy:
+```bash
+python midi_proxy.py --proxy captures/sniffer.jsonl
+```
+
+Hunt for specific traffic during capture (prints matches to stdout):
+```bash
+python midi_proxy.py --proxy --hunt get_meta
+python midi_proxy.py --proxy --hunt get_meta --hunt meta_rsp
+python midi_proxy.py --proxy --hunt meta_get --hunt meta_set
+python midi_proxy.py --proxy --hunt cmd=0x75 --hunt fileop=0x04
+```
+
+Capture raw binary:
+```bash
+python midi_proxy.py --proxy --format raw captures/sniffer-raw.bin
+```
+
+Capture as standard MIDI file:
+```bash
+python midi_proxy.py --proxy --format mid captures/sniffer.mid
+```
+
+Pretty-print a capture:
+```bash
+python midi_proxy.py --pretty captures/sniffer.jsonl
+python midi_proxy.py --pretty --format raw captures/sniffer-raw.bin
+```
 
 ---
 

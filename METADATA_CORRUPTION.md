@@ -73,14 +73,15 @@ When `--dump-json` is used, each line is a single JSON object:
 
 **Flag values:**
 - `stale`: GET_META returned a name but no `/sounds` entry exists.
-- `node-miss`: `/sounds` entry exists but node metadata is empty/unavailable.
+- `node-meta-miss`: `/sounds` entry exists but node metadata could not be fetched.
+- `node-name-empty`: node metadata exists but `name`/`sym` is empty.
 - `<field>:diff`: Node metadata and GET_META differ for a compared field.
 
 ## Mitigations (implemented)
 
 1. **`info()` prefers node metadata for names**
    - GET_META is not trusted for names on slots >127.
-   - For slots >127, GET_META is only used for technical fields if missing.
+   - GET_META is only used when explicitly requested (`--use-meta`) or as a last-resort scan fallback.
 
 2. **Inventory uses filesystem listing**
    - Listing relies on `/sounds` entries; empty slots are real empties.

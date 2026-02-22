@@ -29,6 +29,10 @@ Where:
 | 0x7C | PROJECT | Project switching (NEW) |
 | 0x7D | DOWNLOAD | File download (GET) |
 | 0x7E | UPLOAD | File upload (PUT), DELETE |
+| 0x6A | FILE | File ops (LIST/METADATA) — used by ko2 tools |
+| 0x6B | FILE_ALT | File ops (LIST/METADATA) — used by official tool |
+| 0x6F | FILE_META | File meta GET/SET — used by official tool (rename) |
+| 0x60-0x6A | FILE_RANGE | File ops (LIST/METADATA) — observed in official app polling |
 | 0x37 | RESPONSE | Standard device response |
 | 0x3D | RESPONSE_ALT | Alternative response (downloads) |
 
@@ -39,11 +43,21 @@ Where:
 | 0x01 | INIT | Initialize communication |
 | 0x02 | PUT | Upload file |
 | 0x03 | GET | Download file |
-| 0x04 | LIST | List files (unconfirmed) |
+| 0x04 | LIST | List files |
 | 0x05 | PLAYBACK | Playback/audition control |
 | 0x06 | DELETE | Delete sample |
 | 0x07 | METADATA | Metadata operations |
 | 0x0B | VERIFY | Verify commit (upload) |
+
+## Official App Behavior (Observed)
+
+From hunter captures (e.g. `captures/sniffer-2026-02-20-220918.jsonl`):
+- Uses FileOp.LIST and FileOp.METADATA GET heavily; **does not use GET_META (0x75)**.
+- Sends FileOp.METADATA GET/SET with device IDs in the **0x60–0x6A range** (rotating).
+- Uses FileOp.METADATA SET with JSON payloads to drive UI navigation and pad assignment.
+- `{"active":<node>}` toggles active child nodes (UI selection/navigation).
+- `{"sym":<n>}` appears to assign a sample slot to a pad node (needs more confirmation).
+- `{"sample.start":..., "sample.end":...}` used for trim edits (see pad-trim capture).
 
 ## Common Commands
 
@@ -74,14 +88,17 @@ F0 00 20 76 33 40 75 [slot] 05 08 07 02 [slot_hi] [slot_lo] 00 00 F7
 ```
 - Device ID: `0x75` (GET_META)
 - Returns JSON with: name, sym, samplerate, format
+- Note: GET_META appears unreliable/stale. Hunter captures show the official
+  tool does **not** use 0x75/0x35; it uses FileOp.METADATA GET/SET via 0x6B/0x6F
+  (and LIST via 0x6A/0x6B). Treat GET_META as legacy/debug only.
 
 ### Delete Sample
 ```
-F0 00 20 76 33 40 7E [seq] 05 00 06 [slot_lo] [slot_hi] F7
+F0 00 20 76 33 40 7E [seq] 05 00 06 [slot_hi] [slot_lo] F7
 ```
 - Device ID: `0x7E` (UPLOAD)
 - Operation: `0x06` (DELETE)
-- Slot encoding: big-endian (confirmed from external refs)
+- Slot encoding: big-endian (confirmed from captures)
 
 ### Switch Project (NEW)
 ```
@@ -97,21 +114,29 @@ The upload consists of **8 messages** sent in sequence:
 
 ### 1. Upload Init
 ```
-F0 00 20 76 33 40 7E [seq] 05 40 02 00 05 [slot_hi] [slot_lo] [7bit: size+name+meta] F7
+F0 00 20 76 33 40 7E [seq] 05 [7bit: 02 00 05 slot_hi slot_lo node_hi node_lo size name 00 json] F7
 ```
-- Flags: `0x40` (upload init mode)
-- Operation: `0x02` (PUT)
-- Sub-op: `0x00` (PUT_INIT)
-- File type: `0x05` (sample)
-- Data: 7-bit encoded (size + filename + metadata JSON)
+- Device ID: `0x7E` (official tool; sometimes observed as `0x7F`)
+- Command byte after seq is `0x05` (CMD_FILE)
+- Payload is 7-bit encoded raw bytes:
+  - `0x02` (PUT)
+  - `0x00` (PUT_INIT)
+  - `0x05` (audio file type)
+  - `slot_hi`, `slot_lo`
+  - `node_hi`, `node_lo` (parent node, usually `0x03E8`)
+  - `size` (4 bytes, big-endian)
+  - `name` (UTF-8)
+  - `0x00`
+  - `metadata JSON` (e.g. `{"channels":1,"samplerate":46875}`)
+- The first byte after `0x05` is a 7-bit flags byte (not a semantic flag).
 
 ### 2. Upload Data Chunk
 ```
-F0 00 20 76 33 40 7E [seq] 05 [flags] 02 01 [offset_lo] [offset_hi] [7bit: audio_data] F7
+F0 00 20 76 33 40 7E [seq] 05 [7bit: 02 01 offset_hi offset_lo audio_data...] F7
 ```
 - Sub-op: `0x01` (PUT_DATA)
-- Offset: little-endian byte offset into file
-- Data: 7-bit encoded audio samples (~440 bytes per chunk)
+- Offset: big-endian (raw bytes, before 7-bit encoding)
+- Data: 7-bit encoded audio samples
 
 ### 3-6. Commit/Verify Steps
 ```
@@ -121,12 +146,19 @@ F0 00 20 76 33 40 7E [seq] 05 00 01 01 00 40 00 00 F7     # Re-init
 F0 00 20 76 33 40 7E [seq] 05 00 0B 00 01 F7              # Verify again
 ```
 
-### 7. Metadata Operation
+### 7. Metadata Operation (observed)
 ```
-F0 00 20 76 33 40 7E [seq] 05 00 07 02 00 01 00 00 F7
+F0 00 20 76 33 40 7E [seq] 05 [7bit: 07 02 ...] F7
 ```
 - Operation: `0x07` (METADATA)
-- Sub-op: `0x02` (likely SET)
+- Sub-op: `0x02` (observed)
+  - Seen with slot and node variants during official tool uploads.
+  - Responses may be plain JSON with interleaved null bytes (no 7-bit packing),
+    prefixed by 4 bytes (observed as `page_hi page_lo node_hi node_lo`).
+    Example capture: `captures/sniffer-rename54.jsonl` (RX-only).
+- Official tool also sends METADATA SET (0x07 0x01) after upload:
+  - Node = slot number
+  - JSON contains at least `channels` and `samplerate`, and may include `sound.loopstart`, `sound.loopend`, `sound.rootnote` (see `captures/sniffer-upload-clean-hi.bin`, `captures/sniffer-upload-clean-lo.bin`).
 
 ### 8. Finalize
 ```
@@ -134,6 +166,55 @@ F0 00 20 76 33 40 7E [seq] 05 08 07 02 [7bit: size] 00 00 F7
 ```
 - Flags: `0x08` (finalize mode)
 - Final 7-bit encoded size value
+
+## Pad Assignment + Trim (Observed)
+
+Captured in `captures/sniffer-padtrim.jsonl` (slot 74 upload + pad assign + trim):
+
+### Assign sample to pad
+- Uses FileOp.METADATA SET (0x07 0x01) with JSON payloads:
+  - `{"active":9502}` on node `9500` (selects active pad node)
+  - `{"sym":74}` on node `9502` (assigns slot 74 to pad)
+
+### Trim sample on pad
+- Uses FileOp.METADATA SET on node `9502`:
+  - `{"sample.start":0,"sample.end":8006}`
+  - `{"sample.start":2318,"sample.end":8006}`
+
+### Notes
+- Pad nodes appear to be in the 9500+ range.
+- Official tool uses FileOp.METADATA GET (0x07 0x02) for these nodes before/after updates.
+- Field names observed: `sym`, `sample.start`, `sample.end`, `active`.
+- Additional META_SET observations from `captures/sniffer-2026-02-20-220918.jsonl`:
+  - `{"active":<node>}` toggles active child nodes (UI navigation/group selection).
+  - Examples: `2000 -> 5000`, `5100 -> 5300/5400`, `9100 -> 9300/9400`, `9500 -> 9501/9503/9506`.
+  - `{"sym":807}` on node `5407` suggests a pad/sample assignment outside the 9500+ range (needs confirmation).
+- META_GET also targets nodes that match slot numbers (e.g., `53`, `67`, `77`, `220`, `434`, `442`, `568`, `569`, `572`, `807`), suggesting sample nodes may be addressed by slot id.
+- User report: this capture corresponded to pad labeled `8` in group `D`.
+- User report: pad labels are `0-9` plus `.` and `Enter` (12 pads total); mapping to node IDs is still unknown.
+- TX+RX capture shows pad node `9506` assigned with `{"sym":53}` and sample rename via node `53` (see `captures/sniffer-rename54-txrx.jsonl`); user reports this was pad `6` in group `D`.
+- Group `A` mapping (observed in `captures/sniffer-padmap-A.jsonl`):
+  - Pad `0` -> node `9211`
+  - Pad `1` -> node `9207`
+  - Pad `2` -> node `9208`
+  - Pad `3` -> node `9209`
+  - Pad `4` -> node `9204`
+  - Pad `5` -> node `9205`
+  - Pad `6` -> node `9206`
+  - Pad `7` -> node `9201`
+  - Pad `8` -> node `9202`
+  - Pad `9` -> node `9203`
+  - Pad `.` -> node `9210`
+  - Pad `Enter` -> node `9212`
+- Group `B` partial mapping (observed in `captures/sniffer-padmap-B.bin`):
+  - Pad `8` -> node `9302`
+  - Pad `0` -> node `9311`
+- Group `C` partial mapping (observed in `captures/sniffer-padmap-C.bin`):
+  - Pad `8` -> node `9402`
+  - Pad `0` -> node `9411`
+- Group `D` partial mapping (observed in `captures/sniffer-padtrim.jsonl`, `captures/sniffer-rename54-txrx.jsonl`):
+  - Pad `8` -> node `9502`
+  - Pad `6` -> node `9506`
 
 ## Download Protocol (GET)
 
@@ -264,10 +345,9 @@ Or use the `audio2ko2` tool.
 
 ## Known Issues
 
-1. **Delete endianness** - Some sources show little-endian, external refs show big-endian
-2. **Upload device IDs** - Some use 0x6C for data, external refs show all 0x7E
-3. **Playback** - Protocol not fully documented
-4. **Project files** - .ppak format unknown
+1. **Upload device IDs** - Some use 0x6C for data, external refs show all 0x7E
+2. **Playback** - Protocol not fully documented
+3. **Project files** - .ppak format unknown
 
 ## Tools
 

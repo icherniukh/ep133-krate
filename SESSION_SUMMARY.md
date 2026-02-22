@@ -113,3 +113,10 @@ If direct sample reading doesn't work:
 - macOS integration with Quick Actions
 
 Ready to continue after reboot!
+
+## 2026-02-20 CLI work
+
+- Added filesystem-based `/sounds` listing helpers and slot resolution utilities so `ko2 ls` can reflect the device inventory instead of slot scan; introduced `ko2 fs-ls` for raw FILE LIST debugging and `ko2 rename` backed by the filesystem metadata API. (`ko2.py`)
+- Wired `optimize`, `optimize-all`, and `squash --execute` to download via temporary files, create `.ko2-backups` `.bak` copies, and re-upload through `ko2_backup.backup_copy` before mutating the device. (`ko2.py`, `ko2_backup.py`)
+- Documented slot-node resolution utility and extended `EP133Client` to expose `list_sounds()` + `slot_from_sound_entry()` for future TUI workflows. (`ko2_client.py`, `ko2_protocol.py`)
+- Added unit tests covering FILE LIST parsing/slot resolution and documented the new helpers; pytest run `python -m pytest`. (`tests/unit/test_file_list.py`, `pytest.ini`)
