@@ -105,6 +105,7 @@ class SysExCmd(IntEnum):
 
     # Core Commands
     INIT = 0x61  # Initialization
+    LIST_FILES = 0x6A  # File list / Metadata ops
     PLAYBACK = 0x76  # Playback/audition
     INFO = 0x77  # Device info, metadata
     GET_META = 0x75  # Get sample metadata
@@ -218,73 +219,57 @@ def build_sysex(data: bytes) -> bytes:
 
 
 def build_info_request(slot: int) -> bytes:
-    """Build METADATA GET request. Returns raw bytes (no 7-bit encoding needed).
-    Format: 05 08 07 02 [slot_hi_7bit] [slot_lo_7bit] 00 00
-    Confirmed working against device. Uses 0x08 as fixed byte (not 0x00).
-    """
-    return bytes([0x05, 0x08, 0x07, 0x02]) + U14(slot).encode() + b"\x00\x00"
+    """Build METADATA GET request. Returns raw payload bytes."""
+    from ko2_messages import MetadataGetLegacyRequest
+    return MetadataGetLegacyRequest(slot=slot).pack_payload()
 
 
 def build_download_init_request(slot: int) -> bytes:
-    # Slot uses raw 16-bit big-endian (hi byte first).
-    payload_raw = bytes([FileOp.GET, GET_INIT]) + BE16(slot).encode() + b"\x00" * 5
-    return bytes([CMD_FILE]) + Packed7.pack(payload_raw)
+    """Build GET INIT request."""
+    from ko2_messages import DownloadInitRequest
+    return DownloadInitRequest(slot=slot).pack_payload()
 
 
 def build_download_chunk_request(page: int) -> bytes:
-    # Page uses 14-bit little-endian split (lo then hi) per observed traffic.
-    # Note: U14(page).encode() returns [hi, lo], so we swap for this specific op.
-    u14 = U14(page).encode()
-    payload_raw = bytes([FileOp.GET, GET_DATA, u14[1], u14[0]])
-    return bytes([CMD_FILE]) + Packed7.pack(payload_raw)
+    """Build GET DATA request for a specific page."""
+    from ko2_messages import DownloadChunkRequest
+    return DownloadChunkRequest(page=page).pack_payload()
 
 
 def build_delete_request(slot: int) -> bytes:
-    """Build DELETE request. Slot uses big-endian encoding (hi, lo)."""
-    payload_raw = bytes([FileOp.DELETE]) + BE16(slot).encode()
-    return bytes([CMD_FILE]) + Packed7.pack(payload_raw)
+    """Build DELETE request."""
+    from ko2_messages import DeleteRequest
+    return DeleteRequest(slot=slot).pack_payload()
 
 
 def build_upload_init_request(
     slot: int, file_size: int, channels: int, samplerate: int, name: str
 ) -> bytes:
-    name_bytes = name.encode("utf-8")
-    metadata = f'{{"channels":{channels},"samplerate":{samplerate}}}'.encode("utf-8")
-
-    # Slot encoding in upload init is big-endian
-    payload_raw = bytearray(
-        [
-            FileOp.PUT,
-            PUT_INIT,
-            0x05,  # Audio file type
-        ]
+    """Build PUT INIT request."""
+    from ko2_messages import UploadInitRequest
+    metadata = f'{{"channels":{channels},"samplerate":{samplerate}}}'
+    msg = UploadInitRequest(
+        slot=slot, file_size=file_size, name=name, metadata_json=metadata
     )
-    payload_raw.extend(BE16(slot).encode())
-    payload_raw.extend(BE16(UPLOAD_PARENT_NODE).encode())
-    payload_raw.extend(BE32(file_size).encode())
-    payload_raw.extend(name_bytes)
-    payload_raw.append(0x00)
-    payload_raw.extend(metadata)
-
-    return Packed7.pack(bytes(payload_raw))
+    return msg.pack_payload()
 
 
 def build_upload_chunk_request(chunk_index: int, audio_data: bytes) -> bytes:
-    payload_raw = (
-        bytes([FileOp.PUT, PUT_DATA]) + BE16(chunk_index).encode() + audio_data
-    )
-    return bytes([CMD_FILE]) + Packed7.pack(payload_raw)
+    """Build PUT DATA request for a chunk."""
+    from ko2_messages import UploadChunkRequest
+    return UploadChunkRequest(chunk_index=chunk_index, data=audio_data).pack_payload()
 
 
 def build_upload_end_request(final_chunk_index: int) -> bytes:
-    payload_raw = bytes([FileOp.PUT, PUT_DATA]) + BE16(final_chunk_index).encode()
-    return bytes([CMD_FILE]) + Packed7.pack(payload_raw)
+    """Build PUT DATA request for end marker."""
+    from ko2_messages import UploadEndRequest
+    return UploadEndRequest(chunk_index=final_chunk_index).pack_payload()
 
 
 def build_file_list_request(node_id: int, page: int = 0) -> bytes:
     """Build FILE LIST request payload for a directory node."""
-    payload_raw = bytes([FileOp.LIST]) + BE16(page).encode() + BE16(node_id).encode()
-    return bytes([CMD_FILE]) + Packed7.pack(payload_raw)
+    from ko2_messages import FileListRequest
+    return FileListRequest(node_id=node_id, page=page).pack_payload()
 
 
 def parse_file_list_response(payload: bytes) -> list[dict]:
@@ -380,24 +365,15 @@ def parse_file_list_response_raw(payload: bytes) -> list[dict]:
 
 
 def build_metadata_get_request(node_id: int, page: int = 0) -> bytes:
-    """Build FILE METADATA GET request payload for a node ID (filesystem node)."""
-    payload_raw = (
-        bytes([FileOp.METADATA, MetaType.GET])
-        + BE16(node_id).encode()
-        + BE16(page).encode()
-    )
-    return bytes([CMD_FILE]) + Packed7.pack(payload_raw)
+    """Build FILE METADATA GET request payload."""
+    from ko2_messages import MetadataGetRequest
+    return MetadataGetRequest(node_id=node_id, page=page).pack_payload()
 
 
 def build_metadata_set_request(node_id: int, metadata_json: str) -> bytes:
-    """Build FILE METADATA SET request payload for a node ID (filesystem node)."""
-    payload_raw = (
-        bytes([FileOp.METADATA, MetaType.SET])
-        + BE16(node_id).encode()
-        + metadata_json.encode("utf-8")
-        + b"\x00"
-    )
-    return bytes([CMD_FILE]) + Packed7.pack(payload_raw)
+    """Build FILE METADATA SET request payload."""
+    from ko2_messages import MetadataSetRequest
+    return MetadataSetRequest(node_id=node_id, metadata_json=metadata_json).pack_payload()
 
 
 def parse_json_from_sysex(data: bytes, offset: int = 10) -> dict | None:

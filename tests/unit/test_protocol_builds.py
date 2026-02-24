@@ -15,12 +15,17 @@ from ko2_wire import Packed7
 
 
 def _decode_payload(msg: bytes) -> bytes:
+    """Strip CMD_FILE header and unpack 7-bit payload."""
     assert msg[0] == CMD_FILE
     return Packed7.unpack(msg[1:])
 
 
 def test_build_info_request_slot_1():
-    assert build_info_request(1) == bytes([0x05, 0x08, 0x07, 0x02, 0x00, 0x01, 0x00, 0x00])
+    # Legacy GET_META (0x75) uses 05 08 [unpacked_data]
+    msg = build_info_request(1)
+    assert msg[0] == 0x05
+    assert msg[1] == 0x08
+    assert msg[2:] == bytes([0x07, 0x02, 0x00, 0x01, 0x00, 0x00])
 
 
 def test_build_delete_request_slot_129_decodes_raw():
@@ -58,7 +63,7 @@ def test_build_metadata_get_request_node_1000_page_0_decodes_raw():
 
 def test_build_upload_init_request_slot_12_includes_parent_node():
     msg = build_upload_init_request(12, file_size=1000, channels=1, samplerate=46875, name="test")
-    raw = Packed7.unpack(msg)
+    raw = _decode_payload(msg)
     assert raw[0:7] == bytes([FileOp.PUT, 0x00, 0x05, 0x00, 0x0C, 0x03, 0xE8])
     assert raw[5] == (UPLOAD_PARENT_NODE >> 8) & 0xFF
     assert raw[6] == UPLOAD_PARENT_NODE & 0xFF
