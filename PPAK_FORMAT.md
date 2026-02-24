@@ -386,5 +386,4 @@ ko2 ppak info beat.ppak
 ## See Also
 
 - `PROTOCOL.md` - MIDI SysEx protocol for device communication
-- `PPAK_MIDI_INTEGRATION.md` - How .ppak relates to MIDI operations
-- https://github.com/DannyDesert/EP133-skill - Original source
+- https://github.com/DannyDesert/EP133-skill - Original source for this format spec

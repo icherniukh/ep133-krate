@@ -58,6 +58,7 @@ From hunter captures (e.g. `captures/sniffer-2026-02-20-220918.jsonl`):
 - `{"active":<node>}` toggles active child nodes (UI selection/navigation).
 - `{"sym":<n>}` appears to assign a sample slot to a pad node (needs more confirmation).
 - `{"sample.start":..., "sample.end":...}` used for trim edits (see pad-trim capture).
+- META_GET targets nodes that match **sample slot numbers** (e.g. 53, 67, 77, 220, 434, 442, 568, 569, 572, 807 in `captures/sniffer-2026-02-20-220918.jsonl`), suggesting sample nodes may be addressed by slot id (not fully confirmed).
 
 ## Common Commands
 
@@ -99,6 +100,7 @@ F0 00 20 76 33 40 7E [seq] 05 00 06 [slot_hi] [slot_lo] F7
 - Device ID: `0x7E` (UPLOAD)
 - Operation: `0x06` (DELETE)
 - Slot encoding: big-endian (confirmed from captures)
+- Device may return a "failed" status in the response, but the operation completes — file data is removed, though GET_META may still return stale metadata for the deleted slot.
 
 ### Switch Project (NEW)
 ```
@@ -286,9 +288,11 @@ Example for slot 11 (0x0B):
 ## WAV File Requirements
 
 ### Format
-- Sample rate: **46875 Hz** (critical!)
+- Sample rate: **46875 Hz** (official TE spec; 24 MHz / 512, Cirrus Logic CS42L52 codec).
+  OS 2.0+: samples below 46875 Hz are stored at their original rate. Samples above are
+  downsampled on import. No need to force-convert to 46875 Hz.
 - Bit depth: 16-bit
-- Channels: Mono (stereo may work but mono is standard)
+- Channels: Mono or stereo
 - Sample format: Little-endian signed 16-bit
 
 ### Required WAV Header
@@ -368,7 +372,6 @@ ko2.py scan            # List all samples
 
 ## References
 
-- https://github.com/garrettjwilke/ep_133_sysex_thingy - Working sysex examples
-- https://github.com/benjaminr/mcp-koii - MIDI control interface
-- REPO_ANALYSIS.md - Detailed comparison of external repositories
-- UPLOAD_PROTOCOL_DETAILS.md - Upload protocol deep dive
+- https://github.com/garrettjwilke/ep_133_sysex_thingy - Working sysex examples (pre-FW 2.0)
+- https://github.com/benjaminr/mcp-koii - MIDI control interface; contains complete sound-to-pad mapping that may aid pad group B/C/D research
+- abrilstudios/rcy - Reference implementation (Dec 2025, FW 2.0.5); source of current upload protocol

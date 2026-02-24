@@ -8,7 +8,7 @@
 - Unknown: PLAYBACK/AUDITION wire protocol
 
 **Project Phases:**
-- Phase 1 (CLI): `[########--] 80%`
+- Phase 1 (CLI): `[##########] Done`
 - Phase 2 (TUI): `[----------] 0%`
 - Phase 3 (Desktop/Web/Mobile): `[----------] 0%`
 
@@ -24,7 +24,7 @@
 | **Upload Sample** | ✅ Working | `ko2 put <file> <slot>` | Audio + metadata set (channels/samplerate; loop fields when small) |
 | **Delete Sample** | ✅ Working | `ko2 rm <slot>` | `delete` alias also works |
 | **Optimize Sample** | ✅ Working | `ko2 optimize <slot>` | Backup + optimize + replace |
-| **Optimize All** | ✅ Working | `ko2 optimize-all [--min KB]` | Batch optimize oversized samples |
+| **Optimize All** | ✅ Working | `ko2 optimize-all [--min KB]` | Batch optimize stereo samples (downmix to mono) |
 | **Squash Slots** | ✅ Working | `ko2 squash [--range N] [--execute]` | Fill gaps sequentially (dry-run default) |
 
 ### Optimization Features
@@ -171,12 +171,13 @@ Max page with 14 bits: 16383 (sufficient for all samples).
 
 1. **Playback/Audition (0x76)** - Protocol unknown, needs MIDI sniffer
 2. **Project Query** - No command to list/query projects
-3. **Sample Rename** - Wire-verified (METADATA SET), CLI not implemented
-4. **Sample Move/Copy** - Would require download+re-upload (not implemented)
-5. **Memory Statistics** - No command to query free memory
-6. **Pad Mapping** - A complete; B/C partial; D partial
-7. **Node hierarchy** - META_SET shows `active` toggles on nodes 2000/5100/5300/5400/9100/9300/9500; semantics still unclear
-8. **GET_META Reliability** - Audit 001-160: 20 stale, 23 node-name-empty, 60 field mismatches; use node metadata
+3. **Memory Statistics** - No command to query free memory; 64 MB assumed (current hardware ships with 128 MB)
+4. **Pad Mapping** - A complete; B/C partial; D partial
+5. **Node hierarchy** - META_SET shows `active` toggles on nodes 2000/5100/5300/5400/9100/9300/9500; semantics still unclear
+6. **Sample node addressing** - META_GET targets nodes matching slot numbers; needs confirmation
+7. **GET_META Reliability** - Audit 001-160: 20 stale, 23 node-name-empty, 60 field mismatches; use node metadata
+8. **`DeviceId` naming** - `ko2_protocol.py` class `DeviceId` is a misnomer; the byte is a command opcode,
+   not a device identifier. rcy calls it `cmd`. Should be renamed (e.g. `CmdByte` or `SysExCmd`).
 
 ---
 
@@ -188,7 +189,8 @@ Max page with 14 bits: 16383 (sufficient for all samples).
 | `ko2_client.py` | MIDI client implementation |
 | `ko2_protocol.py` | Protocol constants and utilities |
 | `PROTOCOL.md` | Complete protocol documentation |
+| `PROTOCOL_AUDIT.md` | Protocol confidence map + investigation priorities |
+| `PROTOCOL_VALIDATION.md` | Wire evidence log (capture-backed observations) |
 | `PPAK_FORMAT.md` | .ppak file format spec |
-| `PROJECT_OPERATIONS.md` | Project switching docs |
-| `PROTOCOL_TEST_RESULTS.md` | Device testing results |
-| `TO_VERIFY.md` | Resolved protocol issues (reference) |
+| `UPLOAD_INVESTIGATION.md` | Upload protocol analysis (to be merged into PROTOCOL.md when finalized) |
+| `METADATA_CORRUPTION.md` | Metadata divergence risks and mitigations |

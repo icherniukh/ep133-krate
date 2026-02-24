@@ -42,6 +42,7 @@ Observed META_SET payloads (decoded from FileOp.METADATA SET):
 Interpretation (preliminary):
 - `{"active":<node>}` appears to switch active child nodes (UI navigation/group selection).
 - `{"sym":<n>}` on a pad-like node likely assigns a sample slot (needs confirmation).
+- META_GET requests include nodes that match slot numbers (e.g. 53, 67, 77, 220, 434, 442, 568, 569, 572, 807 in the same capture), suggesting sample nodes can be addressed by slot id.
 
 ## Status legend
 - ✅ Verified on device

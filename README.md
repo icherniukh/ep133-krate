@@ -101,6 +101,7 @@ python midi_proxy.py --proxy --hunt get_meta --hunt meta_rsp
 python midi_proxy.py --proxy --hunt meta_get --hunt meta_set
 python midi_proxy.py --proxy --hunt cmd=0x75 --hunt fileop=0x04
 ```
+HUNT lines now include parsed META_SET fields (`active`, `sym`, `sample.start`, `sample.end`) when present.
 
 Capture raw binary:
 ```bash
@@ -117,6 +118,7 @@ Pretty-print a capture:
 python midi_proxy.py --pretty captures/sniffer.jsonl
 python midi_proxy.py --pretty --format raw captures/sniffer-raw.bin
 ```
+See `docs/CAPTURE_FORMAT.md` for raw/.mid file format details.
 
 ---
 
@@ -266,17 +268,17 @@ unzip -l backup.pak
 ```
 ko2-tools/
 ├── README.md              # This file
-├── TODO.md                # Planned features
-├── FINDINGS.md            # Technical findings
-├── PROTOCOL.md            # SysEx protocol docs
-├── ko2-list               # Backup lister
-├── ko2-optimize           # Backup optimizer
-└── *.py                   # Development/testing scripts
+├── PROTOCOL.md            # SysEx protocol docs (reverse-engineered)
+├── PROTOCOL_AUDIT.md      # Protocol confidence map
+├── STATUS.md              # Implementation status + tech gaps
+├── PPAK_FORMAT.md         # .ppak project file format
+├── ko2.py                 # Main CLI
+├── ko2_client.py          # MIDI client
+├── ko2_protocol.py        # Protocol constants
+├── tests/unit/            # Unit tests (no device required)
+├── tests/e2e/             # E2E tests (require EP-133)
+└── scripts/legacy/        # Archived protocol-probing scripts
 ```
-
-### Testing Scripts
-- `detect.py` - Test device detection
-- `test_protocol.py` - Test SysEx communication
 - `monitor.py` - Monitor MIDI messages
 
 ---
