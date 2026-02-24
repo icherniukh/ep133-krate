@@ -571,11 +571,19 @@ class EP133Client:
                             # [7] CMD_FILE, [8] sub_byte (always 0x00), [9..] 7-bit payload.
                             # The payload always starts at offset 9 — structural, not dynamic.
                             # Each decoded chunk begins with a 2-byte page-number echo
-                            # [page_lo, page_hi] followed by BE s16 audio bytes.
+                            # [page_lo, page_hi] (U14LE) followed by BE s16 audio bytes.
                             decoded = Packed7.unpack(bytes(data[9:]))
                             if decoded and len(decoded) > 2:
+                                # Verify page number echo
+                                from ko2_wire import U14LE
+                                echo_page, _ = U14LE.decode(decoded[:2])
+                                if int(echo_page) != page:
+                                    if debug:
+                                        print(f"  ⚠ Page mismatch: expected {page}, got {int(echo_page)}")
+                                    continue # Ignore out-of-order chunk
+
                                 all_data.extend(decoded[2:])  # strip page prefix
-                                received += len(decoded)
+                                received += len(decoded) - 2 # fix: received count should reflect audio only
                                 chunk_received = True
                 if chunk_received:
                     break
@@ -701,7 +709,14 @@ class EP133Client:
 
         all_bytes = bytearray()
         page = 0
-        while True:
+        max_pages = 100 # Metadata should never be this large
+        seen_pages = set()
+
+        while page < max_pages:
+            if page in seen_pages:
+                break
+            seen_pages.add(page)
+
             seq = self._next_seq()
             req_data = bytes([0x6A, seq]) + build_metadata_get_request(node_id, page)
             msg = build_sysex(req_data)
@@ -713,15 +728,24 @@ class EP133Client:
 
             encoded_payload = resp[10:-1] if resp and len(resp) > 11 else b""
             payload = Packed7.unpack(encoded_payload) if encoded_payload else b""
-            if len(payload) < 2:
+            
+            # Decoded payload format: [page_hi page_lo node_hi node_lo] {JSON}
+            if len(payload) < 4:
                 break
-            fragment = payload[2:]
+            
+            fragment = payload[4:]
             if not fragment or fragment == b"\x00":
                 break
+            
             all_bytes.extend(fragment.rstrip(b"\x00"))
+            
+            # Check if we've reached the end of the JSON object
+            if b"}" in fragment:
+                # Basic check: if we have a balanced JSON, we can probably stop.
+                # But safer to just keep going until no more fragments.
+                pass
+
             page += 1
-            if page > 200:
-                break
 
         if not all_bytes:
             return None

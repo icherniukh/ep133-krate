@@ -1070,15 +1070,23 @@ def cmd_optimize_all(args):
 
 def cmd_get(args):
     """Download sample from device."""
+    slot = validate_slot(args.slot)
     output = Path(args.output) if args.output else None
+
+    # Determine final output path to check for existence
+    if output and output.exists():
+        if not _confirm(f"File '{output}' already exists. Overwrite?", bool(getattr(args, "yes", False))):
+            print("  Cancelled")
+            return 0
 
     with EP133Client(args.device) as client:
         try:
-            print(f"  Downloading slot {args.slot}...")
-            result_path = client.get(args.slot, output)
+            print(f"  Downloading slot {slot}...")
+            # If output is None, client.get will generate a name based on metadata
+            result_path = client.get(slot, output)
             print(f"  {Colors.FG_GREEN}✓{Colors.RESET} Downloaded to {result_path}")
         except SlotEmptyError:
-            print(f"  ❌ Slot {args.slot} is empty")
+            print(f"  ❌ Slot {slot} is empty")
             return 1
         except EP133Error as e:
             print(f"  ❌ Error: {e}")
@@ -1535,17 +1543,27 @@ def cmd_rename(args):
     return 0
 
 
+def validate_slot(slot: int) -> int:
+    """Validate slot number is within EP-133 range (1-999)."""
+    if not 1 <= slot <= MAX_SLOTS:
+        raise argparse.ArgumentTypeError(f"Slot must be 1-{MAX_SLOTS}, got {slot}")
+    return slot
+
+
 def parse_range(arg: str) -> tuple[int, int] | int:
     """Parse range argument: '5', '1-10', or '1..10'."""
-    match = re.match(r"^(\d+)\.\.(\d+)$", arg)
-    if match:
-        return int(match.group(1)), int(match.group(2))
+    try:
+        match = re.match(r"^(\d+)\.\.(\d+)$", arg)
+        if match:
+            return int(match.group(1)), int(match.group(2))
 
-    match = re.match(r"^(\d+)-(\d+)$", arg)
-    if match:
-        return int(match.group(1)), int(match.group(2))
+        match = re.match(r"^(\d+)-(\d+)$", arg)
+        if match:
+            return int(match.group(1)), int(match.group(2))
 
-    return int(arg)
+        return int(arg)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"Invalid range or slot: '{arg}'")
 
 
 def main():
@@ -1636,17 +1654,18 @@ def main():
     get_parser = subparsers.add_parser("get", help="Download sample")
     get_parser.add_argument("slot", type=int, help="Slot number (1-999)")
     get_parser.add_argument("output", nargs="?", help="Output filename")
+    get_parser.add_argument("-y", "--yes", action="store_true", help="Overwrite if exists")
 
     # put
     put_parser = subparsers.add_parser("put", help="Upload sample")
     put_parser.add_argument("file", help="WAV file to upload")
-    put_parser.add_argument("slot", type=int, help="Target slot (1-999)")
+    put_parser.add_argument("slot", type=validate_slot, help="Target slot (1-999)")
     put_parser.add_argument("--name", help="Sample name")
 
     # move
     mv_parser = subparsers.add_parser("mv", help="Move sample between slots")
-    mv_parser.add_argument("src", type=int, help="Source slot (1-999)")
-    mv_parser.add_argument("dst", type=int, help="Destination slot (1-999)")
+    mv_parser.add_argument("src", type=validate_slot, help="Source slot (1-999)")
+    mv_parser.add_argument("dst", type=validate_slot, help="Destination slot (1-999)")
     mv_parser.add_argument(
         "--raw", "--original", dest="raw", action="store_true", help="Use raw filename"
     )
@@ -1663,8 +1682,8 @@ def main():
     )
 
     move_parser = subparsers.add_parser("move", help="Move sample between slots")
-    move_parser.add_argument("src", type=int, help="Source slot (1-999)")
-    move_parser.add_argument("dst", type=int, help="Destination slot (1-999)")
+    move_parser.add_argument("src", type=validate_slot, help="Source slot (1-999)")
+    move_parser.add_argument("dst", type=validate_slot, help="Destination slot (1-999)")
     move_parser.add_argument(
         "--raw", "--original", dest="raw", action="store_true", help="Use raw filename"
     )
@@ -1682,8 +1701,8 @@ def main():
 
     # copy
     cp_parser = subparsers.add_parser("cp", help="Copy sample between slots")
-    cp_parser.add_argument("src", type=int, help="Source slot (1-999)")
-    cp_parser.add_argument("dst", type=int, help="Destination slot (1-999)")
+    cp_parser.add_argument("src", type=validate_slot, help="Source slot (1-999)")
+    cp_parser.add_argument("dst", type=validate_slot, help="Destination slot (1-999)")
     cp_parser.add_argument(
         "--raw", "--original", dest="raw", action="store_true", help="Use raw filename"
     )
@@ -1700,8 +1719,8 @@ def main():
     )
 
     copy_parser = subparsers.add_parser("copy", help="Copy sample between slots")
-    copy_parser.add_argument("src", type=int, help="Source slot (1-999)")
-    copy_parser.add_argument("dst", type=int, help="Destination slot (1-999)")
+    copy_parser.add_argument("src", type=validate_slot, help="Source slot (1-999)")
+    copy_parser.add_argument("dst", type=validate_slot, help="Destination slot (1-999)")
     copy_parser.add_argument(
         "--raw", "--original", dest="raw", action="store_true", help="Use raw filename"
     )
@@ -1719,7 +1738,7 @@ def main():
 
     # delete
     delete_parser = subparsers.add_parser("delete", help="Delete sample")
-    delete_parser.add_argument("slot", type=int, help="Slot number (1-999)")
+    delete_parser.add_argument("slot", type=validate_slot, help="Slot number (1-999)")
     delete_parser.add_argument(
         "-y",
         "--yes",
@@ -1734,7 +1753,7 @@ def main():
 
     # rm: alias for delete
     rm_parser = subparsers.add_parser("rm", help="Delete sample (alias)")
-    rm_parser.add_argument("slot", type=int, help="Slot number (1-999)")
+    rm_parser.add_argument("slot", type=validate_slot, help="Slot number (1-999)")
     rm_parser.add_argument(
         "-y",
         "--yes",
@@ -1749,7 +1768,7 @@ def main():
 
     # remove: alias for delete
     remove_parser = subparsers.add_parser("remove", help="Delete sample (alias)")
-    remove_parser.add_argument("slot", type=int, help="Slot number (1-999)")
+    remove_parser.add_argument("slot", type=validate_slot, help="Slot number (1-999)")
     remove_parser.add_argument(
         "-y",
         "--yes",
@@ -1764,7 +1783,7 @@ def main():
 
     # optimize
     opt_parser = subparsers.add_parser("optimize", help="Optimize single sample")
-    opt_parser.add_argument("slot", type=int, help="Slot number (1-999)")
+    opt_parser.add_argument("slot", type=validate_slot, help="Slot number (1-999)")
     opt_parser.add_argument(
         "-y",
         "--yes",
@@ -1858,7 +1877,7 @@ def main():
     rename_parser = subparsers.add_parser(
         "rename", help="Rename a sample slot (backs up first)"
     )
-    rename_parser.add_argument("slot", type=int, help="Slot number (1-999)")
+    rename_parser.add_argument("slot", type=validate_slot, help="Slot number (1-999)")
     rename_parser.add_argument("name", help="New name")
 
     args = parser.parse_args()

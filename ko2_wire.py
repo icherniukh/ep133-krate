@@ -9,6 +9,21 @@ from abc import ABC, abstractmethod
 from typing import Any, Sequence
 
 
+class WireError(Exception):
+    """Base class for wire-format errors."""
+    pass
+
+
+class WireDataError(WireError):
+    """Data does not conform to MIDI/Wire constraints."""
+    pass
+
+
+class TruncatedMessageError(WireError):
+    """Message was shorter than expected."""
+    pass
+
+
 class WireType(ABC):
     """Base class for all EP-133 wire-format types."""
 
@@ -38,8 +53,11 @@ class U7(WireType):
     @classmethod
     def decode(cls, data: bytes) -> tuple["U7", int]:
         if not data:
-            raise ValueError("Empty data for U7 decode")
-        return cls(data[0]), 1
+            raise TruncatedMessageError("Empty data for U7 decode")
+        val = data[0]
+        if val > 127:
+            raise WireDataError(f"U7 byte must be <= 127, got 0x{val:02x}")
+        return cls(val), 1
 
     def __int__(self) -> int:
         return self.value
@@ -61,12 +79,33 @@ class U14(WireType):
     @classmethod
     def decode(cls, data: bytes) -> tuple["U14", int]:
         if len(data) < 2:
-            raise ValueError("Insufficient data for U14 decode")
-        value = (data[0] << 7) | (data[1] & 0x7F)
+            raise TruncatedMessageError("Insufficient data for U14 decode")
+        hi, lo = data[0], data[1]
+        if hi > 127 or lo > 127:
+            raise WireDataError(f"U14 bytes must be <= 127, got 0x{hi:02x} 0x{lo:02x}")
+        value = (hi << 7) | lo
         return cls(value), 2
 
     def __int__(self) -> int:
         return self.value
+
+
+class U14LE(U14):
+    """A 14-bit value split into two 7-bit MIDI bytes (lo, hi)."""
+
+    def encode(self) -> bytes:
+        u14 = super().encode()
+        return bytes([u14[1], u14[0]])
+
+    @classmethod
+    def decode(cls, data: bytes) -> tuple["U14LE", int]:
+        if len(data) < 2:
+            raise TruncatedMessageError("Insufficient data for U14LE decode")
+        lo, hi = data[0], data[1]
+        if hi > 127 or lo > 127:
+            raise WireDataError(f"U14LE bytes must be <= 127")
+        value = (hi << 7) | lo
+        return cls(value), 2
 
 
 class BE16(WireType):
@@ -83,7 +122,7 @@ class BE16(WireType):
     @classmethod
     def decode(cls, data: bytes) -> tuple["BE16", int]:
         if len(data) < 2:
-            raise ValueError("Insufficient data for BE16 decode")
+            raise TruncatedMessageError("Insufficient data for BE16 decode")
         value = (data[0] << 8) | data[1]
         return cls(value), 2
 
@@ -105,7 +144,7 @@ class BE32(WireType):
     @classmethod
     def decode(cls, data: bytes) -> tuple["BE32", int]:
         if len(data) < 4:
-            raise ValueError("Insufficient data for BE32 decode")
+            raise TruncatedMessageError("Insufficient data for BE32 decode")
         value = int.from_bytes(data[:4], "big")
         return cls(value), 4
 
@@ -137,9 +176,16 @@ class Packed7:
         i = 0
         while i < len(data):
             flags = data[i]
+            if flags > 127:
+                raise WireDataError(f"Packed7 flags byte must be <= 127, got 0x{flags:02x}")
             i += 1
             for bit in range(7):
                 if i >= len(data):
+                    # If we have more bits set in flags but no data bytes left, 
+                    # the message is truncated.
+                    remaining_flags = flags >> bit
+                    if remaining_flags != 0:
+                        raise TruncatedMessageError("Packed7 data ended before flags were exhausted")
                     break
                 msb = ((flags >> bit) & 1) << 7
                 result.append((data[i] & 0x7F) | msb)
