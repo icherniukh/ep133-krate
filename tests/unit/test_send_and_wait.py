@@ -34,13 +34,13 @@ def _incoming_te_sysex(cmd: int, seq: int = 1, sub: int = 5, status: int = 0) ->
 
 def test_send_and_wait_ignores_notifications_and_filters_expected_cmd():
     from ko2_client import EP133Client
-    from ko2_protocol import DeviceId, build_sysex
+    from ko2_protocol import SysExCmd, build_sysex
 
     inport = _FakeInPort()
     # 0x40 is a device->host notification in rcy docs (not a 0x2x response).
     notification = _incoming_te_sysex(0x40)
-    wrong_response = _incoming_te_sysex(DeviceId.UPLOAD_DATA - 0x40)  # 0x2C
-    wanted_response = _incoming_te_sysex(DeviceId.UPLOAD_END - 0x40, status=0)  # 0x2D
+    wrong_response = _incoming_te_sysex(SysExCmd.UPLOAD_DATA - 0x40)  # 0x2C
+    wanted_response = _incoming_te_sysex(SysExCmd.UPLOAD_END - 0x40, status=0)  # 0x2D
     outport = _FakeOutPort(inport, [notification, wrong_response, wanted_response])
 
     client = EP133Client.__new__(EP133Client)
@@ -48,10 +48,10 @@ def test_send_and_wait_ignores_notifications_and_filters_expected_cmd():
     client._outport = outport
 
     outgoing = build_sysex(b"\x00")  # any sysex payload; fake ports ignore content
-    resp = client._send_and_wait(outgoing, timeout=0.2, expect_cmd=(DeviceId.UPLOAD_END - 0x40))
+    resp = client._send_and_wait(outgoing, timeout=0.2, expect_cmd=(SysExCmd.UPLOAD_END - 0x40))
 
     assert resp is not None
-    assert resp[6] == (DeviceId.UPLOAD_END - 0x40)
+    assert resp[6] == (SysExCmd.UPLOAD_END - 0x40)
 
 
 def test_send_and_wait_returns_none_if_only_notifications():

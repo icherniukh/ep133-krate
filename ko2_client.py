@@ -22,7 +22,7 @@ except ImportError:
     sys.exit(1)
 
 from ko2_protocol import (
-    DeviceId,
+    SysExCmd,
     GetType,
     SAMPLE_RATE,
     BIT_DEPTH,
@@ -145,7 +145,7 @@ class EP133Client:
                     SYSEX_START,
                     *TE_MFG_ID,
                     *DEVICE_FAMILY,
-                    DeviceId.INIT,
+                    SysExCmd.INIT,
                     0x17,
                     0x01,
                     SYSEX_END,
@@ -156,7 +156,7 @@ class EP133Client:
                     SYSEX_START,
                     *TE_MFG_ID,
                     *DEVICE_FAMILY,
-                    DeviceId.INIT,
+                    SysExCmd.INIT,
                     0x18,
                     CMD_FILE,
                     FIXED_BYTE,
@@ -253,7 +253,7 @@ class EP133Client:
 
     def device_info(self) -> dict | None:
         """Query device info (firmware/model/serial when available)."""
-        req_data = bytes([DeviceId.GET_INFO, 0x14, 0x01])
+        req_data = bytes([SysExCmd.INFO, 0x14, 0x01])
         for _ in self._inport.iter_pending():
             pass
         self._send_sysex(build_sysex(req_data))
@@ -262,7 +262,7 @@ class EP133Client:
         responses = self._recv_sysex(timeout=0.4)
         candidates: list[bytes] = []
         for resp in responses:
-            if len(resp) > 7 and resp[6] in (0x37, DeviceId.GET_INFO):
+            if len(resp) > 7 and resp[6] in (SysExCmd.RESPONSE, SysExCmd.INFO):
                 candidates.append(resp)
         if not candidates and responses:
             candidates = responses
@@ -280,7 +280,7 @@ class EP133Client:
         """Get file size for a slot without downloading the whole file."""
         seq = 0x2E
         # Send GET INIT
-        init_req = bytes([DeviceId.DOWNLOAD, seq]) + build_download_init_request(slot)
+        init_req = bytes([SysExCmd.DOWNLOAD, seq]) + build_download_init_request(slot)
         init_msg = build_sysex(init_req)
 
         for _ in self._inport.iter_pending():
@@ -311,7 +311,7 @@ class EP133Client:
 
     def _meta_from_get_meta(self, slot: int) -> dict | None:
         # GET_META uses a slot byte after device id (7-bit), then slot in payload.
-        req_data = bytes([DeviceId.GET_META, slot & 0x7F]) + build_info_request(slot)
+        req_data = bytes([SysExCmd.GET_META, slot & 0x7F]) + build_info_request(slot)
 
         for _ in self._inport.iter_pending():
             pass
@@ -502,7 +502,7 @@ class EP133Client:
         """Download raw sample data from device."""
         seq = 0x2E
         # Send GET INIT
-        init_msg = bytes([DeviceId.DOWNLOAD, seq]) + build_download_init_request(slot)
+        init_msg = bytes([SysExCmd.DOWNLOAD, seq]) + build_download_init_request(slot)
         init_msg = build_sysex(init_msg)
 
         # Clear pending
@@ -549,7 +549,7 @@ class EP133Client:
             seq = (seq + 1) & 0x7F
 
             data_req = build_sysex(
-                bytes([DeviceId.DOWNLOAD, seq]) + build_download_chunk_request(page)
+                bytes([SysExCmd.DOWNLOAD, seq]) + build_download_chunk_request(page)
             )
 
             self._send_sysex(data_req)
@@ -564,21 +564,19 @@ class EP133Client:
                         data = list(msg.data)
                         if (
                             len(data) > 12
-                            and data[5] in (DeviceId.RESPONSE, DeviceId.RESPONSE_ALT)
+                            and data[5] in (SysExCmd.RESPONSE, SysExCmd.RESPONSE_ALT)
                             and data[7] == CMD_FILE
                         ):
-                            for start_offset in [10, 11, 12, 13]:
-                                if start_offset < len(data):
-                                    encoded = bytes(data[start_offset:])
-                                    if encoded:
-                                        decoded = decode_7bit(encoded)
-                                        if decoded and len(decoded) > 4:
-                                            all_data.extend(decoded)
-                                            received += len(decoded)
-                                            chunk_received = True
-                                            break
-                                if chunk_received:
-                                    break
+                            # SysEx structure: [0..4] mfg+dev, [5] resp_type, [6] seq,
+                            # [7] CMD_FILE, [8] sub_byte (always 0x00), [9..] 7-bit payload.
+                            # The payload always starts at offset 9 — structural, not dynamic.
+                            # Each decoded chunk begins with a 2-byte page-number echo
+                            # [page_lo, page_hi] followed by BE s16 audio bytes.
+                            decoded = decode_7bit(bytes(data[9:]))
+                            if decoded and len(decoded) > 2:
+                                all_data.extend(decoded[2:])  # strip page prefix
+                                received += len(decoded)
+                                chunk_received = True
                 if chunk_received:
                     break
                 time.sleep(0.05)
@@ -589,11 +587,13 @@ class EP133Client:
 
             page = (page + 1) & 0x3FFF  # 14-bit max (two 7-bit bytes)
 
-        data = bytes(all_data)
-        if len(data) >= 8 and data[:4] == b"RIFF":
-            riff_size = int.from_bytes(data[4:8], "little")
-            return data[: riff_size + 8]
-        return data[: file_info["size"]]
+        # Device sends BE s16; convert to LE s16 for WAV compatibility.
+        be_data = bytes(all_data)
+        le_data = bytearray()
+        for i in range(0, len(be_data) - 1, 2):
+            sample = struct.unpack(">h", be_data[i : i + 2])[0]
+            le_data.extend(struct.pack("<h", sample))
+        return bytes(le_data)[: file_info["size"]]
 
     def _save_wav(
         self, data: bytes, output_path: Path, channels: int, samplerate: int
@@ -848,7 +848,7 @@ class EP133Client:
         # Step 1: Upload Init (0x6C)
         init_seq = self._next_seq()
         init_req = bytes(
-            [DeviceId.UPLOAD_DATA, init_seq, CMD_FILE]
+            [SysExCmd.UPLOAD_DATA, init_seq, CMD_FILE]
         ) + build_upload_init_request(slot, data_size, channels, samplerate, name)
         init_msg = build_sysex(init_req)
 
@@ -856,7 +856,7 @@ class EP133Client:
             init_msg,
             timeout=5.0,
             debug=debug,
-            expect_cmd=(DeviceId.UPLOAD_DATA - 0x40),
+            expect_cmd=(SysExCmd.UPLOAD_DATA - 0x40),
         )
         status = self._check_response_status(response)
         if status is None:
@@ -878,7 +878,7 @@ class EP133Client:
             # Chunk payload
             chunk_seq = self._next_seq()
             chunk_req = bytes(
-                [DeviceId.UPLOAD_DATA, chunk_seq]
+                [SysExCmd.UPLOAD_DATA, chunk_seq]
             ) + build_upload_chunk_request(chunk_index, chunk_data)
             chunk_msg = build_sysex(chunk_req)
 
@@ -886,7 +886,7 @@ class EP133Client:
                 chunk_msg,
                 timeout=2.0,
                 debug=debug,
-                expect_cmd=(DeviceId.UPLOAD_DATA - 0x40),
+                expect_cmd=(SysExCmd.UPLOAD_DATA - 0x40),
             )
             status = self._check_response_status(response)
             if status is None:
@@ -907,7 +907,7 @@ class EP133Client:
 
         # Step 3: End marker (0x6D)
         end_seq = self._next_seq()
-        end_req = bytes([DeviceId.UPLOAD_END, end_seq]) + build_upload_end_request(
+        end_req = bytes([SysExCmd.UPLOAD_END, end_seq]) + build_upload_end_request(
             chunk_index
         )
         end_msg = build_sysex(end_req)
@@ -916,7 +916,7 @@ class EP133Client:
             end_msg,
             timeout=5.0,
             debug=debug,
-            expect_cmd=(DeviceId.UPLOAD_END - 0x40),
+            expect_cmd=(SysExCmd.UPLOAD_END - 0x40),
         )
         status = self._check_response_status(response)
         if status is None:
@@ -962,7 +962,7 @@ class EP133Client:
             slot: Slot number (1-999)
         """
         # F0 00 20 76 33 40 7E [SEQ] 05 00 06 [SLOT_HI] [SLOT_LO] F7
-        req_data = bytes([DeviceId.UPLOAD, self._next_seq()]) + build_delete_request(
+        req_data = bytes([SysExCmd.UPLOAD, self._next_seq()]) + build_delete_request(
             slot
         )
         msg = build_sysex(req_data)

@@ -23,11 +23,6 @@ captures/
 *.jsonl
 *.tsv
 
-# Reference codebases (large, vendored)
-# NOTE: references/ is intentionally kept on disk for agent access
-# but tracked via git to preserve across clones
-# references/
-
 # Experiments (scratch work)
 experiments/
 

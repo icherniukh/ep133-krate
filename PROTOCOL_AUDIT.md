@@ -142,7 +142,7 @@ Not started.
 
 ## Code Debt
 
-- **`DeviceId` in `ko2_protocol.py`** is a misnomer. The byte is a command opcode (selects operation handler), not a device identifier. `rcy` calls it `cmd`. Should be renamed to `CmdByte` or similar — tracked in STATUS.md Technical Gaps.
+- **`SysExCmd` in `ko2_protocol.py`** - Renamed from `DeviceId`. The byte is a command opcode (selects operation handler), not a device identifier. `rcy` calls it `cmd`.
 
 ---
 

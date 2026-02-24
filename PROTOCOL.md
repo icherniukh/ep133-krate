@@ -230,7 +230,7 @@ F0 00 20 76 33 40 7D [seq] 05 00 03 00 [slot_hi] [slot_lo] [offset: 5 bytes] F7
 - Slot encoding: **big-endian**
 - Offset: 5 zero bytes
 - Response: 7-bit encoded metadata — filename (`.pcm` extension) + 4-byte big-endian size at
-  decoded bytes [3:7]. **Size from init response can be off by ~14 bytes; use RIFF header instead.**
+  decoded bytes [3:7]. **Size = raw PCM byte count (no RIFF header); use as trim target.**
 
 ### 2. Get Data Chunk
 ```
@@ -241,9 +241,12 @@ F0 00 20 76 33 40 7D [seq] 05 00 03 01 [page_hi] [page_lo] F7
   - `page_lo = page & 0x7F`
   - `page_hi = (page >> 7) & 0x7F`
   - Max page: 16383 (14 bits)
-- Response: 7-bit encoded chunk; assembled pages form a **complete RIFF WAV file**
-  - Trim to RIFF size: `int.from_bytes(data[4:8], 'little') + 8`
-  - Write bytes directly — do not re-wrap in a second WAV container
+- Response: 7-bit encoded chunk; assembled pages are **raw BE s16 PCM** (not RIFF WAV)
+  - 7-bit payload at SysEx offset 9 (structural: 5 mfg bytes + resp + seq + CMD_FILE + sub_byte)
+  - Each decoded chunk starts with a 2-byte page-number echo `[page_lo, page_hi]` — must strip
+  - After stripping prefix, byte-swap BE→LE to get standard LE s16 PCM
+  - Trim to `file_info["size"]` bytes (= raw PCM byte count from GET_INIT response)
+  - Confirmed SOLID by `test_encoding.py` sample-level roundtrip (440 Hz sine, 30+ slots)
 
 ## 7-Bit Encoding
 

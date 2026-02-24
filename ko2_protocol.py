@@ -15,25 +15,6 @@ from ko2_encoding import decode_node_id, encode_14bit, encode_7bit, unpack_7bit
 # --- Protocol Constants ---
 
 
-class SysExCmd(IntEnum):
-    """EP-133 SysEx Commands (DEPRECATED - use DeviceId enum instead)"""
-
-    # Query/Read Commands
-    GET_INFO = 0x77  # Get device info
-    GET_META = 0x75  # Get sample metadata
-
-    # Device Commands
-    DEV_ID = 0x06  # Device identity query
-    SWITCH_PROJ = 0x7C  # Switch project
-
-
-class RspCmd(IntEnum):
-    """EP-133 Response Commands"""
-
-    INFO = 0x37  # Info/data response (device byte)
-    META = 0x35  # Metadata response
-
-
 class FileOp(IntEnum):
     """FILE operations (second byte after TE_SYSEX_FILE=0x05)"""
 
@@ -74,15 +55,15 @@ TE_MFG_ID = bytes([0x00, 0x20, 0x76])
 DEVICE_FAMILY = bytes([0x33, 0x40])
 
 
-# Device IDs (third byte of device identification)
-class DeviceId(IntEnum):
-    """Device ID byte for different operations"""
+class SysExCmd(IntEnum):
+    """EP-133 SysEx Opcodes (Command Bytes)"""
 
+    # Core Commands
     INIT = 0x61  # Initialization
     PLAYBACK = 0x76  # Playback/audition
     INFO = 0x77  # Device info, metadata
     GET_META = 0x75  # Get sample metadata
-    PROJECT = 0x7C  # Project switching (NEW - from external repos)
+    PROJECT = 0x7C  # Project switching
     UPLOAD_DATA = 0x6C  # Upload data transfer (init + chunks)
     UPLOAD_END = 0x6D  # Upload end marker (end-of-upload)
     UPLOAD = 0x7E  # Upload operations (commit, delete, move)
@@ -90,15 +71,25 @@ class DeviceId(IntEnum):
     RESPONSE = 0x37  # Standard device response
     RESPONSE_ALT = 0x3D  # Alternative device response (observed in downloads)
 
+    # Legacy/Alias Commands
+    DEV_ID = 0x06  # Device identity query
+
+
+class RspCmd(IntEnum):
+    """EP-133 Response Commands"""
+
+    INFO = 0x37  # Info/data response (device byte)
+    META = 0x35  # Metadata response
+
 
 # EP-133 Manufacturer ID + Device Family (prefix before device ID)
 HDR_PREFIX = TE_MFG_ID + DEVICE_FAMILY
 
 
 # Full header with device ID for different operations
-def build_header(device_id: int) -> bytes:
-    """Build SysEx header F0 + TE_MFG_ID + DEVICE_FAMILY + device_id"""
-    return bytes([SYSEX_START]) + TE_MFG_ID + DEVICE_FAMILY + bytes([device_id])
+def build_header(cmd: SysExCmd) -> bytes:
+    """Build SysEx header F0 + TE_MFG_ID + DEVICE_FAMILY + cmd"""
+    return bytes([SYSEX_START]) + TE_MFG_ID + DEVICE_FAMILY + bytes([cmd])
 
 
 # SysEx End

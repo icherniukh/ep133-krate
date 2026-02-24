@@ -80,7 +80,7 @@ Interpretation (preliminary):
 ## 2026-02-20 official tool upload captures (slot 26, slot 21)
 
 Observed from `captures/sniffer-slot26.jsonl` and `captures/sniffer-upload21.jsonl`:
-- Upload init is `DeviceId 0x7E` (slot 21) and also `0x7F` (slot 26), with seq byte following.
+- Upload init is `SysExCmd 0x7E` (slot 21) and also `0x7F` (slot 26), with seq byte following.
 - Payload uses `CMD_FILE 0x05` + 7-bit encoded raw:
   - `02 00 05 slot_hi slot_lo node_hi node_lo size_be name 00 json`
 - Name + JSON metadata are embedded in upload init (no separate rename needed).
@@ -91,26 +91,26 @@ Observed from `captures/sniffer-slot26.jsonl` and `captures/sniffer-upload21.jso
   - `0x07 02 ...` (metadata op, observed with slot + node variants)
 
 Open questions:
-- Why official tool sometimes uses `DeviceId 0x7F` vs `0x7E` for upload.
+- Why official tool sometimes uses `SysExCmd 0x7F` vs `0x7E` for upload.
 - Meaning of `0x0B` and `0x01` ops beyond verify/reinit.
 
 ## 2026-02-20 official tool read + rename captures
 
 Read metadata (`captures/sniffer-readmeta.jsonl`):
 - Official tool does **not** use GET_META (0x75).
-- Uses `DeviceId 0x6B` requests and `0x2B` responses.
+- Uses `SysExCmd 0x6B` requests and `0x2B` responses.
 - File list requests: raw `04 page_hi page_lo node_hi node_lo` (node `0x03E8` = /sounds).
 - Metadata GET requests: raw `07 02 node_hi node_lo 00 00` for multiple nodes.
 
 Rename (`captures/sniffer-rename.jsonl`):
-- Uses `DeviceId 0x6F` requests and `0x2F` responses.
+- Uses `SysExCmd 0x6F` requests and `0x2F` responses.
 - Metadata SET raw: `07 01 node_hi node_lo {"name":"..."}`
 - Followed by Metadata GET for verification.
 
 ## 2026-02-20 pad assignment + trim capture
 
 From `captures/sniffer-padtrim.jsonl` (slot 74 upload + pad assign + trim):
-- Uses `DeviceId 0x7F/0x60` (requests) and `0x3F/0x20` (responses) during upload.
+- Uses `SysExCmd 0x7F/0x60` (requests) and `0x3F/0x20` (responses) during upload.
 - Metadata SET sequence (decoded raw):
   - Node `74`: sets core sample params (`sound.*`, `channels`, `samplerate`).
   - Node `9500`: `{"active":9502}` (selects active pad slot).
