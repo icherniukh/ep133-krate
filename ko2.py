@@ -23,6 +23,7 @@ import shutil
 import json
 import subprocess
 import tempfile
+import wave
 from pathlib import Path
 from typing import Optional
 
@@ -838,6 +839,10 @@ def optimize_sample(
     """
     Optimize a WAV file for EP-133 using audio2ko2 or sox.
 
+    Downmixes stereo to mono, and downsamples only if rate > SAMPLE_RATE (46875 Hz).
+    The device stores samples below 46875 Hz at their original rate (firmware OS 2.0+),
+    so there is no reason to upsample.
+
     Returns:
         (success, message, original_size, optimized_size)
     """
@@ -845,6 +850,18 @@ def optimize_sample(
 
     if output_path is None:
         output_path = input_path.with_suffix(".opt.wav")
+
+    with wave.open(str(input_path)) as w:
+        in_channels = w.getnchannels()
+        in_rate = w.getframerate()
+        in_depth = w.getsampwidth() * 8
+
+    needs_downmix = in_channels > 1
+    needs_resample = in_rate > SAMPLE_RATE
+    needs_requantize = in_depth > 16
+
+    if not needs_downmix and not needs_resample and not needs_requantize:
+        return True, "already optimal", original_size, original_size
 
     # Try audio2ko2 first
     audio2ko2 = Path.home() / "proj" / "audio2ko2" / "audio2ko2"
@@ -866,24 +883,18 @@ def optimize_sample(
         except (subprocess.TimeoutExpired, FileNotFoundError):
             pass
 
-    # Fall back to sox
+    # Fall back to sox — only pass flags for what actually needs changing
+    sox_args = ["sox", str(input_path)]
+    if needs_downmix:
+        sox_args += ["-c", "1"]
+    if needs_resample:
+        sox_args += ["-r", str(SAMPLE_RATE)]
+    if needs_requantize:
+        sox_args += ["-b", "16"]
+    sox_args.append(str(output_path))
+
     try:
-        subprocess.run(
-            [
-                "sox",
-                str(input_path),
-                "-c",
-                "1",
-                "-r",
-                str(SAMPLE_RATE),
-                "-b",
-                "16",
-                str(output_path),
-            ],
-            capture_output=True,
-            check=True,
-            timeout=30,
-        )
+        subprocess.run(sox_args, capture_output=True, check=True, timeout=30)
         opt_size = output_path.stat().st_size
         return True, "optimized with sox", original_size, opt_size
     except (
@@ -914,9 +925,9 @@ def cmd_optimize(args):
             print("  Cancelled")
             return 0
 
-        # Check if already optimized
-        if original_size < 50 * 1024:
-            print(f"  {Colors.FG_GREEN}✓ Already optimized (small file){Colors.RESET}")
+        # Check if already optimal (mono and at or below device native rate)
+        if info.channels == 1 and info.samplerate <= SAMPLE_RATE:
+            print(f"  {Colors.FG_GREEN}✓ Already optimal (mono, {info.samplerate} Hz){Colors.RESET}")
             return 0
 
         # Download sample
@@ -949,9 +960,10 @@ def cmd_optimize(args):
                 return 0
 
             # Re-upload optimized version
+            opt_path = temp_path.with_suffix(".opt.wav")
             print(f"  {Colors.FG_DIM}Uploading optimized version...{Colors.RESET}")
             try:
-                client.put(temp_path, slot, name=info.name, progress=False)
+                client.put(opt_path, slot, name=info.name, progress=False)
                 print(f"  {Colors.FG_GREEN}✓ Optimized and replaced{Colors.RESET}")
             except EP133Error as e:
                 print(f"  ❌ Upload failed: {e}")
@@ -961,32 +973,30 @@ def cmd_optimize(args):
 
 
 def cmd_optimize_all(args):
-    """Optimize all oversized samples on device."""
-    min_size = args.min * 1024 if args.min else 100 * 1024
+    """Optimize stereo samples on device (downmix to mono)."""
+    # TODO: improve candidate criteria — also filter by sample rate once
+    # we confirm whether the device does its own SRC or plays raw at a fixed clock.
+    # For now, stereo→mono is the only optimization with a clear, large payoff.
+    min_size = args.min * 1024 if args.min else 0
 
     with EP133Client(args.device) as client:
-        print(
-            f"{Colors.CYAN}Scanning for samples over {format_size(min_size)}...{Colors.RESET}\n"
-        )
+        print(f"{Colors.CYAN}Scanning for stereo samples...{Colors.RESET}\n")
 
         sounds = client.list_sounds()
         candidates = []
         for slot, e in sorted(sounds.items()):
             size_bytes = int(e.get("size") or 0)
-            if size_bytes > min_size:
-                try:
-                    info = client.info(slot, include_size=False)
-                except Exception:
-                    info = SampleInfo(
-                        slot=slot, name=str(e.get("name", f"Slot {slot:03d}"))
-                    )
-                info.size_bytes = size_bytes
+            if min_size and size_bytes <= min_size:
+                continue
+            try:
+                info = client.info(slot, include_size=True, node_entry=e)
+            except Exception:
+                continue
+            if info.channels and info.channels > 1:
                 candidates.append(info)
 
         if not candidates:
-            print(
-                f"  {Colors.FG_GREEN}No samples over {format_size(min_size)} found{Colors.RESET}"
-            )
+            print(f"  {Colors.FG_GREEN}No stereo samples found{Colors.RESET}")
             return 0
 
         print(f"  Found {len(candidates)} candidates:\n")
@@ -1379,7 +1389,7 @@ def cmd_squash(args):
             return 0
 
         # Execute squash
-        print(f"\n  {Colors.FG_CYAN}Executing...{Colors.RESET}\n")
+        print(f"\n  {Colors.CYAN}Executing...{Colors.RESET}\n")
 
         for old_slot, new_slot in mapping.items():
             # Download from old slot
@@ -1770,7 +1780,7 @@ def main():
 
     # optimize-all
     optall_parser = subparsers.add_parser(
-        "optimize-all", help="Optimize all oversized samples"
+        "optimize-all", help="Optimize stereo samples (downmix to mono)"
     )
     optall_parser.add_argument(
         "-y",
@@ -1787,8 +1797,8 @@ def main():
         "--min",
         type=int,
         metavar="KB",
-        default=100,
-        help="Minimum size to consider (KB, default: 100)",
+        default=None,
+        help="Skip samples smaller than KB",
     )
 
     # group

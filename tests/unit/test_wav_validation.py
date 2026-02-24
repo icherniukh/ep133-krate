@@ -22,9 +22,9 @@ def test_create_test_wav_is_valid_ep133_format():
         path.unlink(missing_ok=True)
 
 
-def test_put_rejects_invalid_samplerate_without_device():
-    # EP133Client.put() validates WAV format before any MIDI I/O; so we can
-    # unit-test the guardrails without CoreMIDI.
+def test_put_accepts_non_native_samplerate_without_device():
+    # put() no longer enforces 46875 Hz; any positive rate is accepted.
+    # Validation only rejects wrong channel count or bit depth.
     with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
         path = Path(tmp.name)
     try:
@@ -35,8 +35,10 @@ def test_put_rejects_invalid_samplerate_without_device():
             wav.writeframes(b"\x00\x00" * 1000)
 
         client = EP133Client.__new__(EP133Client)
-        with pytest.raises(EP133Error, match="Sample rate"):
+        # Should NOT raise for sample rate — fails later at MIDI I/O
+        with pytest.raises(Exception) as exc_info:
             client.put(path, 999, progress=False)
+        assert "Sample rate" not in str(exc_info.value)
     finally:
         path.unlink(missing_ok=True)
 

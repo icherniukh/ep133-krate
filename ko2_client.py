@@ -330,7 +330,7 @@ class EP133Client:
                 else:
                     fallback.append(resp)
 
-        for resp in (matches + fallback):
+        for resp in matches + fallback:
             data = list(resp)
             metadata = parse_json_from_sysex(data, offset=8)
             if not metadata:
@@ -747,7 +747,8 @@ class EP133Client:
 
         seq = self._next_seq()
         req_data = bytes([0x6A, seq]) + build_metadata_set_request(
-            node_id, json.dumps({"name": new_name}, separators=(",", ":"), ensure_ascii=False)
+            node_id,
+            json.dumps({"name": new_name}, separators=(",", ":"), ensure_ascii=False),
         )
         msg = build_sysex(req_data)
         resp = self._send_and_wait(msg, timeout=2.0, expect_cmd=(0x6A - 0x40))
@@ -762,7 +763,9 @@ class EP133Client:
     # ========================================================================
 
     @staticmethod
-    def build_upload_metadata(channels: int, samplerate: int, frames: int) -> dict[str, object]:
+    def build_upload_metadata(
+        channels: int, samplerate: int, frames: int
+    ) -> dict[str, object]:
         meta: dict[str, object] = {
             "channels": channels,
             "samplerate": samplerate,
@@ -810,10 +813,8 @@ class EP133Client:
                 channels = wav.getnchannels()
                 sampwidth = wav.getsampwidth()
 
-                if samplerate != SAMPLE_RATE:
-                    raise ValueError(
-                        f"Sample rate must be {SAMPLE_RATE}Hz, got {samplerate}Hz"
-                    )
+                if samplerate <= 0:
+                    raise ValueError(f"Invalid sample rate: {samplerate}Hz")
                 if channels not in (1, 2):
                     raise ValueError(f"Channels must be 1 or 2, got {channels}")
                 if sampwidth != BIT_DEPTH // 8:
@@ -824,11 +825,11 @@ class EP133Client:
         except Exception as e:
             raise EP133Error(f"Failed to read WAV file: {e}")
 
-        # Convert to little-endian 16-bit samples
+        # WAV is little-endian s16; device expects big-endian s16
         audio_data = bytearray()
         for i in range(0, len(raw_data) - 1, 2):
             sample = struct.unpack("<h", raw_data[i : i + 2])[0]
-            audio_data.extend(struct.pack("<h", sample))
+            audio_data.extend(struct.pack(">h", sample))
 
         data_size = len(audio_data)
 
@@ -842,10 +843,9 @@ class EP133Client:
 
         # Step 1: Upload Init (0x6C)
         init_seq = self._next_seq()
-        init_req = (
-            bytes([DeviceId.UPLOAD_DATA, init_seq, CMD_FILE])
-            + build_upload_init_request(slot, data_size, channels, samplerate, name)
-        )
+        init_req = bytes(
+            [DeviceId.UPLOAD_DATA, init_seq, CMD_FILE]
+        ) + build_upload_init_request(slot, data_size, channels, samplerate, name)
         init_msg = build_sysex(init_req)
 
         response = self._send_and_wait(
@@ -873,9 +873,9 @@ class EP133Client:
 
             # Chunk payload
             chunk_seq = self._next_seq()
-            chunk_req = bytes([DeviceId.UPLOAD_DATA, chunk_seq]) + build_upload_chunk_request(
-                chunk_index, chunk_data
-            )
+            chunk_req = bytes(
+                [DeviceId.UPLOAD_DATA, chunk_seq]
+            ) + build_upload_chunk_request(chunk_index, chunk_data)
             chunk_msg = build_sysex(chunk_req)
 
             response = self._send_and_wait(
@@ -932,7 +932,9 @@ class EP133Client:
                 _json.dumps(meta_payload, separators=(",", ":"), ensure_ascii=False),
             )
             msg = build_sysex(req_data)
-            resp = self._send_and_wait(msg, timeout=2.0, debug=debug, expect_cmd=(0x6A - 0x40))
+            resp = self._send_and_wait(
+                msg, timeout=2.0, debug=debug, expect_cmd=(0x6A - 0x40)
+            )
             status = self._check_response_status(resp)
             if status is None or status != 0:
                 if debug:

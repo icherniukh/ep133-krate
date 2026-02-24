@@ -191,15 +191,16 @@ def build_info_request(slot: int) -> bytes:
 
 
 def build_download_init_request(slot: int) -> bytes:
-    # Slot uses raw 16-bit bytes inside 7-bit packed payload (little-endian).
-    slot_lo = slot & 0xFF
+    # Slot uses raw 16-bit big-endian (hi byte first). Same convention as
+    # upload and delete. encode_7bit handles the 7-bit safety for slot_lo > 127.
     slot_hi = (slot >> 8) & 0xFF
+    slot_lo = slot & 0xFF
     payload_raw = bytes(
         [
             0x03,  # FileOp.GET
             GET_INIT,
-            slot_lo,
             slot_hi,
+            slot_lo,
             0x00,
             0x00,
             0x00,

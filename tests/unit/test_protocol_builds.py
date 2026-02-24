@@ -32,7 +32,8 @@ def test_build_delete_request_slot_129_decodes_raw():
 def test_build_download_init_request_slot_129_decodes_raw():
     msg = build_download_init_request(129)
     raw = _decode_payload(msg)
-    assert raw[:4] == bytes([FileOp.GET, 0x00, 0x81, 0x00])
+    # Slot 129 in raw 16-bit big-endian: hi=0x00, lo=0x81
+    assert raw[:4] == bytes([FileOp.GET, 0x00, 0x00, 0x81])
 
 
 def test_build_download_chunk_request_page_128_decodes_raw():
