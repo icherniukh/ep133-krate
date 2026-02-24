@@ -116,11 +116,11 @@ def _log_sysex(
         payload = msg_data[7:]
         if payload[:1] == b"\x05":
             try:
-                from ko2_encoding import unpack_7bit
+                from ko2_wire import Packed7
             except Exception:
-                unpack_7bit = None
-            if unpack_7bit:
-                raw_payload = unpack_7bit(payload[1:])
+                Packed7 = None
+            if Packed7:
+                raw_payload = Packed7.unpack(payload[1:])
                 finfo = _decode_fileop(raw_payload)
 
     if hunt and _hunt_match(hunt, header, finfo):
@@ -698,7 +698,7 @@ def _iter_raw_entries(fp):
 def pretty_print(
     path: Path, color: bool = True, limit: int | None = None, raw: bool = False
 ) -> None:
-    from ko2_encoding import unpack_7bit
+    from ko2_wire import Packed7
 
     count = 0
     if raw:
@@ -726,7 +726,7 @@ def pretty_print(
                     info_parts.append(f"seq=0x{seq:02X}")
                     payload = data[8:-1]
                     if payload[:1] == b"\x05":
-                        raw_payload = unpack_7bit(payload[1:])
+                        raw_payload = Packed7.unpack(payload[1:])
                         finfo = _decode_fileop(raw_payload)
                         if finfo.get("op"):
                             info_parts.append(finfo["op"])
@@ -780,7 +780,7 @@ def pretty_print(
                 info_parts.append(f"seq=0x{seq:02X}")
                 payload = data[8:-1]
                 if payload[:1] == b"\x05":
-                    raw = unpack_7bit(payload[1:])
+                    raw = Packed7.unpack(payload[1:])
                     finfo = _decode_fileop(raw)
                     if finfo.get("op"):
                         info_parts.append(finfo["op"])

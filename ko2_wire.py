@@ -91,6 +91,28 @@ class BE16(WireType):
         return self.value
 
 
+class BE32(WireType):
+    """A 32-bit Big-Endian value (raw bytes, not 7-bit safe)."""
+
+    def __init__(self, value: int):
+        if not 0 <= value <= 0xFFFFFFFF:
+            raise ValueError(f"BE32 value must be 0-0xFFFFFFFF, got {value}")
+        self.value = value
+
+    def encode(self) -> bytes:
+        return self.value.to_bytes(4, "big")
+
+    @classmethod
+    def decode(cls, data: bytes) -> tuple["BE32", int]:
+        if len(data) < 4:
+            raise ValueError("Insufficient data for BE32 decode")
+        value = int.from_bytes(data[:4], "big")
+        return cls(value), 4
+
+    def __int__(self) -> int:
+        return self.value
+
+
 class Packed7:
     """TE-specific 8-to-7 bit packing (every 7 bytes becomes 8)."""
 

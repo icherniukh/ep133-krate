@@ -13,8 +13,8 @@
 ## 🛠 Active Task Backlog
 
 1. **Refactor `ko2_protocol.py`**: ✅ Done. Renamed `DeviceId` to `SysExCmd`.
-2. **Implement Wire-Format Layer**: 🟡 In progress. Created `ko2_wire.py` with `U7`, `U14`, `BE16`, and `Packed7`.
-3. **Pathlib Migration**: Transition from `os.path` to `pathlib` for all file operations.
+2. **Implement Wire-Format Layer**: ✅ Done. Created `ko2_wire.py`, refactored `ko2_protocol.py` to use declarative types, and deleted `ko2_encoding.py`.
+3. **Pathlib Migration**: ✅ Done. Standardized on `pathlib.Path` across all active scripts.
 4. **Research Playback Protocol**: Capture SysEx to enable `ko2 play`.
 
 ---

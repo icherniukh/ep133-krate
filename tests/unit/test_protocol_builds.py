@@ -11,12 +11,12 @@ from ko2_protocol import (
     MetaType,
     UPLOAD_PARENT_NODE,
 )
-from ko2_encoding import unpack_7bit
+from ko2_wire import Packed7
 
 
 def _decode_payload(msg: bytes) -> bytes:
     assert msg[0] == CMD_FILE
-    return unpack_7bit(msg[1:])
+    return Packed7.unpack(msg[1:])
 
 
 def test_build_info_request_slot_1():
@@ -58,7 +58,7 @@ def test_build_metadata_get_request_node_1000_page_0_decodes_raw():
 
 def test_build_upload_init_request_slot_12_includes_parent_node():
     msg = build_upload_init_request(12, file_size=1000, channels=1, samplerate=46875, name="test")
-    raw = unpack_7bit(msg)
+    raw = Packed7.unpack(msg)
     assert raw[0:7] == bytes([FileOp.PUT, 0x00, 0x05, 0x00, 0x0C, 0x03, 0xE8])
     assert raw[5] == (UPLOAD_PARENT_NODE >> 8) & 0xFF
     assert raw[6] == UPLOAD_PARENT_NODE & 0xFF

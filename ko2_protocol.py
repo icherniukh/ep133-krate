@@ -9,7 +9,52 @@ Based on PROTOCOL.md and live analysis.
 from enum import IntEnum
 import re
 
-from ko2_encoding import decode_node_id, encode_14bit, encode_7bit, unpack_7bit
+from ko2_wire import BE16, BE32, Packed7, U14
+
+
+# --- Node ID Decoding Logic ---
+
+
+def _parse_slot_prefix(name: str) -> int | None:
+    if len(name) < 3:
+        return None
+    if name[:3].isdigit():
+        try:
+            return int(name[:3])
+        except ValueError:
+            return None
+    return None
+
+
+def decode_node_id(hi: int, lo: int, name: str | None = None) -> int:
+    """Decode node ID from hi/lo bytes.
+
+    Some firmwares emit 14-bit (7-bit split) node IDs in FILE LIST responses.
+    If bytes are already 8-bit (hi/lo > 0x7F), use 16-bit decode.
+    Otherwise, use filename prefix to disambiguate when possible.
+    """
+    node_id_16 = (hi << 8) | lo
+    if hi > 0x7F or lo > 0x7F:
+        return node_id_16
+
+    # 14-bit split (7-bit MIDI encoding)
+    node_id_14 = decode_14bit(hi, lo)
+    slot_prefix = _parse_slot_prefix(name or "")
+    if slot_prefix is not None:
+        if node_id_14 - 1000 == slot_prefix:
+            return node_id_14
+        if node_id_16 - 1000 == slot_prefix:
+            return node_id_16
+
+    # Prefer 14-bit if it lands in expected EP-133 node ranges.
+    if 1000 <= node_id_14 <= 12000:
+        return node_id_14
+    return node_id_16
+
+
+def decode_14bit(hi: int, lo: int) -> int:
+    """Decode a 14-bit (hi/lo 7-bit) value."""
+    return (hi << 7) | lo
 
 
 # --- Protocol Constants ---
@@ -177,53 +222,27 @@ def build_info_request(slot: int) -> bytes:
     Format: 05 08 07 02 [slot_hi_7bit] [slot_lo_7bit] 00 00
     Confirmed working against device. Uses 0x08 as fixed byte (not 0x00).
     """
-    slot_hi, slot_lo = encode_14bit(slot)
-    return bytes([0x05, 0x08, 0x07, 0x02, slot_hi, slot_lo, 0x00, 0x00])
+    return bytes([0x05, 0x08, 0x07, 0x02]) + U14(slot).encode() + b"\x00\x00"
 
 
 def build_download_init_request(slot: int) -> bytes:
-    # Slot uses raw 16-bit big-endian (hi byte first). Same convention as
-    # upload and delete. encode_7bit handles the 7-bit safety for slot_lo > 127.
-    slot_hi = (slot >> 8) & 0xFF
-    slot_lo = slot & 0xFF
-    payload_raw = bytes(
-        [
-            0x03,  # FileOp.GET
-            GET_INIT,
-            slot_hi,
-            slot_lo,
-            0x00,
-            0x00,
-            0x00,
-            0x00,
-            0x00,  # 5-byte offset/padding
-        ]
-    )
-    payload = encode_7bit(payload_raw)
-    return bytes([CMD_FILE]) + payload
+    # Slot uses raw 16-bit big-endian (hi byte first).
+    payload_raw = bytes([FileOp.GET, GET_INIT]) + BE16(slot).encode() + b"\x00" * 5
+    return bytes([CMD_FILE]) + Packed7.pack(payload_raw)
 
 
 def build_download_chunk_request(page: int) -> bytes:
-    # Little-endian 7-bit split per CLIENT.py
-    page_hi, page_lo = encode_14bit(page)
-    payload_raw = bytes([0x03, GET_DATA, page_lo, page_hi])  # FileOp.GET
-    payload = encode_7bit(payload_raw)
-    return bytes([CMD_FILE]) + payload
+    # Page uses 14-bit little-endian split (lo then hi) per observed traffic.
+    # Note: U14(page).encode() returns [hi, lo], so we swap for this specific op.
+    u14 = U14(page).encode()
+    payload_raw = bytes([FileOp.GET, GET_DATA, u14[1], u14[0]])
+    return bytes([CMD_FILE]) + Packed7.pack(payload_raw)
 
 
 def build_delete_request(slot: int) -> bytes:
     """Build DELETE request. Slot uses big-endian encoding (hi, lo)."""
-    slot_hi = (slot >> 8) & 0xFF
-    slot_lo = slot & 0xFF
-    payload_raw = bytes(
-        [
-            0x06,  # FileOp.DELETE
-            slot_hi,
-            slot_lo,
-        ]
-    )
-    payload = encode_7bit(payload_raw)
-    return bytes([CMD_FILE]) + payload
+    payload_raw = bytes([FileOp.DELETE]) + BE16(slot).encode()
+    return bytes([CMD_FILE]) + Packed7.pack(payload_raw)
 
 
 def build_upload_init_request(
@@ -231,78 +250,41 @@ def build_upload_init_request(
 ) -> bytes:
     name_bytes = name.encode("utf-8")
     metadata = f'{{"channels":{channels},"samplerate":{samplerate}}}'.encode("utf-8")
-    size_bytes = file_size.to_bytes(4, "big")
 
-    # Slot encoding in upload init is big-endian (per UPLOAD_PROTOCOL_DETAILS.md)
+    # Slot encoding in upload init is big-endian
     payload_raw = bytearray(
         [
-            0x02,  # FileOp.PUT
+            FileOp.PUT,
             PUT_INIT,
             0x05,  # Audio file type
-            (slot >> 8) & 0xFF,
-            slot & 0xFF,
-            (UPLOAD_PARENT_NODE >> 8) & 0xFF,
-            UPLOAD_PARENT_NODE & 0xFF,
         ]
     )
-    payload_raw.extend(size_bytes)
+    payload_raw.extend(BE16(slot).encode())
+    payload_raw.extend(BE16(UPLOAD_PARENT_NODE).encode())
+    payload_raw.extend(BE32(file_size).encode())
     payload_raw.extend(name_bytes)
     payload_raw.append(0x00)
     payload_raw.extend(metadata)
 
-    # 7-bit pack the raw bytes. Note: the first byte after CMD_FILE is a 7-bit
-    # packing MSB bitmap (not a semantic "operation flags" byte).
-    return encode_7bit(bytes(payload_raw))
+    return Packed7.pack(bytes(payload_raw))
 
 
 def build_upload_chunk_request(chunk_index: int, audio_data: bytes) -> bytes:
-    payload_raw = bytearray(
-        [
-            0x02,  # FileOp.PUT
-            PUT_DATA,
-            (chunk_index >> 8) & 0xFF,
-            chunk_index & 0xFF,
-        ]
+    payload_raw = (
+        bytes([FileOp.PUT, PUT_DATA]) + BE16(chunk_index).encode() + audio_data
     )
-    payload_raw.extend(audio_data)
-    payload = encode_7bit(bytes(payload_raw))
-    return bytes([CMD_FILE]) + payload
+    return bytes([CMD_FILE]) + Packed7.pack(payload_raw)
 
 
 def build_upload_end_request(final_chunk_index: int) -> bytes:
-    payload_raw = bytes(
-        [
-            0x02,  # FileOp.PUT
-            PUT_DATA,
-            (final_chunk_index >> 8) & 0xFF,
-            final_chunk_index & 0xFF,
-        ]
-    )
-    payload = encode_7bit(payload_raw)
-    return bytes([CMD_FILE]) + payload
+    payload_raw = bytes([FileOp.PUT, PUT_DATA]) + BE16(final_chunk_index).encode()
+    return bytes([CMD_FILE]) + Packed7.pack(payload_raw)
 
 
 def build_file_list_request(node_id: int, page: int = 0) -> bytes:
-    """Build FILE LIST request payload for a directory node.
-
-    This is the mechanism used by the official tool / rcy to enumerate the
-    EP-133 filesystem (e.g. node 1000 = /sounds/).
-
-    Args:
-        node_id: Directory node ID (e.g. 1000 for /sounds/)
-        page: Page number (pagination)
-    """
-    payload_raw = bytes(
-        [
-            FileOp.LIST,
-            (page >> 8) & 0xFF,
-            page & 0xFF,
-            (node_id >> 8) & 0xFF,
-            node_id & 0xFF,
-        ]
-    )
-    payload = encode_7bit(payload_raw)
-    return bytes([CMD_FILE]) + payload
+    """Build FILE LIST request payload for a directory node."""
+    payload_raw = bytes([FileOp.LIST]) + BE16(page).encode() + BE16(node_id).encode()
+    return bytes([CMD_FILE]) + Packed7.pack(payload_raw)
 
 
 def parse_file_list_response(payload: bytes) -> list[dict]:
@@ -399,36 +381,23 @@ def parse_file_list_response_raw(payload: bytes) -> list[dict]:
 
 def build_metadata_get_request(node_id: int, page: int = 0) -> bytes:
     """Build FILE METADATA GET request payload for a node ID (filesystem node)."""
-    payload_raw = bytes(
-        [
-            FileOp.METADATA,
-            MetaType.GET,
-            (node_id >> 8) & 0xFF,
-            node_id & 0xFF,
-            (page >> 8) & 0xFF,
-            page & 0xFF,
-        ]
+    payload_raw = (
+        bytes([FileOp.METADATA, MetaType.GET])
+        + BE16(node_id).encode()
+        + BE16(page).encode()
     )
-    payload = encode_7bit(payload_raw)
-    return bytes([CMD_FILE]) + payload
+    return bytes([CMD_FILE]) + Packed7.pack(payload_raw)
 
 
 def build_metadata_set_request(node_id: int, metadata_json: str) -> bytes:
     """Build FILE METADATA SET request payload for a node ID (filesystem node)."""
-    metadata_bytes = metadata_json.encode("utf-8") + b"\x00"
     payload_raw = (
-        bytes(
-            [
-                FileOp.METADATA,
-                MetaType.SET,
-                (node_id >> 8) & 0xFF,
-                node_id & 0xFF,
-            ]
-        )
-        + metadata_bytes
+        bytes([FileOp.METADATA, MetaType.SET])
+        + BE16(node_id).encode()
+        + metadata_json.encode("utf-8")
+        + b"\x00"
     )
-    payload = encode_7bit(payload_raw)
-    return bytes([CMD_FILE]) + payload
+    return bytes([CMD_FILE]) + Packed7.pack(payload_raw)
 
 
 def parse_json_from_sysex(data: bytes, offset: int = 10) -> dict | None:

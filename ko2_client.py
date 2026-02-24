@@ -39,7 +39,6 @@ from ko2_protocol import (
     DEVICE_FAMILY,
     SYSEX_START,
     SYSEX_END,
-    unpack_7bit as decode_7bit,
     slot_from_sound_entry,
     build_info_request,
     build_download_init_request,
@@ -54,6 +53,7 @@ from ko2_protocol import (
     build_metadata_set_request,
     parse_file_list_response_raw,
 )
+from ko2_wire import Packed7
 
 
 @dataclass
@@ -297,7 +297,7 @@ class EP133Client:
                 if len(data) > 20 and (b".pcm" in raw_bytes or b".PCM" in raw_bytes):
                     for start_offset in [9, 10, 11]:
                         encoded = bytes(data[start_offset:])
-                        decoded = decode_7bit(encoded)
+                        decoded = Packed7.unpack(encoded)
                         if b".pcm" in decoded or b".PCM" in decoded:
                             if len(decoded) >= 7:
                                 file_size = (
@@ -521,7 +521,7 @@ class EP133Client:
                 if len(data) > 20 and (b".pcm" in raw_bytes or b".PCM" in raw_bytes):
                     for start_offset in [9, 10, 11]:
                         encoded = bytes(data[start_offset:])
-                        decoded = decode_7bit(encoded)
+                        decoded = Packed7.unpack(encoded)
                         if b".pcm" in decoded or b".PCM" in decoded:
                             if len(decoded) >= 7:
                                 file_size = (
@@ -572,7 +572,7 @@ class EP133Client:
                             # The payload always starts at offset 9 — structural, not dynamic.
                             # Each decoded chunk begins with a 2-byte page-number echo
                             # [page_lo, page_hi] followed by BE s16 audio bytes.
-                            decoded = decode_7bit(bytes(data[9:]))
+                            decoded = Packed7.unpack(bytes(data[9:]))
                             if decoded and len(decoded) > 2:
                                 all_data.extend(decoded[2:])  # strip page prefix
                                 received += len(decoded)
@@ -634,7 +634,7 @@ class EP133Client:
                 break
 
             encoded_payload = resp[10:-1] if resp and len(resp) > 11 else b""
-            payload = decode_7bit(encoded_payload) if encoded_payload else b""
+            payload = Packed7.unpack(encoded_payload) if encoded_payload else b""
             entries = parse_file_list_response(payload)
             if not entries:
                 break
@@ -664,7 +664,7 @@ class EP133Client:
                 break
 
             encoded_payload = resp[10:-1] if resp and len(resp) > 11 else b""
-            payload = decode_7bit(encoded_payload) if encoded_payload else b""
+            payload = Packed7.unpack(encoded_payload) if encoded_payload else b""
             entries = parse_file_list_response_raw(payload)
             if not entries:
                 break
@@ -712,7 +712,7 @@ class EP133Client:
                 break
 
             encoded_payload = resp[10:-1] if resp and len(resp) > 11 else b""
-            payload = decode_7bit(encoded_payload) if encoded_payload else b""
+            payload = Packed7.unpack(encoded_payload) if encoded_payload else b""
             if len(payload) < 2:
                 break
             fragment = payload[2:]
