@@ -229,7 +229,8 @@ F0 00 20 76 33 40 7D [seq] 05 00 03 00 [slot_hi] [slot_lo] [offset: 5 bytes] F7
 - Sub-op: `0x00` (GET_INIT)
 - Slot encoding: **big-endian**
 - Offset: 5 zero bytes
-- Response: file info including size (in 7-bit encoded .pcm filename)
+- Response: 7-bit encoded metadata — filename (`.pcm` extension) + 4-byte big-endian size at
+  decoded bytes [3:7]. **Size from init response can be off by ~14 bytes; use RIFF header instead.**
 
 ### 2. Get Data Chunk
 ```
@@ -240,7 +241,9 @@ F0 00 20 76 33 40 7D [seq] 05 00 03 01 [page_hi] [page_lo] F7
   - `page_lo = page & 0x7F`
   - `page_hi = (page >> 7) & 0x7F`
   - Max page: 16383 (14 bits)
-- Response: 7-bit encoded audio chunk
+- Response: 7-bit encoded chunk; assembled pages form a **complete RIFF WAV file**
+  - Trim to RIFF size: `int.from_bytes(data[4:8], 'little') + 8`
+  - Write bytes directly — do not re-wrap in a second WAV container
 
 ## 7-Bit Encoding
 

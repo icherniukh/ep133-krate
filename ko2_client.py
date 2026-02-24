@@ -546,10 +546,6 @@ class EP133Client:
             for _ in self._inport.iter_pending():
                 pass
 
-            # Encode page number using 7-bit values (MIDI data bytes must be 0-127)
-            # Uses big-endian like slot encoding in download operations
-            page_lo = page & 0x7F
-            page_hi = (page >> 7) & 0x7F
             seq = (seq + 1) & 0x7F
 
             data_req = build_sysex(
@@ -593,12 +589,20 @@ class EP133Client:
 
             page = (page + 1) & 0x3FFF  # 14-bit max (two 7-bit bytes)
 
-        return bytes(all_data)
+        data = bytes(all_data)
+        if len(data) >= 8 and data[:4] == b"RIFF":
+            riff_size = int.from_bytes(data[4:8], "little")
+            return data[: riff_size + 8]
+        return data[: file_info["size"]]
 
     def _save_wav(
         self, data: bytes, output_path: Path, channels: int, samplerate: int
     ) -> None:
-        """Save raw PCM data as WAV file."""
+        """Save PCM data (or already-formed WAV) to a WAV file."""
+        if len(data) >= 4 and data[:4] == b"RIFF":
+            output_path.write_bytes(data)
+            return
+
         import wave
 
         with wave.open(str(output_path), "wb") as wav:
