@@ -71,7 +71,26 @@ These are the remaining mysteries in the EP-133 protocol that require further re
 
 ---
 
-## 📅 Next Steps (Phase 2)
-1. Initialize Textual TUI project structure.
-2. Implement queue-based MIDI polling in a background worker thread.
-3. Build the first interactive slot browser view.
+## 📅 Task List: Phase 2 (Textual TUI)
+
+Our core objective is to wrap the robust `ko2_client` into a responsive, async-safe terminal UI using the `textual` framework.
+
+### Step 1: TUI Foundation & Async Threading
+- [ ] Initialize `textual` app structure (`app.py`, `ui/`, `workers/`).
+- [ ] Implement a background MIDI polling worker (queue-based) to decouple `mido` from the async event loop.
+- [ ] Design a thread-safe state container (e.g. `ko2_state_manager.py`) to hold the sample inventory without blocking the UI.
+
+### Step 2: Core Views
+- [ ] **Slot Browser**: A `DataTable` or custom list view showing all 999 slots (Slot, Name, Size, Channels, Rate).
+- [ ] **Detail Pane**: A sidebar or modal showing deep metadata for the selected slot.
+- [ ] **Log Console**: A built-in terminal view showing raw MIDI TX/RX and operation logs.
+
+### Step 3: Interactive Operations
+- [ ] **Download Modal**: Trigger `DownloadOperation` with progress bar feedback.
+- [ ] **Upload Modal**: File picker to select a local `.wav`, followed by `UploadOperation` with progress feedback.
+- [ ] **Delete/Rename**: Modals for quick slot management.
+- [ ] **Batch Ops**: Trigger `ko2 squash` or `ko2 optimize-all` from the TUI with visual progress.
+
+### Step 4: Stretch Goals (Phase 3 Prep)
+- [ ] Capture the "Audition" (0x76) protocol so the TUI can trigger remote playback.
+- [ ] Pad mapping visualizer (if the Group A/B/C/D mapping is fully decoded).
