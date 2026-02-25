@@ -1,195 +1,77 @@
-# EP-133 KO-II Tools - Status
+# EP-133 KO-II Tools - Project Status
 
-## Progress Overview (rough estimates)
+## 📊 Progress Overview (as of 2026-02-24)
+
+**Current Milestone:** Phase 1 (CLI) Complete. Transitioning to Phase 2 (TUI).
 
 **Protocol Understanding:** `[########--] 80%`
-- Confirmed: LIST/GET/PUT/DELETE, METADATA SET, VERIFY, upload metadata fields, pad mapping A + partial B/C/D
-- Partial: GET_META reliability, project ops, memory reporting
-- Unknown: PLAYBACK/AUDITION wire protocol
+- Confirmed: LIST/GET/PUT/DELETE, METADATA SET, VERIFY, upload metadata fields, pad mapping A + partial B/C/D.
+- Partial: Project ops, memory reporting, node hierarchy semantics.
+- Unknown: PLAYBACK/AUDITION wire protocol.
 
 **Project Phases:**
-- Phase 1 (CLI): `[##########] Done`
-- Phase 2 (TUI): `[----------] 0%`
+- Phase 1 (CLI): `[##########] 100% Done`
+- Phase 2 (TUI): `[----------] 0% (Next Up)`
 - Phase 3 (Desktop/Web/Mobile): `[----------] 0%`
 
-## Currently Working Operations
+---
 
-### Device Operations (via MIDI SysEx)
+## 🏛 Architectural Decisions
 
-| Operation | Status | Command | Notes |
-|-----------|--------|---------|-------|
-| **List Samples** | ✅ Working | `ko2 ls [--page N] [--all]` | Scan by pages (100 slots), show size/duration |
-| **Query Metadata** | ✅ Working | `ko2 info <slot\|range>` | Get name, size, duration |
-| **Download Sample** | ✅ Working | `ko2 get <slot> [file]` | Downloads to WAV (46875Hz) |
-| **Upload Sample** | ✅ Working | `ko2 put <file> <slot>` | Audio + metadata set (channels/samplerate; loop fields when small) |
-| **Delete Sample** | ✅ Working | `ko2 rm <slot>` | `delete` alias also works |
-| **Optimize Sample** | ✅ Working | `ko2 optimize <slot>` | Backup + optimize + replace |
-| **Optimize All** | ✅ Working | `ko2 optimize-all [--min KB]` | Batch optimize stereo samples (downmix to mono) |
-| **Squash Slots** | ✅ Working | `ko2 squash [--range N] [--execute]` | Fill gaps sequentially (dry-run default) |
+### 2026-02-24: "Golden Standard" Descriptor DSL Architecture
+**Context**: 
+The procedural approach (manually shifting bits) was replaced by a `dataclass`-based layer. However, that layer still suffered from asymmetry (manual unpacking on receive) and anti-patterns (overriding pack methods for variable-length strings).
 
-### Optimization Features
+**Decision**:
+We implemented a true **Descriptor-based Domain Specific Language (DSL)** natively in Python (similar to SQLAlchemy/Django ORM) for the entire protocol.
+- **`ko2_types.py`**: Minimal, primitive types (`U7`, `BE16`, `Packed7`).
+- **`ko2_models.py`**: The Domain Layer. Contains all Opcodes, Message structures, and Logical Parsers. Messages are defined using declarative fields (`U7Field`, `BE16Field`, `JsonField`).
+- **`ko2_operations.py`**: Stateful, multi-step operations (e.g., `UploadTransaction`).
+- **`ko2_client.py`**: Thin transport interface speaking the `Message` domain.
 
-**Single Sample:**
-```bash
-ko2 optimize 123     # Download, optimize, backup .bak, replace
-```
-
-**Batch Optimization:**
-```bash
-ko2 optimize-all             # Find samples >100KB, optimize all
-ko2 optimize-all --min 50    # Find samples >50KB
-ko2 optimize-all --force     # Skip confirmation
-```
-
-**What it does:**
-1. Scans all 999 slots for oversized samples
-2. Downloads candidate to temp file
-3. Creates `file.wav.bak` backup
-4. Optimizes with audio2ko2 (or sox fallback)
-5. Replaces if savings >5KB
-6. Shows total savings
-
-### Backup File Operations (.pak files = ZIP)
-
-| Operation | Status | Script | Notes |
-|-----------|--------|--------|-------|
-| **List Backup Contents** | ✅ Working | `ko2-list` | Shows all samples, sizes, types |
-| **Optimize Backup** | ✅ Working | `ko2-optimize` | Converts to 46.875kHz mono |
-| **Create Backup** | ❌ Official Tool Only | | Requires web UI |
-| **Restore Backup** | ❌ Official Tool Only | | Requires web UI |
-
-### Audio Conversion
-
-| Operation | Status | Script | Notes |
-|-----------|--------|--------|-------|
-| **Convert to EP-133 Format** | ✅ Working | `../audio2ko2` | Converts to 46875Hz WAV |
-| **Extract from Backup** | ✅ Working | `../extract-ko2` | Extracts .pak contents |
+**Consequences**:
+- 100% symmetry for serialization/deserialization.
+- Zero transport leakage (`ko2_client` knows nothing about `Packed7` or JSON byte-packing).
+- Synchronous and thread-safe design, paving the way for async TUI worker threads (Textual framework).
 
 ---
 
-## Protocol Implementation Status
+## 🛠 Currently Working Operations (CLI)
 
-### Device IDs
-| ID | Name | Status | Notes |
-|----|------|--------|-------|
-| 0x61 | INIT | ✅ Working | Initialization sequence |
-| 0x75 | GET_META | ⚠️ Unreliable | Stale/offset results; official app does not use it |
-| 0x76 | PLAYBACK | ⏳ Unknown | Audition - needs packet capture |
-| 0x77 | INFO | ✅ Working | Device info |
-| 0x7C | PROJECT | ✅ Documented | Project switching (not implemented) |
-| 0x7D | DOWNLOAD | ✅ Working | GET with chunking |
-| 0x6C | UPLOAD_DATA | ✅ Working | Upload init + data chunks |
-| 0x6D | UPLOAD_END | ✅ Working | Upload end marker |
-| 0x7E | UPLOAD | ❌ Deprecated | Old command, use 0x6C/0x6D |
-| 0x37 | RESPONSE | ✅ Working | Standard response parsing |
-| 0x3D | RESPONSE_ALT | ✅ Working | Alternative response parsing |
-
-### File Operations
-| Op | Hex | Name | Status |
-|----|-----|------|--------|
-| 0x01 | INIT | Initialize | ✅ Working |
-| 0x02 | PUT | Upload | ✅ Working |
-| 0x03 | GET | Download | ✅ Working |
-| 0x04 | LIST | List files | ✅ Working | Confirmed via captures |
-| 0x05 | PLAYBACK | Playback | ⏳ Unknown |
-| 0x06 | DELETE | Delete | ✅ Working |
-| 0x07 | METADATA | Metadata ops | ✅ Working |
-| 0x0B | VERIFY | Verify | ✅ Working (upload) |
+| Operation | Command | Notes |
+|-----------|---------|-------|
+| **List Samples** | `ko2 ls [--page N] [--all]` | Scan by pages (100 slots), show size/duration |
+| **Query Metadata** | `ko2 info <slot\|range>` | Get name, size, duration. Fallbacks handle `GET_META` offsets. |
+| **Download Sample** | `ko2 get <slot> [file]` | Downloads to WAV (46875Hz). 7-bit page encoding fixed. |
+| **Upload Sample** | `ko2 put <file> <slot>` | Audio + metadata set. Safe 44.1kHz support. |
+| **Delete Sample** | `ko2 rm <slot>` | Big-endian slot formatting verified. |
+| **Optimize Sample** | `ko2 optimize <slot>` | Backup + optimize + replace |
+| **Optimize All** | `ko2 optimize-all [--min KB]`| Batch optimize stereo samples (downmix to mono) |
+| **Squash Slots** | `ko2 squash` | Fill gaps sequentially (dry-run default) |
 
 ---
 
-## Wishlist / Future Features
+## 🔍 Technical Gaps & Investigation Priorities
 
-### Phase 1 - Core (DONE ✅)
-- [x] ko2 ls - List samples by pages
-- [x] ko2 get - Download sample
-- [x] ko2 put - Upload sample
-- [x] ko2 rm/delete - Delete sample
-- [x] ko2 info - Show metadata
-- [ ] ko2 play - Audition (protocol unknown)
+These are the remaining mysteries in the EP-133 protocol that require further reverse-engineering:
 
-### Phase 2 - Batch Operations (PARTIAL)
-- [x] ko2 optimize-all - Optimize oversized samples
-- [ ] ko2 get --all - Download all samples
-- [ ] ko2 get --bank 7 - Download entire bank
-- [ ] ko2 backup - Create full backup (device -> .pak)
-- [ ] ko2 restore <file> - Restore backup to device
-
-### Phase 3 - TUI Interface
-- [ ] ko2 tui - Interactive terminal UI
-  - Slot browser (10 pages × 100 slots)
-  - Preview playback (when protocol known)
-  - Batch operations
-  - Visual memory usage
-
-### Phase 4 - Sample Management
-- [ ] ko2 rename <slot> <name> - Rename sample
-- [ ] ko2 mv <src> <dst> - Move sample
-- [ ] ko2 cp <src> <dst> - Copy sample
-- [ ] ko2 normalize <slot> - Normalize volume
-- [ ] ko2 trim <slot> - Trim silence
-
-### Phase 5 - Project Operations
-- [ ] ko2 project ls - List projects
-- [ ] ko2 project switch <n> - Switch active project
-- [ ] ko2 project backup <n> - Backup project
-- [ ] ko2 project export <n> - Export to .ppak
+1. **Playback/Audition (0x76)** 
+   - Protocol unknown. We need to capture the official app triggering an audition to unblock Phase 3.
+2. **Project Query & Switching (0x7C)** 
+   - Switching is documented, but listing projects is not yet captured or implemented. Required for backup/restore features.
+3. **Memory Statistics** 
+   - No known command to query free memory. 64 MB assumed as a fallback, but newer hardware ships with 128 MB.
+4. **Pad Mapping & Hierarchy Semantics** 
+   - Group A mapping is fully captured (`9201-9212`). Groups B/C/D are only partially captured.
+   - `META_SET` operations show `active` toggles on nodes `2000/5100/5300/5400/9100/9300/9500`, but UI semantics are still unclear.
+5. **GET_META (0x75) Reliability & Corruption** 
+   - `GET_META` is known to be unreliable (returns offset names or stale data for slots >127). The official app relies entirely on `/sounds` (FILE LIST) and Node `METADATA GET` instead. Our CLI mitigates this by trusting Node metadata first.
+6. **Project file format (.ppak)**
+   - Documented in `PPAK_FORMAT.md`, but no SysEx path for extracting it has been found. It might rely on USB Mass Storage or undocumented bulk transfers.
 
 ---
 
-## Recent Bug Fixes (2025-02-19)
-
-### Critical Download Bug - Page Encoding
-
-**Problem**: Download operations failed with `ValueError: data byte must be in range 0..127` for larger samples.
-
-**Root Cause**: Page numbers were encoded as:
-```python
-page_lo = page & 0xFF      # 0-255
-page_hi = (page >> 8) & 0xFF  # Could be >127
-```
-
-When `page >= 128`, `page_hi` became 1 or higher. When `page >= 32768`, `page_hi` exceeded 127, violating MIDI data byte constraints.
-
-**Fix**: Use 7-bit encoding like slot numbers:
-```python
-page_lo = page & 0x7F       # 0-127
-page_hi = (page >> 7) & 0x7F  # 0-127
-```
-
-Max page with 14 bits: 16383 (sufficient for all samples).
-
-**Files Modified**:
-- `ko2_client.py` - `_download_data()` method
-- `ko2_download.py` - Same fix applied
-- `ko2.py` - Fixed `stat().st` typo → `stat().st_size`
-- `PROTOCOL.md` - Documented 7-bit page encoding
-
----
-
-## Technical Gaps
-
-1. **Playback/Audition (0x76)** - Protocol unknown, needs MIDI sniffer
-2. **Project Query** - No command to list/query projects
-3. **Memory Statistics** - No command to query free memory; 64 MB assumed (current hardware ships with 128 MB)
-4. **Pad Mapping** - A complete; B/C partial; D partial
-5. **Node hierarchy** - META_SET shows `active` toggles on nodes 2000/5100/5300/5400/9100/9300/9500; semantics still unclear
-6. **Sample node addressing** - META_GET targets nodes matching slot numbers; needs confirmation
-7. **GET_META Reliability** - Audit 001-160: 20 stale, 23 node-name-empty, 60 field mismatches; use node metadata
-8. **`DeviceId` naming** - ✅ Fixed. Renamed to `SysExCmd` in `ko2_models.py` to correctly reflect its role as a command opcode.
-
----
-
-## Files
-
-| File | Purpose |
-|------|---------|
-| `ko2.py` | Main CLI tool |
-| `ko2_client.py` | MIDI client implementation |
-| `ko2_models.py` | Protocol constants and utilities |
-| `PROTOCOL.md` | Complete protocol documentation |
-| `PROTOCOL_AUDIT.md` | Protocol confidence map + investigation priorities |
-| `PROTOCOL_VALIDATION.md` | Wire evidence log (capture-backed observations) |
-| `PPAK_FORMAT.md` | .ppak file format spec |
-| `UPLOAD_INVESTIGATION.md` | Upload protocol analysis (to be merged into PROTOCOL.md when finalized) |
-| `METADATA_CORRUPTION.md` | Metadata divergence risks and mitigations |
+## 📅 Next Steps (Phase 2)
+1. Initialize Textual TUI project structure.
+2. Implement queue-based MIDI polling in a background worker thread.
+3. Build the first interactive slot browser view.

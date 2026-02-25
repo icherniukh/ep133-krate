@@ -269,14 +269,13 @@ unzip -l backup.pak
 ko2-tools/
 ├── README.md              # This file
 ├── PROTOCOL.md            # SysEx protocol docs (reverse-engineered)
-├── PROTOCOL_AUDIT.md      # Protocol confidence map
 ├── STATUS.md              # Implementation status + tech gaps
 ├── PPAK_FORMAT.md         # .ppak project file format
 ├── ko2.py                 # Main CLI
 ├── ko2_client.py          # Thin MIDI transport client
-├── ko2_models.py        # Declarative Descriptor DSL & Messages
-├── ko2_operations.py    # Stateful multi-step operations
-├── ko2_types.py            # Primitive wire-format types
+├── ko2_models.py          # Declarative Descriptor DSL & Messages
+├── ko2_operations.py      # Stateful multi-step operations
+├── ko2_types.py           # Primitive wire-format types
 ├── tests/unit/            # Unit tests (no device required)
 ├── tests/e2e/             # E2E tests (require EP-133)
 └── scripts/legacy/        # Archived protocol-probing scripts
