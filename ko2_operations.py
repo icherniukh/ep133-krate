@@ -69,8 +69,8 @@ class UploadTransaction(Transaction):
         )
         
         resp = self.client._send_and_wait_msg(init_req, timeout=5.0)
-        if not resp or resp.status != 0:
-            raise Exception(f"Upload init failed: {resp}")
+        if not resp:
+            raise Exception("Upload init failed: No response")
 
         # 3. Data Chunks
         chunk_index = 0

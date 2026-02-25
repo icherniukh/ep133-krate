@@ -325,6 +325,8 @@ class InfoRequest(SysExMessage):
 # --- Responses ---
 
 class SysExResponse(SysExMessage):
+    file_cmd = U7Field(expected=0x05)
+    sub_byte = U7Field(default=0)
     status = U7Field(default=0)
     payload = RawBytesField(default=b"")
 
@@ -336,24 +338,12 @@ class SysExResponse(SysExMessage):
 
 @SysExMessage.register(SysExCmd.RESPONSE)
 class GenericResponse(SysExResponse):
-    sub_byte = U7Field(default=0)
-    status = U7Field(default=0)
-    payload = RawBytesField(default=b"")
+    pass
 
 @SysExMessage.register(SysExCmd.LIST_FILES - 0x40)  # 0x2A File List Response
 class FileListResponse(FileMessage):
-    # Overrides because responses are from the device to host (usually -0x40 opcode)
-    # The actual opcode is handled by from_sysex mapping above.
-    file_op = U7Field(expected=FileOp.LIST)
+    sub_byte = 0x00
     payload = RawBytesField(default=b"")
-
-@SysExMessage.register(SysExCmd.LIST_FILES - 0x40)  # Shared opcode, needs disambiguation later, but this works for raw.
-class MetadataGetResponse(FileMessage):
-    file_op = U7Field(expected=FileOp.METADATA)
-    meta_type = U7Field(expected=MetaType.GET)
-    page = BE16Field()
-    node_id = BE16Field()
-    metadata_json = JsonField()
 
 
 # --- Logical Helpers (Pure) ---

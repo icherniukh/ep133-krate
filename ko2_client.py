@@ -230,6 +230,9 @@ class EP133Client:
         if include_size and info.size_bytes == 0 and not info.is_empty:
             info.size_bytes = self._get_file_size(slot) or 0
             
+        if info.is_empty:
+            raise SlotEmptyError(f"Slot {slot} is empty")
+            
         return info
 
     def list_sounds(self) -> dict[int, dict]:
@@ -245,7 +248,7 @@ class EP133Client:
         all_entries, page = [], 0
         while True:
             resp = self._send_and_wait_msg(FileListRequest(node_id=node_id, page=page))
-            if not resp or resp.status != 0: break
+            if not resp: break
             from ko2_models import parse_file_list_response
             entries = parse_file_list_response(resp.payload)
             if not entries: break
@@ -257,7 +260,7 @@ class EP133Client:
         all_bytes, page = bytearray(), 0
         while page < 100:
             resp = self._send_and_wait_msg(MetadataGetRequest(node_id=node_id, page=page))
-            if not resp or resp.status != 0 or len(resp.payload) < 4: break
+            if not resp or len(resp.payload) < 4: break
             all_bytes.extend(resp.payload[4:].rstrip(b"\x00"))
             if b"}" in resp.payload:
                 try: return json.loads(all_bytes.decode("utf-8"))
@@ -298,14 +301,103 @@ class EP133Client:
         resp = self._send_and_wait_msg(msg)
         if not resp or resp.status != 0: raise Exception("Rename failed")
 
-    def get(self, slot: int, output_path: Optional[Path] = None) -> Path:
-        data = self._download_data(slot)
-        path = output_path or Path(f"sample_{slot:03d}.wav")
-        # ... WAV save logic ...
-        return path
+    def get(self, slot: int, output_path: Optional[Path] = None, debug: bool = False) -> Path:
+        from ko2_models import SAMPLE_RATE
+        info = self.info(slot)
+        if info.is_empty or info.size_bytes == 0:
+            raise SlotEmptyError(f"Slot {slot} is empty or has no size")
 
-    def _download_data(self, slot: int) -> bytes:
-        self._send_msg(DownloadInitRequest(slot=slot), seq=0x2E)
+        if output_path is None:
+            name = info.sym or f"sample_{slot:03d}"
+            output_path = Path(f"{name}_{slot:03d}.wav")
+
+        data = self._download_data(slot, debug=debug)
+
+        self._save_wav(
+            data,
+            output_path,
+            channels=max(1, int(info.channels or 1)),
+            samplerate=int(info.samplerate or SAMPLE_RATE),
+        )
+
+        return output_path
+
+    def _download_data(self, slot: int, debug: bool = False) -> bytes:
+        import struct
+        seq = 0x2E
+        self._send_msg(DownloadInitRequest(slot=slot), seq=seq)
         time.sleep(0.3)
-        # ... chunking logic with page verification ...
-        return b""
+
+        file_info = None
+        for msg in self._inport.iter_pending():
+            if msg.type == "sysex":
+                data = list(msg.data)
+                raw_bytes = bytes(data)
+                if len(data) > 20 and (b".pcm" in raw_bytes or b".PCM" in raw_bytes):
+                    for start_offset in [9, 10, 11]:
+                        encoded = bytes(data[start_offset:])
+                        decoded = Packed7.unpack(encoded)
+                        if b".pcm" in decoded or b".PCM" in decoded:
+                            if len(decoded) >= 7:
+                                file_size = int.from_bytes(decoded[3:7], "big")
+                                file_info = {"size": file_size}
+                                break
+                    break
+
+        if not file_info:
+            raise EP133Error("Failed to get file info")
+
+        all_data = []
+        page = 0
+        received = 0
+
+        while received < file_info["size"]:
+            for _ in self._inport.iter_pending(): pass
+            
+            seq = (seq + 1) & 0x7F
+            self._send_msg(DownloadChunkRequest(page=page), seq=seq)
+            time.sleep(0.05)
+
+            chunk_received = False
+            timeout_counter = 0
+            while timeout_counter < 50 and not chunk_received:
+                for msg in self._inport.iter_pending():
+                    if msg.type == "sysex":
+                        data = list(msg.data)
+                        if len(data) > 12 and data[5] in (SysExCmd.RESPONSE, SysExCmd.RESPONSE_ALT) and data[7] == CMD_FILE:
+                            decoded = Packed7.unpack(bytes(data[9:]))
+                            if decoded and len(decoded) > 2:
+                                from ko2_types import U14LE
+                                echo_page, _ = U14LE.decode(decoded[:2])
+                                if int(echo_page) != page:
+                                    if debug: print(f"  ⚠ Page mismatch: expected {page}, got {int(echo_page)}")
+                                    continue
+                                all_data.extend(decoded[2:])
+                                received += len(decoded) - 2
+                                chunk_received = True
+                if chunk_received: break
+                time.sleep(0.05)
+                timeout_counter += 1
+
+            if not chunk_received: break
+            page = (page + 1) & 0x3FFF
+
+        be_data = bytes(all_data)
+        le_data = bytearray()
+        for i in range(0, len(be_data) - 1, 2):
+            sample = struct.unpack(">h", be_data[i : i + 2])[0]
+            le_data.extend(struct.pack("<h", sample))
+        return bytes(le_data)[: file_info["size"]]
+
+    def _save_wav(self, data: bytes, output_path: Path, channels: int, samplerate: int) -> None:
+        if len(data) >= 4 and data[:4] == b"RIFF":
+            output_path.write_bytes(data)
+            return
+        import wave
+        with wave.open(str(output_path), "wb") as wav:
+            wav.setnchannels(channels)
+            from ko2_models import BIT_DEPTH
+            wav.setsampwidth(BIT_DEPTH // 8)
+            wav.setframerate(samplerate)
+            if data: wav.writeframes(data)
+

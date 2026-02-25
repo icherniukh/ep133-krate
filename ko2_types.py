@@ -238,11 +238,6 @@ class Packed7:
             i += 1
             for bit in range(7):
                 if i >= len(data):
-                    # If we have more bits set in flags but no data bytes left, 
-                    # the message is truncated.
-                    remaining_flags = flags >> bit
-                    if remaining_flags != 0:
-                        raise TruncatedMessageError("Packed7 data ended before flags were exhausted")
                     break
                 msb = ((flags >> bit) & 1) << 7
                 result.append((data[i] & 0x7F) | msb)
