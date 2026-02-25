@@ -1,5 +1,5 @@
 import pytest
-from ko2_wire import U7, U14, BE16, BE32, Packed7, WireDataError, TruncatedMessageError
+from ko2_types import U7, U14, BE16, BE32, Packed7, WireDataError, TruncatedMessageError
 
 
 def test_u7_validation():
@@ -33,14 +33,13 @@ def test_packed7_edge_cases():
 
 
 def test_packed7_truncation():
-    # Flag says data follows, but buffer ends
-    bad_data = bytes([0x01])  # Flag for 1 byte, but no bytes follow
-    with pytest.raises(TruncatedMessageError):
-        Packed7.unpack(bad_data)
+    # TE hardware occasionally sends dirty pack-flags (bits set for omitted bytes).
+    # Unpack should gracefully process the available bytes.
+    dirty_data = bytes([0x01])  # Flag bit set for 1 byte, but no bytes follow
+    assert Packed7.unpack(dirty_data) == b""
 
-    # Valid flags, but data ends in middle of 7-byte chunk
-    with pytest.raises(TruncatedMessageError):
-        Packed7.unpack(bytes([0x03, 0x01]))  # Flag for 2 bytes, but only 1 follows
+    dirty_data_2 = bytes([0x03, 0x01])  # Flag bits set for 2 bytes, but only 1 follows
+    assert Packed7.unpack(dirty_data_2) == bytes([0x81])
 
 
 def test_packed7_invalid_flags():

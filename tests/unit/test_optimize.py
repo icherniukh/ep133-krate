@@ -7,7 +7,7 @@ from types import SimpleNamespace
 import pytest
 
 import ko2
-from ko2_protocol import SAMPLE_RATE
+from ko2_models import SAMPLE_RATE
 from tests.helpers import create_test_wav
 
 
@@ -193,7 +193,7 @@ def test_cmd_optimize_skips_entirely_when_already_optimal(monkeypatch):
         def __enter__(self): return self
         def __exit__(self, *_): return False
         def info(self, slot, include_size=False):
-            from ko2_protocol import SAMPLE_RATE
+            from ko2_models import SAMPLE_RATE
             return SimpleNamespace(size_bytes=10 * 1024, name="tiny.pcm", channels=1, samplerate=SAMPLE_RATE)
         def get(self, slot, path): log.append(("get", slot))
         def put(self, path, slot, name=None, progress=False): log.append(("put", slot, name))

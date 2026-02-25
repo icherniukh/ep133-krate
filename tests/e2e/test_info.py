@@ -1,7 +1,7 @@
 import pytest
 
 from ko2_client import SlotEmptyError
-from ko2_protocol import MAX_SLOTS, SAMPLE_RATE
+from ko2_models import MAX_SLOTS, SAMPLE_RATE
 
 
 pytestmark = pytest.mark.e2e
@@ -38,9 +38,13 @@ class TestInfo:
 
     def test_info_empty_slot(self, ep133_client):
         """Test that empty slot raises error."""
-        # Find likely empty slot (high numbers often empty)
+        sounds = ep133_client.list_sounds()
+        empty_slot = next((s for s in range(1, MAX_SLOTS) if s not in sounds), None)
+        if empty_slot is None:
+            pytest.skip("No empty slots available on device", allow_module_level=True)
+
         with pytest.raises(SlotEmptyError):
-            ep133_client.info(999)
+            ep133_client.info(empty_slot)
 
     def test_info_sample_rate(self, ep133_client):
         """Test that sample rate is correct."""

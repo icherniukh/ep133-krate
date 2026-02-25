@@ -34,7 +34,7 @@ def _incoming_te_sysex(cmd: int, seq: int = 1, sub: int = 5, status: int = 0) ->
 
 def test_send_and_wait_ignores_notifications_and_filters_expected_cmd():
     from ko2_client import EP133Client
-    from ko2_protocol import SysExCmd, build_sysex
+    from ko2_models import SysExCmd, SysExMessage
 
     inport = _FakeInPort()
     # 0x40 is a device->host notification in rcy docs (not a 0x2x response).
@@ -47,7 +47,7 @@ def test_send_and_wait_ignores_notifications_and_filters_expected_cmd():
     client._inport = inport
     client._outport = outport
 
-    outgoing = build_sysex(b"\x00")  # any sysex payload; fake ports ignore content
+    outgoing = SysExMessage().build()  # any sysex payload
     resp = client._send_and_wait(outgoing, timeout=0.2, expect_cmd=(SysExCmd.UPLOAD_END - 0x40))
 
     assert resp is not None
@@ -56,7 +56,7 @@ def test_send_and_wait_ignores_notifications_and_filters_expected_cmd():
 
 def test_send_and_wait_returns_none_if_only_notifications():
     from ko2_client import EP133Client
-    from ko2_protocol import build_sysex
+    from ko2_models import SysExMessage
 
     inport = _FakeInPort()
     outport = _FakeOutPort(inport, [_incoming_te_sysex(0x40), _incoming_te_sysex(0x70)])
@@ -65,7 +65,7 @@ def test_send_and_wait_returns_none_if_only_notifications():
     client._inport = inport
     client._outport = outport
 
-    outgoing = build_sysex(b"\x00")
+    outgoing = SysExMessage().build()
     start = time.time()
     resp = client._send_and_wait(outgoing, timeout=0.05)
     elapsed = time.time() - start

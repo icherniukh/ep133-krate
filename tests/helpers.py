@@ -2,7 +2,7 @@ import array
 import wave
 from pathlib import Path
 
-from ko2_protocol import SAMPLE_RATE, BIT_DEPTH, CHANNELS
+from ko2_models import SAMPLE_RATE, BIT_DEPTH, CHANNELS
 
 
 def create_test_wav(path: Path, duration_sec: float = 0.1) -> None:

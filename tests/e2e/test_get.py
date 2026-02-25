@@ -4,7 +4,7 @@ from pathlib import Path
 import pytest
 
 from ko2_client import SlotEmptyError
-from ko2_protocol import MAX_SLOTS
+from ko2_models import MAX_SLOTS
 
 
 pytestmark = pytest.mark.e2e
@@ -15,8 +15,13 @@ class TestGet:
 
     def test_get_empty_slot_raises(self, ep133_client):
         """Test that downloading empty slot raises error."""
+        sounds = ep133_client.list_sounds()
+        empty_slot = next((s for s in range(1, MAX_SLOTS) if s not in sounds), None)
+        if empty_slot is None:
+            pytest.skip("No empty slots available on device", allow_module_level=True)
+
         with pytest.raises(SlotEmptyError):
-            ep133_client.get(999)
+            ep133_client.get(empty_slot)
 
     def test_get_populated_slot(self, ep133_client):
         """Test downloading a populated slot."""

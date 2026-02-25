@@ -4,23 +4,23 @@
 
 All EP-133 commands follow this format:
 ```
-F0 00 20 76 33 40 [devid] [seq] 05 [flags] [op] [subop] [data...] F7
+F0 00 20 76 33 40 [cmd] [seq] 05 [pack_flags] [op] [subop] [data...] F7
 ```
 
 Where:
 - `F0` = SysEx start
 - `00 20 76` = Teenage Engineering manufacturer ID
 - `33 40` = Device family (EP-133)
-- `[devid]` = Device ID byte (0x61, 0x77, 0x7C, 0x7D, 0x7E, etc.)
+- `[cmd]` = Command opcode byte (0x61, 0x77, 0x7C, 0x7D, 0x7E, etc.)
 - `[seq]` = Sequence byte (increments per message)
 - `05` = CMD_FILE (file operations command group)
-- `[flags]` = Operation flags (0x00, 0x08, 0x40, etc.)
+- `[pack_flags]` = 7-bit packing bitmap (e.g., 0x00, 0x08, 0x40). This is **not** a semantic operation flag, but rather the first byte of the 7-bit encoded payload indicating which of the following 7 bytes have their MSB set.
 - `[op]` = File operation (0x01-0x07)
 - `[subop]` = Sub-operation type
-- `[data...]` = Operation-specific data (7-bit encoded if large)
+- `[data...]` = Operation-specific data (7-bit encoded)
 - `F7` = SysEx end
 
-## Device IDs
+## SysEx Commands (cmd byte)
 
 | ID | Name | Usage |
 |----|------|-------|
@@ -112,35 +112,36 @@ F0 00 20 76 33 40 7C [seq] 05 08 07 01 07 50 [json_data] 00 F7
 
 ## Upload Protocol (PUT)
 
-The upload consists of **8 messages** sent in sequence:
+The upload consists of a sequence of messages. The official app uses chunking and expects an ACK for each message.
 
 ### 1. Upload Init
 ```
-F0 00 20 76 33 40 7E [seq] 05 [7bit: 02 00 05 slot_hi slot_lo node_hi node_lo size name 00 json] F7
+F0 00 20 76 33 40 7E [seq] 05 [7bit encoded payload...] F7
 ```
-- Device ID: `0x7E` (official tool; sometimes observed as `0x7F`)
-- Command byte after seq is `0x05` (CMD_FILE)
-- Payload is 7-bit encoded raw bytes:
+- Command byte: `0x7E` (or `0x6C` / `0x7F`)
+- Group byte: `0x05` (CMD_FILE)
+- Payload before 7-bit encoding:
   - `0x02` (PUT)
   - `0x00` (PUT_INIT)
   - `0x05` (audio file type)
-  - `slot_hi`, `slot_lo`
-  - `node_hi`, `node_lo` (parent node, usually `0x03E8`)
+  - `slot_hi`, `slot_lo` (Big-endian)
+  - `node_hi`, `node_lo` (Parent node, usually `0x03E8` for 1000)
   - `size` (4 bytes, big-endian)
-  - `name` (UTF-8)
-  - `0x00`
-  - `metadata JSON` (e.g. `{"channels":1,"samplerate":46875}`)
-- The first byte after `0x05` is a 7-bit flags byte (not a semantic flag).
+  - `name` (UTF-8, null-terminated)
+  - `metadata JSON` (e.g. `{"channels":1,"samplerate":44100}`)
+- **Note:** Because the payload is 7-bit encoded, the byte immediately following `0x05` will be the `pack_flags` bitmap (e.g., `0x40` or `0x50` depending on the MSBs of the slot and node ID).
 
 ### 2. Upload Data Chunk
 ```
-F0 00 20 76 33 40 7E [seq] 05 [7bit: 02 01 offset_hi offset_lo audio_data...] F7
+F0 00 20 76 33 40 7E [seq] 05 [7bit encoded chunk...] F7
 ```
-- Sub-op: `0x01` (PUT_DATA)
-- Offset: big-endian (raw bytes, before 7-bit encoding)
-- Data: 7-bit encoded audio samples
+- Raw payload before encoding starts with:
+  - `0x02` (PUT)
+  - `0x01` (PUT_DATA)
+  - `chunk_index_hi`, `chunk_index_lo` (16-bit big-endian index, NOT byte offset)
+- Device responds with an ACK (usually echoing the command in the `0x2x` response range). It does **not** return a standard `status=0x00` response, so clients should only check that an ACK was received.
 
-### 3-6. Commit/Verify Steps
+### 3. Commit/Verify Steps (Observed)
 ```
 F0 00 20 76 33 40 7E [seq] 05 00 02 01 00 01 F7           # Commit 1
 F0 00 20 76 33 40 7E [seq] 05 00 0B 00 01 F7              # Verify
@@ -355,9 +356,10 @@ Or use the `audio2ko2` tool.
 
 ## Known Issues
 
-1. **Upload device IDs** - Some use 0x6C for data, external refs show all 0x7E
-2. **Playback** - Protocol not fully documented
-3. **Project files** - .ppak format unknown
+1. **Upload Command IDs** - Some operations use `0x6C` for data, while external refs show `0x7E`. Both appear to work depending on context.
+2. **Playback** - Protocol not fully documented (Command `0x76`).
+3. **Project files** - `.ppak` format known, but SysEx extraction path unknown.
+4. **"invalid file" Error Response** - When querying a missing or invalid node (e.g., via `METADATA GET`), the device may return the literal string `invalid file` prefixed by a byte with its MSB set (e.g., `0x80`). This violates strict 7-bit MIDI constraints and can crash naive parsers. Clients must treat error response payloads as raw, unvalidated bytes.
 
 ## Tools
 
