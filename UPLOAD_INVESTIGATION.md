@@ -46,7 +46,7 @@ This suggests the device maintains separate metadata/audio storage.
 
 ## Files Modified
 
-- `ko2_protocol.py` - Added UPLOAD_CHUNK_SIZE, UPLOAD_PARENT_NODE, UPLOAD_DELAY
+- `ko2_models.py` - Added UPLOAD_CHUNK_SIZE, UPLOAD_PARENT_NODE, UPLOAD_DELAY
 - `ko2_client.py` - New put() implementation with response handling
 
 ## 2026-02-20: 7-bit packing vs “flags”, node IDs, and slot > 127 bugs

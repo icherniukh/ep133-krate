@@ -12,7 +12,7 @@ class TestPut:
         from pathlib import Path
         import tempfile
 
-        from ko2_protocol import MAX_SLOTS, SAMPLE_RATE
+        from ko2_models import MAX_SLOTS, SAMPLE_RATE
         from ko2_client import EP133Error, SlotEmptyError
         from tests.helpers import create_test_wav
 

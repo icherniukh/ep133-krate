@@ -142,7 +142,7 @@ Not started.
 
 ## Code Debt
 
-- **`SysExCmd` in `ko2_protocol.py`** - Renamed from `DeviceId`. The byte is a command opcode (selects operation handler), not a device identifier. `rcy` calls it `cmd`.
+- **`SysExCmd` in `ko2_models.py`** - Renamed from `DeviceId`. The byte is a command opcode (selects operation handler), not a device identifier. `rcy` calls it `cmd`.
 
 ---
 

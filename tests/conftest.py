@@ -23,9 +23,10 @@ def device_name(pytestconfig):
 
 @pytest.fixture(scope="session")
 def ep133_client(device_name):
-    from ko2_client import EP133Client
+    from ko2_client import EP133Client, DeviceNotFoundError
 
-    if not device_name:
-        pytest.skip("Missing --device for e2e tests (e.g. --device \"EP-133\").", allow_module_level=True)
-    with EP133Client(device_name) as c:
-        yield c
+    try:
+        with EP133Client(device_name) as c:  # device_name=None triggers auto-detect
+            yield c
+    except DeviceNotFoundError as e:
+        pytest.skip(str(e))

@@ -6,7 +6,7 @@ Ensures 7-bit MIDI constraints are enforced at the type level.
 """
 
 from abc import ABC, abstractmethod
-from typing import Any, Sequence
+from typing import Any, Optional, Sequence, Type, TypeVar, Union
 
 
 class WireError(Exception):
@@ -24,6 +24,9 @@ class TruncatedMessageError(WireError):
     pass
 
 
+T = TypeVar("T", bound="WireType")
+
+
 class WireType(ABC):
     """Base class for all EP-133 wire-format types."""
 
@@ -34,8 +37,13 @@ class WireType(ABC):
 
     @classmethod
     @abstractmethod
-    def decode(cls, data: bytes) -> tuple["WireType", int]:
+    def decode(cls: Type[T], data: bytes) -> tuple[T, int]:
         """Decode from bytes, returning (instance, bytes_consumed)."""
+        pass
+
+    @abstractmethod
+    def to_python(self) -> Any:
+        """Convert to standard Python type (int, bytes, etc.)."""
         pass
 
 
@@ -58,6 +66,9 @@ class U7(WireType):
         if val > 127:
             raise WireDataError(f"U7 byte must be <= 127, got 0x{val:02x}")
         return cls(val), 1
+
+    def to_python(self) -> int:
+        return self.value
 
     def __int__(self) -> int:
         return self.value
@@ -85,6 +96,9 @@ class U14(WireType):
             raise WireDataError(f"U14 bytes must be <= 127, got 0x{hi:02x} 0x{lo:02x}")
         value = (hi << 7) | lo
         return cls(value), 2
+
+    def to_python(self) -> int:
+        return self.value
 
     def __int__(self) -> int:
         return self.value
@@ -126,6 +140,9 @@ class BE16(WireType):
         value = (data[0] << 8) | data[1]
         return cls(value), 2
 
+    def to_python(self) -> int:
+        return self.value
+
     def __int__(self) -> int:
         return self.value
 
@@ -148,8 +165,48 @@ class BE32(WireType):
         value = int.from_bytes(data[:4], "big")
         return cls(value), 4
 
+    def to_python(self) -> int:
+        return self.value
+
     def __int__(self) -> int:
         return self.value
+
+
+class RawBytes(WireType):
+    """Variable-length raw bytes."""
+
+    def __init__(self, value: bytes):
+        self.value = value
+
+    def encode(self) -> bytes:
+        return self.value
+
+    @classmethod
+    def decode(cls, data: bytes) -> tuple["RawBytes", int]:
+        # Variable length decode consumes ALL remaining data
+        return cls(data), len(data)
+
+    def to_python(self) -> bytes:
+        return self.value
+
+
+class NullBytes(WireType):
+    """Fixed-length null padding."""
+
+    def __init__(self, length: int):
+        self.length = length
+
+    def encode(self) -> bytes:
+        return b"\x00" * self.length
+
+    @classmethod
+    def decode(cls, data: bytes, length: int = 0) -> tuple["NullBytes", int]:
+        if len(data) < length:
+            raise TruncatedMessageError(f"Expected {length} null bytes")
+        return cls(length), length
+
+    def to_python(self) -> None:
+        return None
 
 
 class Packed7:

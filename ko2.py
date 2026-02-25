@@ -36,7 +36,7 @@ try:
         SlotEmptyError,
     )
     from ko2_backup import backup_copy
-    from ko2_protocol import SAMPLE_RATE, MAX_SLOTS, decode_node_id, decode_14bit
+    from ko2_models import SAMPLE_RATE, MAX_SLOTS, decode_node_id, decode_14bit
 except ImportError as e:
     print(f"Error: {e}")
     sys.exit(1)

@@ -176,7 +176,7 @@ Max page with 14 bits: 16383 (sufficient for all samples).
 5. **Node hierarchy** - META_SET shows `active` toggles on nodes 2000/5100/5300/5400/9100/9300/9500; semantics still unclear
 6. **Sample node addressing** - META_GET targets nodes matching slot numbers; needs confirmation
 7. **GET_META Reliability** - Audit 001-160: 20 stale, 23 node-name-empty, 60 field mismatches; use node metadata
-8. **`DeviceId` naming** - ✅ Fixed. Renamed to `SysExCmd` in `ko2_protocol.py` to correctly reflect its role as a command opcode.
+8. **`DeviceId` naming** - ✅ Fixed. Renamed to `SysExCmd` in `ko2_models.py` to correctly reflect its role as a command opcode.
 
 ---
 
@@ -186,7 +186,7 @@ Max page with 14 bits: 16383 (sufficient for all samples).
 |------|---------|
 | `ko2.py` | Main CLI tool |
 | `ko2_client.py` | MIDI client implementation |
-| `ko2_protocol.py` | Protocol constants and utilities |
+| `ko2_models.py` | Protocol constants and utilities |
 | `PROTOCOL.md` | Complete protocol documentation |
 | `PROTOCOL_AUDIT.md` | Protocol confidence map + investigation priorities |
 | `PROTOCOL_VALIDATION.md` | Wire evidence log (capture-backed observations) |

@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from ko2_client import EP133Client, EP133Error
-from ko2_protocol import SAMPLE_RATE, BIT_DEPTH, CHANNELS
+from ko2_models import SAMPLE_RATE, BIT_DEPTH, CHANNELS
 from tests.helpers import create_test_wav
 
 

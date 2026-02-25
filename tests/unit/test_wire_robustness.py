@@ -1,5 +1,5 @@
 import pytest
-from ko2_wire import U7, U14, BE16, BE32, Packed7, WireDataError, TruncatedMessageError
+from ko2_types import U7, U14, BE16, BE32, Packed7, WireDataError, TruncatedMessageError
 
 
 def test_u7_validation():
