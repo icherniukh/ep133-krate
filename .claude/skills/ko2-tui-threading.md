@@ -8,7 +8,7 @@ spec-commit: 28f3c8b  # ko2_client.py at this commit
 
 ## The Core Constraint
 
-`EP133Client` in `ko2_client.py` is **entirely synchronous and blocking**. It uses `mido.open_input()` with polling loops, `time.sleep()` for timing, and `_send_and_wait()` with deadline-based busy-poll loops (up to 2s per operation, 5s for init/upload). There is no asyncio, no queues, no callbacks.
+The KO-II backend architecture uses a synchronous **Descriptor-based Domain Specific Language (DSL)** (`ko2_models.py`, `ko2_types.py`, `ko2_operations.py`). `EP133Client` (`ko2_client.py`) acts as a **thin, entirely synchronous and blocking transport layer**. It uses `mido.open_input()` with polling loops, `time.sleep()` for timing, and `_send_and_wait_msg()` with deadline-based busy-poll loops (up to 2s per operation, 5s for init/upload). There is no asyncio, no queues, no callbacks.
 
 **Consequence for Textual:**
 - You **cannot** `run_worker(coroutine)` — there is no coroutine
