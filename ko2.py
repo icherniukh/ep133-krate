@@ -909,35 +909,40 @@ def cmd_optimize(args):
     slot = args.slot
 
     with EP133Client(args.device) as client:
-        # Get sample info
+        # Lightweight check: slot exists and get the name for display/re-upload.
+        # No include_size to avoid triggering a DownloadInitRequest here.
         try:
-            info = client.info(slot, include_size=True)
+            info = client.info(slot, include_size=False)
         except SlotEmptyError:
             print(f"❌ Slot {slot} is empty")
             return 1
 
-        original_size = info.size_bytes
-        print(f"Slot {slot}: {info.name}")
-        print(f"  Size: {format_size(original_size)}")
-
-        if not _confirm(f"Optimize slot {slot:03d}?", bool(args.yes)):
+        if not _confirm(f"Optimize slot {slot:03d} ({info.name})?", bool(args.yes)):
             print("  Cancelled")
             return 0
 
-        # Check if already optimal (mono and at or below device native rate)
-        if info.channels == 1 and info.samplerate <= SAMPLE_RATE:
-            print(f"  {Colors.FG_GREEN}✓ Already optimal (mono, {info.samplerate} Hz){Colors.RESET}")
-            return 0
-
-        # Download sample
         print(f"  {Colors.FG_DIM}Downloading...{Colors.RESET}")
         with tempfile.TemporaryDirectory(prefix=f"ko2-slot{slot:03d}-") as td:
             temp_path = Path(td) / f"slot{slot:03d}.wav"
-            client.get(slot, temp_path)
-            backup_path = backup_copy(temp_path, slot=slot, name_hint=info.name)
-            print(f"  {Colors.FG_DIM}Backup:{Colors.RESET} {backup_path}")
+            try:
+                client.get(slot, temp_path)
+            except EP133Error as e:
+                print(f"  ❌ Download failed: {e}")
+                return 1
 
-            # Optimize
+            # Evaluate the file independently — no metadata involved from here on.
+            with wave.open(str(temp_path)) as w:
+                original_size = temp_path.stat().st_size
+                in_channels = w.getnchannels()
+                in_rate = w.getframerate()
+                in_depth = w.getsampwidth() * 8
+                duration = w.getnframes() / w.getframerate()
+
+            print(
+                f"  {in_channels}ch  {in_rate} Hz  {in_depth}-bit  "
+                f"{format_size(original_size)}  {duration:.2f}s"
+            )
+
             print(f"  {Colors.FG_DIM}Optimizing...{Colors.RESET}")
             success, msg, _, opt_size = optimize_sample(temp_path)
 
@@ -945,25 +950,26 @@ def cmd_optimize(args):
                 print(f"  ❌ {msg}")
                 return 1
 
+            if msg == "already optimal":
+                print(f"  {Colors.FG_GREEN}✓ Already optimal{Colors.RESET}")
+                return 0
+
             savings = original_size - opt_size
             savings_pct = (savings / original_size) * 100
 
-            print(f"  Optimized: {format_size(opt_size)}")
-            print(f"  Savings: {format_size(savings)} ({savings_pct:.1f}%)")
+            backup_path = backup_copy(temp_path, slot=slot, name_hint=info.name)
+            print(f"  {Colors.FG_DIM}Backup:{Colors.RESET} {backup_path}")
+            print(f"  {format_size(original_size)} → {format_size(opt_size)}  ({savings_pct:.1f}% saved)")
 
-            # Check if savings are meaningful
-            if savings < 5 * 1024:  # Less than 5KB savings
-                print(
-                    f"  {Colors.FG_YELLOW}⚠ Savings too small (<5KB), skipping upload{Colors.RESET}"
-                )
+            if savings < 5 * 1024:
+                print(f"  {Colors.FG_YELLOW}⚠ Savings too small (<5KB), skipping upload{Colors.RESET}")
                 return 0
 
-            # Re-upload optimized version
             opt_path = temp_path.with_suffix(".opt.wav")
-            print(f"  {Colors.FG_DIM}Uploading optimized version...{Colors.RESET}")
+            print(f"  {Colors.FG_DIM}Uploading...{Colors.RESET}")
             try:
                 client.put(opt_path, slot, name=info.name, progress=False)
-                print(f"  {Colors.FG_GREEN}✓ Optimized and replaced{Colors.RESET}")
+                print(f"  {Colors.FG_GREEN}✓ Done{Colors.RESET}")
             except EP133Error as e:
                 print(f"  ❌ Upload failed: {e}")
                 return 1
@@ -972,33 +978,63 @@ def cmd_optimize(args):
 
 
 def cmd_optimize_all(args):
-    """Optimize stereo samples on device (downmix to mono)."""
-    # TODO: improve candidate criteria — also filter by sample rate once
-    # we confirm whether the device does its own SRC or plays raw at a fixed clock.
-    # For now, stereo→mono is the only optimization with a clear, large payoff.
+    """Optimize stereo samples on device (downmix to mono).
+
+    Scan phase:
+      - Samples with confirmed metadata (channels_known=True): use channels > 1 directly.
+      - Samples with null/missing metadata (channels_known=False): probe with a
+        single-chunk partial download and _detect_channels heuristic.
+    """
     min_size = args.min * 1024 if args.min else 0
+    slot_filter = getattr(args, "slot", None)
 
     with EP133Client(args.device) as client:
-        print(f"{Colors.CYAN}Scanning for stereo samples...{Colors.RESET}\n")
+        print(f"{Colors.CYAN}Scanning...{Colors.RESET}\n")
 
         sounds = client.list_sounds()
-        candidates = []
+        if slot_filter is not None:
+            sounds = {k: v for k, v in sounds.items() if k == slot_filter}
+
+        meta_stereo = []
+        to_probe = []
+
         for slot, e in sorted(sounds.items()):
             size_bytes = int(e.get("size") or 0)
             if min_size and size_bytes <= min_size:
                 continue
             try:
-                info = client.info(slot, include_size=True, node_entry=e)
+                info = client.info(slot, include_size=False, node_entry=e)
             except Exception:
                 continue
-            if info.channels and info.channels > 1:
-                candidates.append(info)
+
+            if info.channels_known:
+                if info.channels > 1:
+                    info.size_bytes = size_bytes
+                    meta_stereo.append(info)
+                # else: metadata confirmed mono, skip
+            else:
+                info.size_bytes = size_bytes
+                to_probe.append(info)
+
+        probe_stereo = []
+        if to_probe:
+            print(f"  {len(to_probe)} samples without channel metadata — probing...\n")
+            for info in to_probe:
+                channels, probed_size = client.probe_channels(info.slot)
+                if probed_size:
+                    info.size_bytes = probed_size
+                if channels > 1:
+                    info.channels = 2
+                    probe_stereo.append(info)
+                    print(f"    Slot {info.slot:03d}: {info.name[:30]:<30} stereo detected")
+
+        candidates = meta_stereo + probe_stereo
 
         if not candidates:
             print(f"  {Colors.FG_GREEN}No stereo samples found{Colors.RESET}")
             return 0
 
-        print(f"  Found {len(candidates)} candidates:\n")
+        print(f"\n  Found {len(candidates)} stereo samples:\n")
         total_original = 0
         for info in candidates:
             total_original += info.size_bytes
@@ -1023,6 +1059,8 @@ def cmd_optimize_all(args):
 
             with tempfile.TemporaryDirectory(prefix=f"ko2-slot{info.slot:03d}-") as td:
                 temp_path = Path(td) / f"slot{info.slot:03d}.wav"
+                opt_path = temp_path.with_suffix(".opt.wav")
+
                 # Download
                 try:
                     client.get(info.slot, temp_path)
@@ -1030,20 +1068,24 @@ def cmd_optimize_all(args):
                     print(f"  ❌ Download failed: {e}")
                     continue
 
+                original_size = temp_path.stat().st_size
+
                 # Backup
-                backup_path = backup_copy(
-                    temp_path, slot=info.slot, name_hint=info.name
-                )
+                backup_path = backup_copy(temp_path, slot=info.slot, name_hint=info.name)
                 print(f"  {Colors.FG_DIM}Backup:{Colors.RESET} {backup_path}")
 
                 # Optimize
-                success, msg, _, opt_size = optimize_sample(temp_path)
+                success, msg, _, opt_size = optimize_sample(temp_path, output_path=opt_path)
 
                 if not success:
                     print(f"  ❌ {msg}")
                     continue
 
-                savings = info.size_bytes - opt_size
+                if msg == "already optimal":
+                    print(f"  ⊘ Already optimal (channel count confirmed in WAV header)")
+                    continue
+
+                savings = original_size - opt_size
 
                 # Skip if savings too small
                 if savings < 5 * 1024:
@@ -1052,9 +1094,9 @@ def cmd_optimize_all(args):
 
                 # Upload
                 try:
-                    client.put(temp_path, info.slot, name=info.name, progress=False)
+                    client.put(opt_path, info.slot, name=info.name, progress=False)
                     print(
-                        f"  {Colors.FG_GREEN}✓ Saved {format_size(savings)} ({savings/info.size_bytes*100:.1f}%){Colors.RESET}"
+                        f"  {Colors.FG_GREEN}✓ Saved {format_size(savings)} ({savings/original_size*100:.1f}%){Colors.RESET}"
                     )
                     optimized += 1
                     total_savings += savings
@@ -1543,8 +1585,12 @@ def cmd_rename(args):
     return 0
 
 
-def validate_slot(slot: int) -> int:
+def validate_slot(slot) -> int:
     """Validate slot number is within EP-133 range (1-999)."""
+    try:
+        slot = int(slot)
+    except (ValueError, TypeError):
+        raise argparse.ArgumentTypeError(f"Slot must be an integer 1-{MAX_SLOTS}")
     if not 1 <= slot <= MAX_SLOTS:
         raise argparse.ArgumentTypeError(f"Slot must be 1-{MAX_SLOTS}, got {slot}")
     return slot
@@ -1817,6 +1863,13 @@ def main():
         metavar="KB",
         default=None,
         help="Skip samples smaller than KB",
+    )
+    optall_parser.add_argument(
+        "--slot",
+        type=validate_slot,
+        metavar="SLOT",
+        default=None,
+        help="Run on a single slot instead of scanning all",
     )
 
     # group

@@ -51,6 +51,7 @@ class SampleInfo:
     samplerate: int = 46875
     format: str = "s16"
     channels: int = 1
+    channels_known: bool = False
     size_bytes: int = 0
     duration: float = 0.0
     is_empty: bool = False
@@ -73,6 +74,28 @@ class DeviceNotFoundError(EP133Error):
 class SlotEmptyError(EP133Error):
     """Slot is empty."""
     pass
+
+
+def _detect_channels(data: bytes, sample_check: int = 4000) -> int:
+    """Detect mono vs stereo from raw s16 LE PCM data.
+
+    For stereo interleaved PCM, even-indexed (L) and odd-indexed (R) samples
+    are from independent channels and differ substantially. For mono PCM,
+    adjacent samples are highly correlated (smooth waveform), so |L-R| is
+    small relative to the signal amplitude.
+
+    Returns 2 if mean(|L-R|) / mean(|sample|) > 1.0, else 1.
+    """
+    import struct
+    if len(data) < 8:
+        return 1
+    n = min(len(data) // 2, sample_check)
+    values = struct.unpack(f"<{n}h", data[: n * 2])
+    mean_abs = sum(abs(v) for v in values) / n
+    if mean_abs == 0:
+        return 1
+    mean_lr_diff = sum(abs(values[i] - values[i + 1]) for i in range(0, n - 1, 2)) / (n // 2)
+    return 2 if (mean_lr_diff / mean_abs) > 1.0 else 1
 
 
 class EP133Client:
@@ -215,7 +238,10 @@ class EP133Client:
                 meta = self.get_node_metadata(node_id)
                 if meta:
                     info.name = meta.get("name", info.name)
-                    info.channels = meta.get("channels", info.channels)
+                    channels_from_meta = meta.get("channels")
+                    if channels_from_meta is not None:
+                        info.channels = channels_from_meta
+                        info.channels_known = True
                     info.samplerate = meta.get("samplerate", info.samplerate)
         
         if allow_get_meta:
@@ -313,10 +339,17 @@ class EP133Client:
 
         data = self._download_data(slot, debug=debug)
 
+        # Metadata channels is unreliable for samples not uploaded by this tool
+        # (e.g. official TE app, on-device recordings have no JSON metadata).
+        # When metadata says mono, verify against the raw PCM before writing.
+        channels = max(1, int(info.channels or 1))
+        if channels == 1:
+            channels = _detect_channels(data)
+
         self._save_wav(
             data,
             output_path,
-            channels=max(1, int(info.channels or 1)),
+            channels=channels,
             samplerate=int(info.samplerate or SAMPLE_RATE),
         )
 
@@ -388,6 +421,76 @@ class EP133Client:
             sample = struct.unpack(">h", be_data[i : i + 2])[0]
             le_data.extend(struct.pack("<h", sample))
         return bytes(le_data)[: file_info["size"]]
+
+    def probe_channels(self, slot: int) -> tuple[int, int]:
+        """Probe channel count and size via a single-chunk partial download.
+
+        Sends DownloadInitRequest (to get file size) then one DownloadChunkRequest
+        (page 0). Runs _detect_channels on the decoded first chunk.
+
+        Returns (channels, size_bytes).  channels is 1 or 2.  size_bytes is the
+        raw PCM byte count from the init response, or 0 on failure.
+        Does NOT complete the download — the device silently discards the session.
+        """
+        import struct
+        seq = 0x2E
+        self._send_msg(DownloadInitRequest(slot=slot), seq=seq)
+        time.sleep(0.3)
+
+        file_info = None
+        for msg in self._inport.iter_pending():
+            if msg.type == "sysex":
+                data = list(msg.data)
+                raw_bytes = bytes(data)
+                if len(data) > 20 and (b".pcm" in raw_bytes or b".PCM" in raw_bytes):
+                    for start_offset in [9, 10, 11]:
+                        encoded = bytes(data[start_offset:])
+                        decoded = Packed7.unpack(encoded)
+                        if b".pcm" in decoded or b".PCM" in decoded:
+                            if len(decoded) >= 7:
+                                file_size = int.from_bytes(decoded[3:7], "big")
+                                file_info = {"size": file_size}
+                                break
+                    break
+
+        if not file_info:
+            return 1, 0
+
+        # Request just page 0
+        for _ in self._inport.iter_pending():
+            pass
+        seq = (seq + 1) & 0x7F
+        self._send_msg(DownloadChunkRequest(page=0), seq=seq)
+        time.sleep(0.05)
+
+        chunk_data = None
+        timeout_counter = 0
+        while timeout_counter < 50:
+            for msg in self._inport.iter_pending():
+                if msg.type == "sysex":
+                    data = list(msg.data)
+                    if len(data) > 12 and data[5] in (SysExCmd.RESPONSE, SysExCmd.RESPONSE_ALT) and data[7] == CMD_FILE:
+                        decoded = Packed7.unpack(bytes(data[9:]))
+                        if decoded and len(decoded) > 2:
+                            from ko2_types import U14LE
+                            echo_page, _ = U14LE.decode(decoded[:2])
+                            if int(echo_page) == 0:
+                                raw = bytes(decoded[2:])
+                                le = bytearray()
+                                for i in range(0, len(raw) - 1, 2):
+                                    sample = struct.unpack(">h", raw[i : i + 2])[0]
+                                    le.extend(struct.pack("<h", sample))
+                                chunk_data = bytes(le)
+                                break
+            if chunk_data is not None:
+                break
+            time.sleep(0.05)
+            timeout_counter += 1
+
+        if not chunk_data:
+            return 1, file_info["size"]
+
+        return _detect_channels(chunk_data), file_info["size"]
 
     def _save_wav(self, data: bytes, output_path: Path, channels: int, samplerate: int) -> None:
         if len(data) >= 4 and data[:4] == b"RIFF":

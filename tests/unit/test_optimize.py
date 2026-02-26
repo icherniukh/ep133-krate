@@ -114,7 +114,7 @@ def test_optimize_sample_reports_correct_sizes(tmp_path):
 
 # --- cmd_optimize: integration via mocked client ---
 
-def _fake_client_class(log, size_bytes=200 * 1024, name="drums.pcm"):
+def _fake_client_class(log, name="drums.pcm"):
     class FakeClient:
         def __enter__(self):
             return self
@@ -123,7 +123,7 @@ def _fake_client_class(log, size_bytes=200 * 1024, name="drums.pcm"):
             return False
 
         def info(self, slot, include_size=False):
-            return SimpleNamespace(size_bytes=size_bytes, name=name, channels=2, samplerate=44100)
+            return SimpleNamespace(name=name, channels=2, samplerate=44100, size_bytes=0)
 
         def get(self, slot, path: Path):
             create_test_wav(path)
@@ -145,13 +145,13 @@ def test_cmd_optimize_downloads_then_uploads_when_savings_large(monkeypatch):
     cmd_optimize must get the sample, then put the optimized version back.
     """
     log = []
-    SIZE = 200 * 1024  # 200 KB — well above both thresholds
 
-    monkeypatch.setattr(ko2, "EP133Client", lambda *_a, **_kw: _fake_client_class(log, SIZE)())
+    monkeypatch.setattr(ko2, "EP133Client", lambda *_a, **_kw: _fake_client_class(log)())
     monkeypatch.setattr(ko2, "backup_copy", lambda *a, **k: None)
     monkeypatch.setattr(
         ko2, "optimize_sample",
-        lambda p, **kw: (True, "optimized with sox", SIZE, SIZE - 20 * 1024),
+        # Return sizes based on the actual downloaded file so savings are consistent.
+        lambda p, **kw: (True, "optimized with sox", p.stat().st_size, p.stat().st_size - 20 * 1024),
     )
 
     rc = ko2.cmd_optimize(_args(slot=7))
@@ -166,13 +166,12 @@ def test_cmd_optimize_skips_upload_when_savings_below_threshold(monkeypatch):
     Savings < 5 KB: download happens (to check), but upload is skipped.
     """
     log = []
-    SIZE = 200 * 1024
 
-    monkeypatch.setattr(ko2, "EP133Client", lambda *_a, **_kw: _fake_client_class(log, SIZE)())
+    monkeypatch.setattr(ko2, "EP133Client", lambda *_a, **_kw: _fake_client_class(log)())
     monkeypatch.setattr(ko2, "backup_copy", lambda *a, **k: None)
     monkeypatch.setattr(
         ko2, "optimize_sample",
-        lambda p, **kw: (True, "optimized with sox", SIZE, SIZE - 1024),  # only 1 KB saved
+        lambda p, **kw: (True, "optimized with sox", p.stat().st_size, p.stat().st_size - 1024),  # 1 KB
     )
 
     rc = ko2.cmd_optimize(_args(slot=7))
@@ -184,23 +183,28 @@ def test_cmd_optimize_skips_upload_when_savings_below_threshold(monkeypatch):
 
 def test_cmd_optimize_skips_entirely_when_already_optimal(monkeypatch):
     """
-    Mono samples at or below native rate are already optimal — no download or upload.
+    Samples already optimal: download happens (WAV header is authoritative for
+    channels/rate — metadata may be absent for samples not uploaded by this tool),
+    optimize_sample returns 'already optimal', no upload occurs.
     """
     log = []
 
-    # Override FakeClient to return a mono, native-rate sample
     class OptimalFakeClient:
         def __enter__(self): return self
         def __exit__(self, *_): return False
         def info(self, slot, include_size=False):
-            from ko2_models import SAMPLE_RATE
-            return SimpleNamespace(size_bytes=10 * 1024, name="tiny.pcm", channels=1, samplerate=SAMPLE_RATE)
-        def get(self, slot, path): log.append(("get", slot))
+            return SimpleNamespace(name="tiny.pcm", channels=1, samplerate=SAMPLE_RATE, size_bytes=0)
+        def get(self, slot, path):
+            log.append(("get", slot))
+            create_test_wav(path)  # must be a valid WAV — cmd_optimize calls wave.open after get
         def put(self, path, slot, name=None, progress=False): log.append(("put", slot, name))
 
     monkeypatch.setattr(ko2, "EP133Client", lambda *_a, **_kw: OptimalFakeClient())
+    monkeypatch.setattr(ko2, "optimize_sample", lambda p, **kw: (True, "already optimal", p.stat().st_size, p.stat().st_size))
+    monkeypatch.setattr(ko2, "backup_copy", lambda *a, **k: None)
 
     rc = ko2.cmd_optimize(_args(slot=3))
 
     assert rc == 0
-    assert log == []  # No get, no put
+    assert ("get", 3) in log                      # download happens
+    assert ("put", 3, "tiny.pcm") not in log      # no upload
