@@ -71,6 +71,12 @@ These are the remaining mysteries in the EP-133 protocol that require further re
 
 ---
 
+## 🗂 CLI Backlog
+
+- [ ] **Configurable upload metadata defaults** — `sound.amplitude`, `sound.playmode`, `envelope.*` etc. are currently hardcoded to match official TE app defaults. Should be overridable via a config file or CLI flags so users can set their own defaults (e.g. different amplitude, looping mode).
+
+---
+
 ## 📅 Task List: Phase 2 (Textual TUI)
 
 Our core objective is to wrap the robust `ko2_client` into a responsive, async-safe terminal UI using the `textual` framework.

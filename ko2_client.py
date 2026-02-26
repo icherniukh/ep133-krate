@@ -98,6 +98,38 @@ def _detect_channels(data: bytes, sample_check: int = 4000) -> int:
     return 2 if (mean_lr_diff / mean_abs) > 1.0 else 1
 
 
+def _parse_json_tolerant(data: bytes) -> dict | None:
+    """Parse a potentially truncated JSON response.
+
+    The device returns at most 320 bytes of JSON per page. When the metadata JSON
+    exceeds 320 bytes, the device repeats the first page for all subsequent page
+    requests. This function handles the resulting truncation by progressively
+    relaxing the parse:
+      1. Direct parse (works for complete JSON).
+      2. Append missing closing brace (works when only "}" is missing).
+      3. Truncate at the last complete comma-separated entry (works when the last
+         key-value pair is partially cut off mid-write).
+    """
+    if not data:
+        return None
+    text = data.rstrip(b"\x00").decode("utf-8", errors="replace")
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        pass
+    try:
+        return json.loads(text + "}")
+    except json.JSONDecodeError:
+        pass
+    last_comma = text.rfind(",")
+    if last_comma > 0:
+        try:
+            return json.loads(text[:last_comma] + "}")
+        except json.JSONDecodeError:
+            pass
+    return None
+
+
 class EP133Client:
     """Client for EP-133 KO-II device transport."""
 
@@ -286,13 +318,20 @@ class EP133Client:
         all_bytes, page = bytearray(), 0
         while page < 100:
             resp = self._send_and_wait_msg(MetadataGetRequest(node_id=node_id, page=page))
-            if not resp or len(resp.payload) < 4: break
-            all_bytes.extend(resp.payload[4:].rstrip(b"\x00"))
-            if b"}" in resp.payload:
+            if not resp or len(resp.payload) <= 2: break
+            # First 2 bytes are the page echo; the rest is JSON content (possibly split across pages)
+            content = resp.payload[2:].rstrip(b"\x00")
+            if not content: break
+            # Detect device returning the same page again (device pagination limitation):
+            # when the first page is echoed for all subsequent requests, stop accumulating.
+            if all_bytes and content == bytes(all_bytes[:len(content)]):
+                break
+            all_bytes.extend(content)
+            if b"}" in all_bytes:
                 try: return json.loads(all_bytes.decode("utf-8"))
                 except: pass
             page += 1
-        return None
+        return _parse_json_tolerant(bytes(all_bytes))
 
     @staticmethod
     def build_upload_metadata(channels: int, samplerate: int, frames: int) -> dict:
