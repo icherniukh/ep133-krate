@@ -18,6 +18,7 @@ tmp/
 *.mid
 *.pcm
 captures/
+!captures/*.wav
 
 # Audit/debug dumps
 *.jsonl

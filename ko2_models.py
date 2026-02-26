@@ -278,7 +278,14 @@ class UploadChunkRequest(FileMessage):
     data = RawBytesField(default=b"")
 
 class UploadEndRequest(FileMessage):
-    opcode = SysExCmd.UPLOAD_END
+    """Empty PUT_DATA chunk that signals end-of-upload to the device.
+
+    The official app sends a zero-byte PUT_DATA (same opcode as data chunks, 0x6C)
+    at the next chunk index after the last data chunk. The device ACKs after this,
+    then the client sends VERIFY. Using 0x6D (UPLOAD_END) here was wrong.
+    Confirmed from captures/sniffer-upload21.jsonl.
+    """
+    opcode = SysExCmd.UPLOAD_DATA
     file_op = U7Field(default=FileOp.PUT)
     put_type = U7Field(default=0x01)
     chunk_index = BE16Field(default=0)
