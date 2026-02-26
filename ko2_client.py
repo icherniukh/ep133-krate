@@ -204,10 +204,29 @@ class EP133Client:
         return None
 
     def _send_and_wait_msg(self, msg: SysExMessage, timeout: float = 2.0, expect_resp_cmd: Optional[int] = None) -> Optional[SysExResponse]:
+        # Drain stale responses first, then send once and read the single response.
+        # Historically this sent twice (send in _send_msg + drain + resend in _send_and_wait),
+        # which reset the device's page cursor for stateful paginated commands (METADATA GET).
+        for _ in self._inport.iter_pending(): pass
         seq = self._send_msg(msg)
         expected = expect_resp_cmd or (msg.opcode - 0x40)
-        raw = self._send_and_wait(msg.build(seq=seq), timeout=timeout, expect_cmd=expected)
+        raw = self._recv_matching(timeout=timeout, expect_cmd=expected)
         return SysExResponse.from_sysex(raw) if raw else None
+
+    def _recv_matching(self, timeout: float = 2.0, expect_cmd: int | None = None) -> bytes | None:
+        """Read the next TE SysEx response matching expect_cmd, without sending anything."""
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            for msg in self._inport.iter_pending():
+                if msg.type == "sysex":
+                    raw = bytes([SYSEX_START]) + bytes(msg.data) + bytes([SYSEX_END])
+                    if len(raw) < 8 or raw[1:4] != TE_MFG_ID or raw[4:6] != DEVICE_FAMILY: continue
+                    cmd = raw[6]
+                    if (cmd & 0xF0) != 0x20: continue
+                    if expect_cmd is not None and cmd != (expect_cmd & 0x7F): continue
+                    return raw
+            time.sleep(0.01)
+        return None
 
     def _recv_sysex(self, timeout: float = 0.5, filter_fn: Optional[Callable] = None) -> list[bytes]:
         responses, deadline = [], time.time() + timeout
@@ -319,13 +338,9 @@ class EP133Client:
         while page < 100:
             resp = self._send_and_wait_msg(MetadataGetRequest(node_id=node_id, page=page))
             if not resp or len(resp.payload) <= 2: break
-            # First 2 bytes are the page echo; the rest is JSON content (possibly split across pages)
+            # First 2 bytes are the page echo; the rest is JSON content
             content = resp.payload[2:].rstrip(b"\x00")
             if not content: break
-            # Detect device returning the same page again (device pagination limitation):
-            # when the first page is echoed for all subsequent requests, stop accumulating.
-            if all_bytes and content == bytes(all_bytes[:len(content)]):
-                break
             all_bytes.extend(content)
             if b"}" in all_bytes:
                 try: return json.loads(all_bytes.decode("utf-8"))
