@@ -290,6 +290,17 @@ class UploadEndRequest(FileMessage):
     put_type = U7Field(default=0x01)
     chunk_index = BE16Field(default=0)
 
+class UploadVerifyRequest(FileMessage):
+    """VERIFY command sent after the empty sentinel chunk and after METADATA SET.
+
+    Decoded from captures/sniffer-upload21.jsonl: 0B 00 <slot_hi> <slot_lo>
+    Official sequence: empty sentinel → ACK → VERIFY → METADATA SET → ACK → VERIFY
+    """
+    opcode = SysExCmd.UPLOAD_DATA
+    file_op = U7Field(default=FileOp.VERIFY)
+    sub = U7Field(default=0x00)
+    slot = BE16Field(default=0)
+
 class DeleteRequest(FileMessage):
     opcode = SysExCmd.UPLOAD
     file_op = U7Field(default=FileOp.DELETE)

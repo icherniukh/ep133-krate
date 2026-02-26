@@ -296,10 +296,21 @@ class EP133Client:
 
     @staticmethod
     def build_upload_metadata(channels: int, samplerate: int, frames: int) -> dict:
-        meta = {"channels": channels, "samplerate": samplerate}
+        meta = {
+            "sound.playmode": "oneshot",
+            "sound.rootnote": 60,
+            "sound.pitch": 0,
+            "sound.pan": 0,
+            "sound.amplitude": 100,
+            "envelope.attack": 0,
+            "envelope.release": 255,
+            "time.mode": "off",
+            "channels": channels,
+            "samplerate": samplerate,
+        }
         loop_end = max(0, frames - 1)
         if loop_end <= 0x1FFFF:
-            meta.update({"sound.loopstart": 0, "sound.loopend": loop_end, "sound.rootnote": 60})
+            meta.update({"sound.loopstart": 0, "sound.loopend": loop_end})
         return meta
 
     def put(self, input_path: Path, slot: int, name: Optional[str] = None, progress: bool = True) -> None:

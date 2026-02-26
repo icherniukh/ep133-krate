@@ -9,7 +9,8 @@ from pathlib import Path
 from typing import Optional, Callable
 from ko2_models import (
     UPLOAD_CHUNK_SIZE, UPLOAD_DELAY,
-    UploadInitRequest, UploadChunkRequest, UploadEndRequest, MetadataSetRequest
+    UploadInitRequest, UploadChunkRequest, UploadEndRequest,
+    UploadVerifyRequest, MetadataSetRequest
 )
 
 
@@ -82,30 +83,21 @@ class UploadTransaction(Transaction):
             chunk_index += 1
             
             if self.progress_callback:
-                self.progress_callback(offset, data_size)
+                self.progress_callback(min(offset, data_size), data_size)
 
-        # 4. End Marker
+        # 4. End Marker (empty PUT_DATA sentinel — triggers device ACK)
         end_req = UploadEndRequest(chunk_index=chunk_index)
         self.client._send_and_wait_msg(end_req, timeout=5.0)
 
-        # 5. Metadata Sync
+        # 5. Verify → Metadata Set → Verify
+        # Official sequence from captures/sniffer-upload21.jsonl:
+        # empty sentinel → ACK → VERIFY → METADATA SET → ACK → VERIFY
+        verify_req = UploadVerifyRequest(slot=self.slot)
+        self.client._send_and_wait_msg(verify_req, timeout=2.0)
+
         if self.metadata:
-            import json
-            meta_payload = {
-                "channels": self.metadata.get("channels", 1),
-                "samplerate": self.metadata.get("samplerate", 46875),
-            }
-            # Add loop info if frames provided
-            frames_count = self.metadata.get("frames")
-            if frames_count:
-                loop_end = max(0, frames_count - 1)
-                if loop_end <= 0x1FFFF:
-                    meta_payload.update({
-                        "sound.loopstart": 0,
-                        "sound.loopend": loop_end,
-                        "sound.rootnote": 60,
-                    })
-            
-            meta_json = json.dumps(meta_payload, separators=(",", ":"), ensure_ascii=False)
+            meta_json = json.dumps(self.metadata, separators=(",", ":"), ensure_ascii=False)
             meta_req = MetadataSetRequest(node_id=self.slot, metadata_json=meta_json)
             self.client._send_and_wait_msg(meta_req, timeout=2.0)
+
+        self.client._send_and_wait_msg(UploadVerifyRequest(slot=self.slot), timeout=2.0)

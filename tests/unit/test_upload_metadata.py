@@ -9,6 +9,8 @@ def test_build_upload_metadata_includes_loop_fields_when_small():
     assert meta["sound.loopstart"] == 0
     assert meta["sound.loopend"] == 999
     assert meta["sound.rootnote"] == 60
+    assert meta["sound.amplitude"] == 100
+    assert meta["sound.playmode"] == "oneshot"
 
 
 def test_build_upload_metadata_omits_loop_fields_when_large():
@@ -20,4 +22,6 @@ def test_build_upload_metadata_omits_loop_fields_when_large():
     assert meta["samplerate"] == 46875
     assert "sound.loopstart" not in meta
     assert "sound.loopend" not in meta
-    assert "sound.rootnote" not in meta
+    # sound.rootnote is always included (not tied to loop range)
+    assert meta["sound.rootnote"] == 60
+    assert meta["sound.amplitude"] == 100
