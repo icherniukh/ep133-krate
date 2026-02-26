@@ -415,12 +415,7 @@ class EP133Client:
             if not chunk_received: break
             page = (page + 1) & 0x3FFF
 
-        be_data = bytes(all_data)
-        le_data = bytearray()
-        for i in range(0, len(be_data) - 1, 2):
-            sample = struct.unpack(">h", be_data[i : i + 2])[0]
-            le_data.extend(struct.pack("<h", sample))
-        return bytes(le_data)[: file_info["size"]]
+        return bytes(all_data)[: file_info["size"]]
 
     def probe_channels(self, slot: int) -> tuple[int, int]:
         """Probe channel count and size via a single-chunk partial download.
@@ -475,12 +470,7 @@ class EP133Client:
                             from ko2_types import U14LE
                             echo_page, _ = U14LE.decode(decoded[:2])
                             if int(echo_page) == 0:
-                                raw = bytes(decoded[2:])
-                                le = bytearray()
-                                for i in range(0, len(raw) - 1, 2):
-                                    sample = struct.unpack(">h", raw[i : i + 2])[0]
-                                    le.extend(struct.pack("<h", sample))
-                                chunk_data = bytes(le)
+                                chunk_data = bytes(decoded[2:])
                                 break
             if chunk_data is not None:
                 break

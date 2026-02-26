@@ -246,10 +246,11 @@ F0 00 20 76 33 40 7D [seq] 05 00 03 01 [page_hi] [page_lo] F7
   - `page_lo = page & 0x7F`
   - `page_hi = (page >> 7) & 0x7F`
   - Max page: 16383 (14 bits)
-- Response: 7-bit encoded chunk; assembled pages are **raw BE s16 PCM** (not RIFF WAV)
+- Response: 7-bit encoded chunk; assembled pages are **raw LE s16 PCM** (not RIFF WAV)
   - 7-bit payload at SysEx offset 9 (structural: 5 mfg bytes + resp + seq + CMD_FILE + sub_byte)
   - Each decoded chunk starts with a 2-byte page-number echo `[page_lo, page_hi]` — must strip
-  - After stripping prefix, byte-swap BE→LE to get standard LE s16 PCM
+  - After stripping prefix, bytes are LE s16 — write directly, no byte swap needed.
+  - Confirmed: downloaded bytes from slot 21 (official TE sample) match original WAV exactly.
   - Trim to `file_info["size"]` bytes (= raw PCM byte count from GET_INIT response)
   - Confirmed SOLID by `test_encoding.py` sample-level roundtrip (440 Hz sine, 30+ slots)
 
