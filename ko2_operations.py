@@ -41,7 +41,6 @@ class UploadTransaction(Transaction):
     def execute(self) -> None:
         """Run the multi-step upload process."""
         import wave
-        import struct
         import json
 
         # 1. Read and validate WAV
@@ -51,12 +50,7 @@ class UploadTransaction(Transaction):
             channels = wav.getnchannels()
             raw_data = wav.readframes(frames)
 
-        # Convert to Big-Endian s16 for device
-        audio_data = bytearray()
-        for i in range(0, len(raw_data) - 1, 2):
-            sample = struct.unpack("<h", raw_data[i : i + 2])[0]
-            audio_data.extend(struct.pack(">h", sample))
-        
+        audio_data = raw_data
         data_size = len(audio_data)
 
         # 2. Upload Init

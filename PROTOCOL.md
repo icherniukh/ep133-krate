@@ -139,6 +139,10 @@ F0 00 20 76 33 40 7E [seq] 05 [7bit encoded chunk...] F7
   - `0x02` (PUT)
   - `0x01` (PUT_DATA)
   - `chunk_index_hi`, `chunk_index_lo` (16-bit big-endian index, NOT byte offset)
+  - audio data: **raw LE s16 PCM** — WAV frames sent as-is, no byte swap.
+    Confirmed SOLID: byte-for-byte match between `captures/sniffer-upload21.jsonl`
+    decoded chunks and the original WAV file (`Afterparty Kick.wav`, 28636 bytes).
+    Contrast with download, which is BE s16 (device sends BE, client swaps to LE).
 - Device responds with an ACK (usually echoing the command in the `0x2x` response range). It does **not** return a standard `status=0x00` response, so clients should only check that an ACK was received.
 
 ### 3. Commit/Verify Steps (Observed)
