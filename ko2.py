@@ -21,6 +21,7 @@ import argparse
 import re
 import shutil
 import json
+import importlib
 import subprocess
 import tempfile
 import wave
@@ -149,8 +150,6 @@ def choose_display_name(
     node_clean = (node_name or "").strip()
     if source == "fs":
         return fs_clean or node_clean or meta_clean or f"Slot {slot:03d}"
-    if source == "meta":
-        return meta_clean or node_clean or fs_clean or f"Slot {slot:03d}"
     if source == "node":
         return node_clean or meta_clean or fs_clean or f"Slot {slot:03d}"
     # auto
@@ -260,7 +259,6 @@ def cmd_ls(args):
         source = args.source
         stream = args.stream
         name_source = args.name_source
-        use_meta = bool(getattr(args, "use_meta", False))
         # Prefer filesystem listing (/sounds/) for ground truth; slot-scan can be stale.
         samples = []
         entries = None
@@ -316,16 +314,13 @@ def cmd_ls(args):
                             if "channels" in node_meta:
                                 channels = int(node_meta.get("channels") or 0)
 
-                    allow_get_meta = use_meta or name_source == "meta"
-                    need_info = name_source == "meta" or node_meta is None or channels == 0
+                    need_info = node_meta is None or channels == 0
                     if need_info:
                         try:
                             meta = client.info(
                                 slot,
                                 include_size=False,
                                 node_entry=e,
-                                prefer_node=True,
-                                allow_get_meta=allow_get_meta,
                             )
                             samplerate = int(meta.samplerate or samplerate or SAMPLE_RATE)
                             channels = int(meta.channels or channels or 0)
@@ -385,7 +380,6 @@ def cmd_ls(args):
                     info = client.info(
                         slot,
                         include_size=True,
-                        allow_get_meta=use_meta,
                     )
                     # Metadata can persist after delete; treat size==0 as empty for listing.
                     if info.size_bytes:
@@ -436,12 +430,11 @@ def cmd_ls(args):
 def cmd_info(args):
     """Show sample metadata for slot or range."""
     slot_spec = parse_range(args.slot)
-    use_meta = bool(getattr(args, "use_meta", False))
 
     with EP133Client(args.device) as client:
         if isinstance(slot_spec, int):
             try:
-                info = client.info(slot_spec, include_size=True, allow_get_meta=use_meta)
+                info = client.info(slot_spec, include_size=True)
                 # Prefer filesystem node metadata for name/format if available.
                 try:
                     sounds = client.list_sounds()
@@ -488,7 +481,7 @@ def cmd_info(args):
             for slot in range(start, end + 1):
                 show_progress(slot - start + 1, end - start + 1)
                 try:
-                    info = client.info(slot, include_size=True, allow_get_meta=use_meta)
+                    info = client.info(slot, include_size=True)
                     samples.append(info)
                 except SlotEmptyError:
                     empty_count += 1
@@ -559,7 +552,7 @@ def _resolve_transfer_name(
 
     try:
         meta = client.info(
-            slot, include_size=False, node_entry=entry, prefer_node=False
+            slot, include_size=False, node_entry=entry
         )
         if meta.name:
             return meta.name
@@ -672,6 +665,31 @@ def cmd_status(args):
     return 0
 
 
+def cmd_tui(args):
+    """Launch Textual TUI."""
+    try:
+        module = importlib.import_module("ko2_tui.app")
+        app_cls = getattr(module, "KO2TUIApp")
+    except ImportError:
+        print("  ❌ TUI dependencies are missing. Install `textual` and try again.")
+        return 1
+    except AttributeError:
+        print("  ❌ TUI module is installed but missing KO2TUIApp.")
+        return 1
+
+    debug_arg = getattr(args, "debug", None)
+    debug_enabled = debug_arg is not None
+    debug_path = None if debug_arg in (None, "__AUTO__") else debug_arg
+
+    app = app_cls(
+        device_name=args.device,
+        debug=debug_enabled,
+        debug_log=debug_path,
+    )
+    app.run()
+    return 0
+
+
 def cmd_audit(args):
     """Compare metadata sources for mismatches."""
     if args.range:
@@ -743,7 +761,7 @@ def cmd_audit(args):
 
             meta_name = ""
             try:
-                meta = client.get_meta(slot)
+                meta = client.get_meta_legacy(slot)
             except Exception:
                 meta = None
             if meta:
@@ -1617,7 +1635,6 @@ def main():
         description="KO2 - EP-133 KO-II Command Line Tool",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    parser.add_argument("--device", help="MIDI device name (auto-detect if omitted)")
 
     subparsers = parser.add_subparsers(dest="command", help="Available commands")
 
@@ -1637,29 +1654,18 @@ def main():
     )
     ls_parser.add_argument(
         "--name-source",
-        choices=("auto", "fs", "meta", "node"),
+        choices=("auto", "fs", "node"),
         default="auto",
-        help="Name source: auto (default), fs (/sounds filename), meta (slot metadata), or node (filesystem metadata)",
+        help="Name source: auto (default), fs (/sounds filename), or node (filesystem metadata)",
     )
     ls_parser.add_argument(
         "--stream",
         action="store_true",
         help="Print samples as they are discovered (disables progress bar)",
     )
-    ls_parser.add_argument(
-        "--use-meta",
-        action="store_true",
-        help="Allow GET_META fallback (known stale)",
-    )
-
     # info: slot or range
     info_parser = subparsers.add_parser("info", help="Show sample metadata")
     info_parser.add_argument("slot", help="Slot (5) or range (1-10, 1..10)")
-    info_parser.add_argument(
-        "--use-meta",
-        action="store_true",
-        help="Allow GET_META fallback (known stale)",
-    )
 
     # status: quick device status
     status_parser = subparsers.add_parser(
@@ -1933,20 +1939,32 @@ def main():
     rename_parser.add_argument("slot", type=validate_slot, help="Slot number (1-999)")
     rename_parser.add_argument("name", help="New name")
 
+    # tui
+    tui_parser = subparsers.add_parser("tui", help="Launch interactive TUI")
+    tui_parser.add_argument(
+        "--debug",
+        nargs="?",
+        const="__AUTO__",
+        default=None,
+        metavar="PATH",
+        help=(
+            "Enable in-app raw MIDI debug log and JSONL capture. "
+            "Optionally provide PATH (default: captures/tui-*.jsonl)."
+        ),
+    )
+
     args = parser.parse_args()
 
     if not args.command:
         parser.print_help()
         return 1
 
-    # Find device
-    if args.device:
-        device = args.device
-    else:
-        device = find_device()
-        if not device:
-            print("  ❌ EP-133 not found. Connect via USB.")
-            return 1
+    # Auto-select device for all commands.
+    device = find_device()
+    if not device:
+        print("  ❌ EP-133 not found. Connect via USB.")
+        return 1
+    args.device = device
 
     # Dispatch
     commands = {
@@ -1969,6 +1987,7 @@ def main():
         "squash": cmd_squash,
         "fs-ls": cmd_fs_ls,
         "rename": cmd_rename,
+        "tui": cmd_tui,
     }
 
     handler = commands.get(args.command)

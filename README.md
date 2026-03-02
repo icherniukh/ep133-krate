@@ -10,13 +10,16 @@ ko2-list backup.pak
 
 # Optimize entire backup
 ko2-optimize backup.pak
+
+# Launch interactive device TUI
+python ko2.py tui
 ```
 
 ## Progress (rough estimates)
 
 **Protocol Understanding:** `[########--] 80%`  
-**Phase 1 (CLI):** `[########--] 80%`  
-**Phase 2 (TUI):** `[----------] 0%`  
+**Phase 1 (CLI):** `[##########] 100%`  
+**Phase 2 (TUI):** `[###-------] 30%`  
 **Phase 3 (Desktop/Web/Mobile):** `[----------] 0%`
 
 ## Tools
@@ -82,6 +85,31 @@ ko2-optimize old.pak new.pak
 ```
 
 **Note:** Uses `audio2ko2` from parent directory
+
+---
+
+### 3. ko2 tui - Interactive Device TUI (Phase 2 MVP)
+
+Browse slots and run core operations from a Textual interface.
+
+**Usage:**
+```bash
+# Device is auto-selected
+python ko2.py tui
+
+# Auto log path in captures/tui-*.jsonl
+python ko2.py tui --debug
+
+# Explicit debug log path
+python ko2.py tui --debug captures/session.jsonl
+```
+
+**Current TUI features:**
+- 999-slot browser table
+- Detail pane for selected slot
+- Core actions: download (`g`), upload (`u`), rename (`n`), delete (`x`)
+- Manual refresh (`r`) and post-operation refresh
+- Operation log pane + raw MIDI TX/RX log lines in debug mode
 
 ---
 
@@ -276,6 +304,7 @@ ko2-tools/
 ├── ko2_models.py          # Declarative Descriptor DSL & Messages
 ├── ko2_operations.py      # Stateful multi-step operations
 ├── ko2_types.py           # Primitive wire-format types
+├── ko2_tui/               # Textual TUI app/state/worker
 ├── tests/unit/            # Unit tests (no device required)
 ├── tests/e2e/             # E2E tests (require EP-133)
 └── scripts/legacy/        # Archived protocol-probing scripts
