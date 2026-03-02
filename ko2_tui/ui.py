@@ -114,6 +114,10 @@ class UploadModal(ModalScreen[tuple[str, str | None] | None]):
             return
         self.dismiss((path, name or None))
 
+    @on(Input.Submitted, "#path")
+    def _submit_path(self) -> None:
+        self.query_one("#name", Input).focus()
+
     @on(Input.Submitted, "#name")
     def _submit_name(self) -> None:
         self._ok()
