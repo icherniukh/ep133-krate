@@ -10,3 +10,4 @@
 
 - Unit tests (default): `pytest`
 - E2E tests: `pytest -m e2e --device "EP-133"`
+- E2E tests against emulator: `pytest -m e2e --emulator`
