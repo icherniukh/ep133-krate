@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 
 from ko2_tui.app import KO2TUIApp
-from ko2_tui.ui import TextInputModal, UploadModal
+from ko2_tui.ui import ConfirmModal, TextInputModal, UploadModal
 from ko2_tui.worker import WorkerEvent
 
 
@@ -115,7 +115,7 @@ def test_rename_key_opens_modal_and_submits_request(monkeypatch):
     asyncio.run(_run())
 
 
-def test_delete_key_submits_request(monkeypatch):
+def test_delete_key_shows_confirm_then_submits(monkeypatch):
     monkeypatch.setattr("ko2_tui.app.DeviceWorker", StubWorker)
 
     async def _run():
@@ -125,9 +125,32 @@ def test_delete_key_submits_request(monkeypatch):
 
             await pilot.press("x")
             await pilot.pause()
+            assert isinstance(app.screen, ConfirmModal)
+            app.screen.dismiss(True)
+            await pilot.pause()
 
             ops = _request_ops(app)
             assert "delete" in ops
+
+    asyncio.run(_run())
+
+
+def test_delete_confirm_cancel_skips_request(monkeypatch):
+    monkeypatch.setattr("ko2_tui.app.DeviceWorker", StubWorker)
+
+    async def _run():
+        app = KO2TUIApp(device_name="EP-133", debug=False)
+        async with app.run_test() as pilot:
+            _make_ready(app)
+
+            await pilot.press("x")
+            await pilot.pause()
+            assert isinstance(app.screen, ConfirmModal)
+            app.screen.dismiss(False)
+            await pilot.pause()
+
+            ops = _request_ops(app)
+            assert "delete" not in ops
 
     asyncio.run(_run())
 
@@ -137,11 +160,14 @@ def test_requests_are_queued_while_busy(monkeypatch):
 
     async def _run():
         app = KO2TUIApp(device_name="EP-133", debug=False)
-        async with app.run_test() as _pilot:
+        async with app.run_test() as pilot:
             _make_ready(app)
             app.state.set_busy(True, "Running refresh_inventory...")
-            await _pilot.press("x")
-            await _pilot.pause()
+            await pilot.press("x")
+            await pilot.pause()
+            assert isinstance(app.screen, ConfirmModal)
+            app.screen.dismiss(True)
+            await pilot.pause()
             ops = _request_ops(app)
             assert "delete" in ops
 

@@ -12,7 +12,7 @@ from textual.widgets import DataTable, Footer, RichLog, Static
 from . import actions
 from .debug_log import DebugLogger
 from .state import TuiState
-from .ui import TextInputModal, UploadModal, table_row_values
+from .ui import ConfirmModal, TextInputModal, UploadModal, table_row_values
 from .worker import DeviceWorker, WorkerEvent
 
 
@@ -337,7 +337,15 @@ class KO2TUIApp(App[None]):
 
     def action_delete(self) -> None:
         slot = self._current_slot()
-        self._queue_request(actions.delete(slot))
+        name = self.state.slots[slot].name if self.state.slots[slot].exists else f"Slot {slot:03d}"
+        self.push_screen(
+            ConfirmModal(f"Delete slot {slot:03d} ({name})?"),
+            callback=lambda ok: self._on_delete_confirm(slot, ok),
+        )
+
+    def _on_delete_confirm(self, slot: int, confirmed: bool) -> None:
+        if confirmed:
+            self._queue_request(actions.delete(slot))
 
     def action_quit(self) -> None:
         self._shutdown_worker()

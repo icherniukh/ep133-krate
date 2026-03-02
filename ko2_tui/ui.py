@@ -117,3 +117,32 @@ class UploadModal(ModalScreen[tuple[str, str | None] | None]):
     @on(Input.Submitted, "#name")
     def _submit_name(self) -> None:
         self._ok()
+
+
+class ConfirmModal(ModalScreen[bool]):
+    BINDINGS = [Binding("escape", "cancel", "Cancel")]
+
+    def __init__(self, message: str):
+        super().__init__()
+        self._message = message
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="modal"):
+            yield Label(self._message, id="modal_title")
+            with Horizontal(id="modal_actions"):
+                yield Button("Cancel", id="cancel")
+                yield Button("Yes", id="ok", variant="error")
+
+    def on_mount(self) -> None:
+        self.query_one("#cancel", Button).focus()
+
+    def action_cancel(self) -> None:
+        self.dismiss(False)
+
+    @on(Button.Pressed, "#cancel")
+    def _cancel(self) -> None:
+        self.dismiss(False)
+
+    @on(Button.Pressed, "#ok")
+    def _ok(self) -> None:
+        self.dismiss(True)

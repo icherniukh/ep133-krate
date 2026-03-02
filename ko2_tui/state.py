@@ -51,6 +51,7 @@ class TuiState:
         row = self.slots[slot]
         if details.get("name"):
             row.name = str(details.get("name"))
+        # is_empty=True → exists=False; is_empty=False → exists=True; absent → keep current
         row.exists = not bool(details.get("is_empty", not row.exists))
         self._apply_details_to_row(row, details)
         self.details_by_slot[slot] = dict(details)
