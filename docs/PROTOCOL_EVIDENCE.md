@@ -77,10 +77,10 @@ Hunter summary after opening the official sample tool (no user actions):
 ### 2026-02-20 official tool upload captures (slot 26, slot 21)
 *Captures: `captures/sniffer-slot26.jsonl` and `captures/sniffer-upload21.jsonl`*
 - Upload init is `SysExCmd 0x7E` (slot 21) and also `0x7F` (slot 26), with seq byte following.
-- Payload uses `CMD_FILE 0x05` + 7-bit encoded raw:
+- Payload uses `CMD_FILE 0x05` + packed7(raw_payload):
   - `02 00 05 slot_hi slot_lo node_hi node_lo size_be name 00 json`
 - Name + JSON metadata are embedded in upload init (no separate rename needed).
-- PUT_DATA uses `02 01` with 16-bit offset stepping by 0x0100.
+- PUT_DATA uses `02 01` with a 16-bit chunk index stepping by `0x0100`.
 - Additional short ops after data:
   - `0x0B 00 <slot>` (verify, observed twice)
   - `0x01 01 00 40 00 00` (re-init, observed once)
@@ -90,19 +90,19 @@ Hunter summary after opening the official sample tool (no user actions):
 - Why official tool sometimes uses `SysExCmd 0x7F` vs `0x7E` for upload.
 - Meaning of `0x0B` and `0x01` ops beyond verify/reinit.
 
-### The "Flags" Byte is just a Pack-Flag
-The byte immediately after `CMD_FILE (0x05)` in many captures is **not** a semantic "mode flags" field. It is the TE 7-bit packing bitmap.
-- Every 7 raw bytes become 8 wire bytes. The first wire byte is a bitmap indicating which of the next 7 raw bytes had their MSB set (`0x80`).
-- Values like `0x40` or `0x08` frequently occur simply because certain raw bytes (like parent node `0x03E8`) have their MSB set.
+### Packed7 Transport Layer
+- Protocol fields are built first as raw payload bytes (`op`, `subop`, `slot_hi slot_lo`, etc.), then packed7 is applied for MIDI transport.
+- Every 7 raw payload bytes become 8 wire bytes: one packed7 control byte + seven 7-bit-clean data bytes.
+- Control bit `i` corresponds to payload byte `i` (0..6); final group may contain fewer than 7 payload bytes.
 
 ### Endianness & 14-bit splits
 - Mixing `pack_7bit` payloads with explicit 14-bit splits `((val >> 7) & 0x7F)` breaks at higher values.
 - Uploads expect raw 16-bit/32-bit values **inside** the packed payload.
 
 ### The Working Upload Sequence
-1. **INIT (0x6C)**: slot, parent node (1000), size BE, name, JSON metadata.
-2. **CHUNKS (0x6C)**: 433 bytes each, wait for ACK response (0x2C), 20ms delay.
-3. **END (0x6D)**: Signal completion.
+1. **INIT (0x6C/0x7E family)**: slot, parent node (1000), size BE, name, JSON metadata.
+2. **CHUNKS (0x6C)**: 433-byte data chunks, wait for ACK response (0x2C), short delay.
+3. **SENTINEL + VERIFY**: empty `PUT_DATA` sentinel chunk, then VERIFY.
 
 ---
 

@@ -2,23 +2,30 @@
 
 ## Message Structure
 
-All EP-133 commands follow this format:
+File-group commands use a semantic payload that is packed7-encoded for MIDI transport.
+
+Wire format:
 ```
-F0 00 20 76 33 40 [cmd] [seq] 05 [pack_flags] [op] [subop] [data...] F7
+F0 00 20 76 33 40 [cmd] [seq] 05 <packed7(raw_payload)> F7
 ```
 
-Where:
+Fields:
 - `F0` = SysEx start
 - `00 20 76` = Teenage Engineering manufacturer ID
 - `33 40` = Device family (EP-133)
 - `[cmd]` = Command opcode byte (0x61, 0x77, 0x7C, 0x7D, 0x7E, etc.)
 - `[seq]` = Sequence byte (increments per message)
 - `05` = CMD_FILE (file operations command group)
-- `[pack_flags]` = 7-bit packing bitmap (e.g., 0x00, 0x08, 0x40). This is **not** a semantic operation flag, but rather the first byte of the 7-bit encoded payload indicating which of the following 7 bytes have their MSB set.
-- `[op]` = File operation (0x01-0x07)
-- `[subop]` = Sub-operation type
-- `[data...]` = Operation-specific data (7-bit encoded)
+- `raw_payload` = semantic bytes (typically `[op][subop][data...]`)
+- `packed7(...)` = transport encoding for MIDI safety
 - `F7` = SysEx end
+
+### Packed7 Transport Encoding
+- Build `raw_payload` first.
+- Encode it with packed7 for transport.
+- On receive, unpack first, then parse fields.
+- For each group: control bit `i` (0..6) corresponds to payload byte `i`.
+- Final group may contain fewer than 7 payload bytes.
 
 ## SysEx Commands (cmd byte)
 
@@ -85,12 +92,13 @@ F0 00 20 76 33 40 77 14 01 F7
 
 ### Get Sample Metadata
 ```
-F0 00 20 76 33 40 75 [slot] 05 [pack_flags] 07 02 [slot_hi] [slot_lo] 00 00 F7
+F0 00 20 76 33 40 75 [seq] 05 <packed_payload> F7
 ```
 - Device ID: `0x75` (GET_META)
+- Raw payload: `07 02 [slot_hi] [slot_lo] 00 00`
 - Returns JSON with: name, sym, samplerate, format
-- Note: This is an older V1.0 API that uses standard 7-bit packing. Early reverse-engineering assumed `05 08` was a hardcoded command header, but `08` was merely the dynamically generated `pack_flags` byte observed when querying slots that had the MSB set in their `slot_lo` byte (e.g., slot 129 -> `0x0081`, causing the 4th byte's pack flag to be `1 << 3 = 0x08`).
-- **Slot Encoding:** The `slot` field must be encoded as a standard 16-bit big-endian integer (BE16) before 7-bit packing. Earlier tooling bugs used U14-style bytes, which created a host-side interpretation error for slots >127 (e.g., U14 bytes for 150 `[0x01, 0x16]` are BE16 `278` on the wire). Device behavior is correct when BE16 is used.
+- This legacy API still uses normal packed7 encoding.
+- **Slot Encoding:** `slot_hi slot_lo` are BE16 bytes in the raw payload before packed7.
 - GET_META appears unreliable/stale in OS 2.0+ (returning ghost data for deleted slots). The official app relies entirely on `/sounds` (FILE LIST) and Node `METADATA GET` instead. Treat `GET_META` as legacy/debug only.
 
 ### Delete Sample
@@ -116,11 +124,11 @@ The upload consists of a sequence of messages. The official app uses chunking an
 
 ### 1. Upload Init
 ```
-F0 00 20 76 33 40 7E [seq] 05 [7bit encoded payload...] F7
+F0 00 20 76 33 40 7E [seq] 05 <packed_payload> F7
 ```
 - Command byte: `0x7E` (or `0x6C` / `0x7F`)
 - Group byte: `0x05` (CMD_FILE)
-- Payload before 7-bit encoding:
+- Raw payload before packed7 encoding:
   - `0x02` (PUT)
   - `0x00` (PUT_INIT)
   - `0x05` (audio file type)
@@ -129,20 +137,18 @@ F0 00 20 76 33 40 7E [seq] 05 [7bit encoded payload...] F7
   - `size` (4 bytes, big-endian)
   - `name` (UTF-8, null-terminated)
   - `metadata JSON` (e.g. `{"channels":1,"samplerate":44100}`)
-- **Note:** Because the payload is 7-bit encoded, the byte immediately following `0x05` will be the `pack_flags` bitmap (e.g., `0x40` or `0x50` depending on the MSBs of the slot and node ID).
 
 ### 2. Upload Data Chunk
 ```
-F0 00 20 76 33 40 7E [seq] 05 [7bit encoded chunk...] F7
+F0 00 20 76 33 40 7E [seq] 05 <packed_payload> F7
 ```
-- Raw payload before encoding starts with:
+- Raw payload before packed7 encoding starts with:
   - `0x02` (PUT)
   - `0x01` (PUT_DATA)
   - `chunk_index_hi`, `chunk_index_lo` (16-bit big-endian index, NOT byte offset)
   - audio data: **raw LE s16 PCM** — WAV frames sent as-is, no byte swap.
     Confirmed SOLID: byte-for-byte match between `captures/sniffer-upload21.jsonl`
     decoded chunks and the original WAV file (`Afterparty Kick.wav`, 28636 bytes).
-    Contrast with download, which is BE s16 (device sends BE, client swaps to LE).
 - Device responds with an ACK (usually echoing the command in the `0x2x` response range). It does **not** return a standard `status=0x00` response, so clients should only check that an ACK was received.
 
 ### 3. Commit/Verify Steps (Observed)
@@ -155,12 +161,12 @@ F0 00 20 76 33 40 7E [seq] 05 00 0B 00 01 F7              # Verify again
 
 ### 7. Metadata Operation (observed)
 ```
-F0 00 20 76 33 40 7E [seq] 05 [7bit: 07 02 ...] F7
+F0 00 20 76 33 40 7E [seq] 05 <packed_payload> F7
 ```
 - Operation: `0x07` (METADATA)
 - Sub-op: `0x02` (observed)
   - Seen with slot and node variants during official tool uploads.
-  - Responses may be plain JSON with interleaved null bytes (no 7-bit packing),
+  - Responses may be plain JSON with interleaved null bytes (no packed7 encoding),
     prefixed by 4 bytes (observed as `page_hi page_lo node_hi node_lo`).
     Example capture: `captures/sniffer-rename54.jsonl` (RX-only).
 - Official tool also sends METADATA SET (0x07 0x01) after upload:
@@ -169,10 +175,10 @@ F0 00 20 76 33 40 7E [seq] 05 [7bit: 07 02 ...] F7
 
 ### 8. Finalize
 ```
-F0 00 20 76 33 40 7E [seq] 05 08 07 02 [7bit: size] 00 00 F7
+F0 00 20 76 33 40 7E [seq] 05 08 07 02 <packed_size> 00 00 F7
 ```
 - Flags: `0x08` (finalize mode)
-- Final 7-bit encoded size value
+- Final packed7-encoded size value
 
 ## Pad Assignment + Trim (Observed)
 
@@ -234,74 +240,34 @@ F0 00 20 76 33 40 7D [seq] 05 00 03 00 [slot_hi] [slot_lo] [offset: 5 bytes] F7
 - Sub-op: `0x00` (GET_INIT)
 - Slot encoding: **big-endian**
 - Offset: 5 zero bytes
-- Response: 7-bit encoded metadata. The payload structure precisely mirrors an upload init: `[0x03, 0x00, 0x05, size_hi, size_mh, size_ml, size_lo, filename...]`
+- Response: packed7-encoded metadata. The payload structure mirrors upload init: `[0x03, 0x00, 0x05, size_hi, size_mh, size_ml, size_lo, filename...]`
   - `0x03` = GET
   - `0x00` = INIT
   - `0x05` = Audio file type
   - Size: 4-byte big-endian value at decoded bytes [3:7]. **Size = raw PCM byte count (no RIFF header); use as trim target.**
   - Filename: Null-terminated string (usually ending in `.pcm`).
 
-> **Note on "sub_byte":** Earlier revisions of this document referred to a `sub_byte` following the `0x05` (CMD_FILE) byte. This is incorrect. The byte immediately following `0x05` on the wire is strictly the `pack_flags` bitmap used by the 7-bit encoding algorithm. In typical responses where the first 7 decoded bytes are all < 128 (e.g. `[0x03, 0x00, 0x05 ...]`), this flag byte evaluates to `0x00`, leading to the false assumption that it was a structural padding byte. In error scenarios where a returned string contains high-bytes (like `\x80invalid file`), this flag byte becomes non-zero to properly encode the MSB.
-
 ### 2. Get Data Chunk
 ```
-F0 00 20 76 33 40 7D [seq] 05 00 03 01 [page_hi] [page_lo] F7
+F0 00 20 76 33 40 7D [seq] 05 00 03 01 [page_lo] [page_hi] F7
 ```
 - Sub-op: `0x01` (GET_DATA)
-- Page: big-endian, **each byte must be 7-bit (0-127)**
+- Page: 14-bit value split into two 7-bit bytes (`page_lo`, `page_hi`)
   - `page_lo = page & 0x7F`
   - `page_hi = (page >> 7) & 0x7F`
   - Max page: 16383 (14 bits)
-- Response: 7-bit encoded chunk; assembled pages are **raw LE s16 PCM** (not RIFF WAV)
-  - 7-bit payload at SysEx offset 9 (structural: 5 mfg bytes + resp + seq + CMD_FILE + pack_flags)
+- Response: packed7-encoded chunk; assembled pages are **raw LE s16 PCM** (not RIFF WAV)
   - Each decoded chunk starts with a 2-byte page-number echo `[page_lo, page_hi]` — must strip
   - After stripping prefix, bytes are LE s16 — write directly, no byte swap needed.
   - Confirmed: downloaded bytes from slot 21 (official TE sample) match original WAV exactly.
   - Trim to `file_info["size"]` bytes (= raw PCM byte count from GET_INIT response)
   - Confirmed SOLID by `test_encoding.py` sample-level roundtrip (440 Hz sine, 30+ slots)
 
-## 7-Bit Encoding
+## Numeric Encoding Rules
 
-All variable-length data must be 7-bit encoded for MIDI transmission:
-
-```python
-def encode_7bit(data: bytes) -> bytes:
-    result = bytearray()
-    i = 0
-    while i < len(data):
-        chunk = data[i:i+7]
-        high_bits = 0
-        for j, byte in enumerate(chunk):
-            high_bits |= ((byte >> 7) << j)
-        result.append(high_bits)
-        for byte in chunk:
-            result.append(byte & 0x7F)
-        i += 7
-    return bytes(result)
-
-def decode_7bit(data: bytes) -> bytes:
-    result = bytearray()
-    i = 0
-    while i < len(data):
-        high_bits = data[i]
-        for j in range(min(7, len(data) - i - 1)):
-            result.append(data[i + 1 + j] | (((high_bits >> j) & 0x01) << 7))
-        i += 8
-    return bytes(result)
-```
-
-## Slot Encoding
-
-| Operation | Encoding | Notes |
-|-----------|----------|-------|
-| Upload | Big-endian | High byte first |
-| Download | Big-endian | High byte first |
-| Delete | Big-endian | High byte first |
-| Metadata Query | Little-endian | Low byte first |
-
-Example for slot 11 (0x0B):
-- Big-endian: `00 0B`
-- Little-endian: `0B 00`
+- Slot and node identifiers in raw payloads are standard **BE16** (`hi`, then `lo`) unless a command explicitly uses another format.
+- Download `GET_DATA` page echo/request uses a 14-bit page number split into two 7-bit bytes (`page_lo`, then `page_hi`).
+- Do not pre-split BE16 fields into 7-bit pieces; packed7 already handles MSB transport.
 
 ## WAV File Requirements
 
@@ -360,17 +326,16 @@ Or use the `audio2ko2` tool.
 
 1. **Init is required** - Always send init sequence before file operations
 2. **Sequence bytes** - Must increment for each message (0-127, wraps)
-3. **7-bit encoding** - All large data payloads must be encoded
-4. **Timing** - Delays of 50-100ms between messages recommended
-5. **Endianness** - Varies by operation (see table above)
-6. **Response filtering** - Filter by Device ID in response byte
+3. **Packed7 transport** - Build semantic raw payload first, then packed7-encode it
+4. **Timing** - Delays of 20-100ms between messages are commonly needed
+5. **Response filtering** - Filter by TE header + expected response opcode
 
 ## Known Issues
 
 1. **Upload Command IDs** - Some operations use `0x6C` for data, while external refs show `0x7E`. Both appear to work depending on context.
 2. **Playback** - Protocol not fully documented (Command `0x76`).
 3. **Project files** - `.ppak` format known, but SysEx extraction path unknown.
-4. **"invalid file" Error Response** - When querying a missing or invalid node (e.g., via `METADATA GET`), the device may return the literal string `invalid file` prefixed by a byte with its MSB set (e.g., `0x80`). Because the 7-bit encoder accurately reflects this MSB, the `pack_flags` byte immediately following `0x05` will be `0x01` (rather than `0x00`). Clients must treat error response payloads as raw, unvalidated bytes.
+4. **"invalid file" Error Response** - When querying a missing or invalid node (e.g., via `METADATA GET`), the device may return a non-standard error payload (including high-byte content). Clients should treat these response payloads as raw bytes and avoid strict semantic decoding.
 
 ## Tools
 

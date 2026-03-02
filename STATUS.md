@@ -74,7 +74,7 @@ These are the remaining mysteries in the EP-133 protocol that require further re
 ## 🗂 CLI Backlog
 
 - [ ] **Configurable upload metadata defaults** — `sound.amplitude`, `sound.playmode`, `envelope.*` etc. are currently hardcoded to match official TE app defaults. Should be overridable via a config file or CLI flags so users can set their own defaults (e.g. different amplitude, looping mode).
-- [ ] **Protocol docs nomenclature cleanup (`pack_bytes`)** — standardize documentation terminology around 7-bit payload encoding (`pack_flags` vs legacy `pack_bytes`/`sub_byte`) and remove ambiguous examples.
+- [x] **Protocol docs nomenclature cleanup (`pack_bytes`)** — standardized docs around packed7 payload encoding (`pack_flags` vs legacy `pack_bytes`/`sub_byte`) and removed ambiguous examples.
 
 ---
 
