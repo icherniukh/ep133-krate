@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 from queue import Empty, Queue
-from typing import cast
+from typing import Iterable, cast
 
 from textual.app import App, ComposeResult
 from textual.binding import Binding
@@ -75,6 +75,7 @@ class KO2TUIApp(App[None]):
         self._event_queue: Queue[WorkerEvent] = Queue()
         self._worker: DeviceWorker | None = None
         self._debug_logger: DebugLogger | None = None
+        self._col_keys: list = []
 
     def compose(self) -> ComposeResult:
         yield Static(id="status")
@@ -121,7 +122,7 @@ class KO2TUIApp(App[None]):
     def _init_table(self) -> None:
         table = self.query_one("#slots", DataTable)
         table.cursor_type = "row"
-        table.add_columns("Slot", "Name", "Size", "CH", "Rate", "Sec")
+        self._col_keys = table.add_columns("Slot", "Name", "Size", "CH", "Rate", "Sec")
         self._refresh_table()
 
     def _refresh_table(self) -> None:
@@ -136,6 +137,14 @@ class KO2TUIApp(App[None]):
             table.move_cursor(row=cursor_row, column=0, animate=False)
         except Exception:
             pass
+
+    def _update_table_rows(self, slot_nums: Iterable[int]) -> None:
+        table = self.query_one("#slots", DataTable)
+        for slot in slot_nums:
+            row = self.state.slots[slot]
+            values = table_row_values(row)
+            for col_idx, val in enumerate(values):
+                table.update_cell(str(slot), self._col_keys[col_idx], val)
 
     def on_data_table_row_highlighted(self, event: DataTable.RowHighlighted) -> None:
         self.state.selected_slot = event.cursor_row + 1
@@ -193,7 +202,7 @@ class KO2TUIApp(App[None]):
             updates = cast(dict[int, dict], payload.get("updates", {}))
             if updates:
                 self.state.apply_inventory_updates(updates)
-                self._refresh_table()
+                self._update_table_rows(updates.keys())
                 self._render_details(self.state.selected_slot)
             return
 
