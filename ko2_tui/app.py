@@ -297,7 +297,10 @@ class KO2TUIApp(App[None]):
 
     def action_view_details(self) -> None:
         slot = self._current_slot()
-        self._queue_request(actions.fetch_details(slot))
+        if slot in self.state.details_by_slot:
+            self._render_details(slot)
+        else:
+            self._queue_request(actions.fetch_details(slot))
 
     def action_download(self) -> None:
         slot = self._current_slot()
