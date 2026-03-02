@@ -21,7 +21,7 @@ class WorkerEvent:
 class DeviceWorker(threading.Thread):
     def __init__(
         self,
-        device_name: str,
+        device_name: str | None,
         request_queue: Queue[WorkerRequest],
         event_queue: Queue[WorkerEvent],
         client_factory: Callable[..., EP133Client] = EP133Client,

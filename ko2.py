@@ -1959,12 +1959,12 @@ def main():
         parser.print_help()
         return 1
 
-    # Auto-select device for all commands.
+    # Auto-select device. TUI handles a missing device gracefully; other commands fail fast.
     device = find_device()
-    if not device:
+    if not device and args.command != "tui":
         print("  ❌ EP-133 not found. Connect via USB.")
         return 1
-    args.device = device
+    args.device = device  # None for TUI when device not yet connected
 
     # Dispatch
     commands = {

@@ -66,7 +66,7 @@ class KO2TUIApp(App[None]):
         Binding("q", "quit", "Quit"),
     ]
 
-    def __init__(self, device_name: str, debug: bool = False, debug_log: str | None = None):
+    def __init__(self, device_name: str | None = None, debug: bool = False, debug_log: str | None = None):
         super().__init__()
         self.device_name = device_name
         self.debug_enabled = bool(debug)
@@ -278,7 +278,7 @@ class KO2TUIApp(App[None]):
             debug_suffix = f" | debug={self._debug_logger.path.name}"
         n_sel = len(self.state.selected_slots)
         sel_suffix = f" | {n_sel} selected" if n_sel else ""
-        status = f"Device: {self.device_name} | {state_text}{sel_suffix}{debug_suffix}"
+        status = f"Device: {self.device_name or 'EP-133'} | {state_text}{sel_suffix}{debug_suffix}"
         self.query_one("#status", Static).update(status)
 
     def _log(self, line: str) -> None:
