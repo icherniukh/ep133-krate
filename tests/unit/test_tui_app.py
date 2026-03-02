@@ -195,6 +195,109 @@ def test_inventory_enriched_event_updates_name(monkeypatch):
     asyncio.run(_run())
 
 
+def test_select_key_opens_modal_and_sets_selection(monkeypatch):
+    monkeypatch.setattr("ko2_tui.app.DeviceWorker", StubWorker)
+
+    async def _run():
+        app = KO2TUIApp(device_name="EP-133", debug=False)
+        async with app.run_test() as pilot:
+            _make_ready(app)
+
+            await pilot.press("s")
+            await pilot.pause()
+            assert isinstance(app.screen, TextInputModal)
+            app.screen.dismiss("1")
+            await pilot.pause()
+
+            assert app.state.selected_slots == {1}
+
+    asyncio.run(_run())
+
+
+def test_select_empty_expression_clears_selection(monkeypatch):
+    monkeypatch.setattr("ko2_tui.app.DeviceWorker", StubWorker)
+
+    async def _run():
+        app = KO2TUIApp(device_name="EP-133", debug=False)
+        async with app.run_test() as pilot:
+            _make_ready(app)
+            app.state.selected_slots = {1}
+
+            await pilot.press("s")
+            await pilot.pause()
+            assert isinstance(app.screen, TextInputModal)
+            app.screen.dismiss("")  # empty = clear
+            await pilot.pause()
+
+            assert app.state.selected_slots == set()
+
+    asyncio.run(_run())
+
+
+def test_select_cancel_leaves_selection_unchanged(monkeypatch):
+    monkeypatch.setattr("ko2_tui.app.DeviceWorker", StubWorker)
+
+    async def _run():
+        app = KO2TUIApp(device_name="EP-133", debug=False)
+        async with app.run_test() as pilot:
+            _make_ready(app)
+            app.state.selected_slots = {1}
+
+            await pilot.press("s")
+            await pilot.pause()
+            app.screen.dismiss(None)  # cancelled
+            await pilot.pause()
+
+            assert app.state.selected_slots == {1}
+
+    asyncio.run(_run())
+
+
+def test_delete_on_selection_queues_bulk_delete(monkeypatch):
+    monkeypatch.setattr("ko2_tui.app.DeviceWorker", StubWorker)
+
+    async def _run():
+        app = KO2TUIApp(device_name="EP-133", debug=False)
+        async with app.run_test() as pilot:
+            _make_ready(app)
+            app.state.selected_slots = {1}
+
+            await pilot.press("x")
+            await pilot.pause()
+            assert isinstance(app.screen, ConfirmModal)
+            app.screen.dismiss(True)
+            await pilot.pause()
+
+            ops = _request_ops(app)
+            assert "bulk_delete" in ops
+            assert "delete" not in ops
+            assert app.state.selected_slots == set()
+
+    asyncio.run(_run())
+
+
+def test_delete_with_no_selection_uses_single_delete(monkeypatch):
+    monkeypatch.setattr("ko2_tui.app.DeviceWorker", StubWorker)
+
+    async def _run():
+        app = KO2TUIApp(device_name="EP-133", debug=False)
+        async with app.run_test() as pilot:
+            _make_ready(app)
+            assert app.state.selected_slots == set()
+
+            await pilot.press("x")
+            await pilot.pause()
+            assert isinstance(app.screen, ConfirmModal)
+            app.screen.dismiss(True)
+            await pilot.pause()
+
+            ops = _request_ops(app)
+            assert "delete" in ops
+            assert "bulk_delete" not in ops
+
+    asyncio.run(_run())
+
+
 def test_trace_friendly_label_uses_hydrated_name():
     app = KO2TUIApp(device_name="EP-133", debug=True)
     app.state.apply_inventory({201: {"name": "201.pcm", "size": 9000, "node_id": 201}})

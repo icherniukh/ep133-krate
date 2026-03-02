@@ -16,11 +16,27 @@ class SlotRow:
     exists: bool = False
 
 
+# TODO(database): TuiState holds all sample metadata in memory and re-fetches
+# it from the device on every refresh.  This makes the app stateless across
+# sessions — names, tags, notes, and organisational metadata are lost on exit.
+#
+# Future work: implement a persistent local database (SQLite) that:
+#   - caches device metadata (sample name, rate, channels, size, node_id)
+#   - stores user annotations (tags, colour labels, notes, aliases)
+#   - tracks provenance (source file path, upload date, checksum)
+#   - enables offline browsing and search without a connected device
+#   - syncs on connect: compare cached state against live device, flag drift
+#
+# The database should live in XDG_DATA_HOME / .ko2/samples.db.
+# TuiState would then be initialised from the DB and flushed back after ops.
+
+
 @dataclass
 class TuiState:
     slots: dict[int, SlotRow] = field(default_factory=lambda: initial_slots(MAX_SLOTS))
     details_by_slot: dict[int, dict[str, Any]] = field(default_factory=dict)
     selected_slot: int = 1
+    selected_slots: set[int] = field(default_factory=set)
     busy: bool = False
     status: str = "idle"
     last_error: str | None = None

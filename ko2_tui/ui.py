@@ -29,10 +29,12 @@ def format_duration(size_bytes: int, samplerate: int, channels: int) -> str:
     return f"{seconds:.2f}"
 
 
-def table_row_values(row: SlotRow) -> tuple[str, str, str, str, str, str]:
+def table_row_values(row: SlotRow, selected: bool = False) -> tuple[str, str, str, str, str, str, str]:
+    marker = "●" if selected else " "
     channels = "S" if row.channels == 2 else "M" if row.channels == 1 else "-"
     rate = str(row.samplerate) if row.exists else "-"
     return (
+        marker,
         f"{row.slot:03d}",
         row.name,
         format_size(row.size_bytes),
@@ -45,11 +47,12 @@ def table_row_values(row: SlotRow) -> tuple[str, str, str, str, str, str]:
 class TextInputModal(ModalScreen[str | None]):
     BINDINGS = [Binding("escape", "cancel", "Cancel")]
 
-    def __init__(self, title: str, placeholder: str = "", initial: str = ""):
+    def __init__(self, title: str, placeholder: str = "", initial: str = "", allow_empty: bool = False):
         super().__init__()
         self._title = title
         self._placeholder = placeholder
         self._initial = initial
+        self._allow_empty = allow_empty
 
     def compose(self) -> ComposeResult:
         with Vertical(id="modal"):
@@ -72,7 +75,10 @@ class TextInputModal(ModalScreen[str | None]):
     @on(Button.Pressed, "#ok")
     def _ok(self) -> None:
         value = self.query_one("#value", Input).value.strip()
-        self.dismiss(value if value else None)
+        if value or self._allow_empty:
+            self.dismiss(value)
+        else:
+            self.dismiss(None)
 
     @on(Input.Submitted, "#value")
     def _submit(self) -> None:

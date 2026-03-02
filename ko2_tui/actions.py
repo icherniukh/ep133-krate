@@ -37,5 +37,9 @@ def delete(slot: int) -> WorkerRequest:
     return WorkerRequest(op="delete", payload={"slot": int(slot)})
 
 
+def bulk_delete(slots: list[int]) -> WorkerRequest:
+    return WorkerRequest(op="bulk_delete", payload={"slots": [int(s) for s in slots]})
+
+
 def stop() -> WorkerRequest:
     return WorkerRequest(op="stop")

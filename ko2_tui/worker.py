@@ -84,6 +84,13 @@ class DeviceWorker(threading.Thread):
                 client.delete(slot)
                 self._emit("success", message=f"Deleted slot {slot:03d}")
                 self._emit_inventory(client)
+            elif req.op == "bulk_delete":
+                slots = [int(s) for s in req.payload["slots"]]
+                for slot in slots:
+                    client.delete(slot)
+                n = len(slots)
+                self._emit("success", message=f"Deleted {n} slot{'s' if n != 1 else ''}")
+                self._emit_inventory(client)
             else:
                 raise ValueError(f"Unknown operation: {req.op}")
         except Exception as exc:

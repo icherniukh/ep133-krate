@@ -11,6 +11,7 @@ from textual.widgets import DataTable, Footer, RichLog, Static
 
 from . import actions
 from .debug_log import DebugLogger
+from .selectors import parse_selector
 from .state import TuiState
 from .ui import ConfirmModal, TextInputModal, UploadModal, table_row_values
 from .worker import DeviceWorker, WorkerEvent
@@ -60,6 +61,7 @@ class KO2TUIApp(App[None]):
         Binding("g", "download", "Download"),
         Binding("u", "upload", "Upload"),
         Binding("n", "rename", "Rename"),
+        Binding("s", "select", "Select"),
         Binding("x", "delete", "Delete"),
         Binding("q", "quit", "Quit"),
     ]
@@ -122,7 +124,7 @@ class KO2TUIApp(App[None]):
     def _init_table(self) -> None:
         table = self.query_one("#slots", DataTable)
         table.cursor_type = "row"
-        self._col_keys = table.add_columns("Slot", "Name", "Size", "CH", "Rate", "Sec")
+        self._col_keys = table.add_columns(" ", "Slot", "Name", "Size", "CH", "Rate", "Sec")
         self._refresh_table()
 
     def _refresh_table(self) -> None:
@@ -130,7 +132,8 @@ class KO2TUIApp(App[None]):
         table.clear(columns=False)
         for slot in range(1, len(self.state.slots) + 1):
             row = self.state.slots[slot]
-            table.add_row(*table_row_values(row), key=str(slot))
+            selected = slot in self.state.selected_slots
+            table.add_row(*table_row_values(row, selected), key=str(slot))
 
         cursor_row = max(0, min(len(self.state.slots) - 1, self.state.selected_slot - 1))
         try:
@@ -142,9 +145,17 @@ class KO2TUIApp(App[None]):
         table = self.query_one("#slots", DataTable)
         for slot in slot_nums:
             row = self.state.slots[slot]
-            values = table_row_values(row)
+            selected = slot in self.state.selected_slots
+            values = table_row_values(row, selected)
             for col_idx, val in enumerate(values):
                 table.update_cell(str(slot), self._col_keys[col_idx], val)
+
+    def _update_selection_display(self, prev_selected: set[int]) -> None:
+        """Update the selection marker column only for rows whose state changed."""
+        table = self.query_one("#slots", DataTable)
+        for slot in prev_selected.symmetric_difference(self.state.selected_slots):
+            marker = "●" if slot in self.state.selected_slots else " "
+            table.update_cell(str(slot), self._col_keys[0], marker)
 
     def on_data_table_row_highlighted(self, event: DataTable.RowHighlighted) -> None:
         self.state.selected_slot = event.cursor_row + 1
@@ -265,7 +276,9 @@ class KO2TUIApp(App[None]):
         debug_suffix = ""
         if self._debug_logger and self._debug_logger.path:
             debug_suffix = f" | debug={self._debug_logger.path.name}"
-        status = f"Device: {self.device_name} | {state_text}{debug_suffix}"
+        n_sel = len(self.state.selected_slots)
+        sel_suffix = f" | {n_sel} selected" if n_sel else ""
+        status = f"Device: {self.device_name} | {state_text}{sel_suffix}{debug_suffix}"
         self.query_one("#status", Static).update(status)
 
     def _log(self, line: str) -> None:
@@ -302,17 +315,56 @@ class KO2TUIApp(App[None]):
         else:
             self._queue_request(actions.fetch_details(slot))
 
-    def action_download(self) -> None:
-        slot = self._current_slot()
-        default_name = f"slot{slot:03d}.wav"
+    def action_select(self) -> None:
+        n = len(self.state.selected_slots)
+        title = f"Select slots  ({n} currently selected)" if n else "Select slots"
         self.push_screen(
             TextInputModal(
-                title=f"Download slot {slot:03d}",
-                placeholder="Output path",
-                initial=default_name,
+                title=title,
+                placeholder="200, 201-210, 500-599   (empty to clear)",
+                allow_empty=True,
             ),
-            callback=lambda path: self._on_download_modal(slot, path),
+            callback=self._on_select_modal,
         )
+
+    def _on_select_modal(self, expr: str | None) -> None:
+        if expr is None:
+            return  # modal was cancelled — leave selection unchanged
+        prev = set(self.state.selected_slots)
+        expr = expr.strip()
+        if not expr:
+            self.state.selected_slots = set()
+            if prev:
+                self._log("Selection cleared")
+        else:
+            try:
+                selector = parse_selector(expr)
+                self.state.selected_slots = selector.resolve(self.state.slots)
+            except ValueError as exc:
+                self._log(f"Invalid selection: {exc}")
+                return
+            n = len(self.state.selected_slots)
+            self._log(f"Selected {n} slot{'s' if n != 1 else ''}")
+        self._update_selection_display(prev)
+        self._update_status(self.state.status)
+
+    def action_download(self) -> None:
+        if self.state.selected_slots:
+            slots = sorted(self.state.selected_slots)
+            for slot in slots:
+                self._queue_request(actions.download(slot, f"slot{slot:03d}.wav"))
+            self._log(f"Queued download of {len(slots)} slots → slot###.wav")
+        else:
+            slot = self._current_slot()
+            default_name = f"slot{slot:03d}.wav"
+            self.push_screen(
+                TextInputModal(
+                    title=f"Download slot {slot:03d}",
+                    placeholder="Output path",
+                    initial=default_name,
+                ),
+                callback=lambda path: self._on_download_modal(slot, path),
+            )
 
     def action_upload(self) -> None:
         slot = self._current_slot()
@@ -348,16 +400,31 @@ class KO2TUIApp(App[None]):
             self._queue_request(actions.rename(slot, new_name))
 
     def action_delete(self) -> None:
-        slot = self._current_slot()
-        name = self.state.slots[slot].name if self.state.slots[slot].exists else f"Slot {slot:03d}"
-        self.push_screen(
-            ConfirmModal(f"Delete slot {slot:03d} ({name})?"),
-            callback=lambda ok: self._on_delete_confirm(slot, ok),
-        )
+        if self.state.selected_slots:
+            slots = sorted(self.state.selected_slots)
+            n = len(slots)
+            slot_list = ", ".join(f"{s:03d}" for s in slots[:5])
+            suffix = f", +{n - 5} more" if n > 5 else ""
+            self.push_screen(
+                ConfirmModal(f"Delete {n} slots: {slot_list}{suffix}?"),
+                callback=lambda ok: self._on_bulk_delete_confirm(slots, ok),
+            )
+        else:
+            slot = self._current_slot()
+            name = self.state.slots[slot].name if self.state.slots[slot].exists else f"Slot {slot:03d}"
+            self.push_screen(
+                ConfirmModal(f"Delete slot {slot:03d} ({name})?"),
+                callback=lambda ok: self._on_delete_confirm(slot, ok),
+            )
 
     def _on_delete_confirm(self, slot: int, confirmed: bool) -> None:
         if confirmed:
             self._queue_request(actions.delete(slot))
+
+    def _on_bulk_delete_confirm(self, slots: list[int], confirmed: bool) -> None:
+        if confirmed:
+            self.state.selected_slots = set()
+            self._queue_request(actions.bulk_delete(slots))
 
     def action_quit(self) -> None:
         self._shutdown_worker()
