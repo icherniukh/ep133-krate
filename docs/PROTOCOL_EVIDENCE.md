@@ -19,7 +19,7 @@ SOLID            SPECULATION      BLIND GUESS      UNKNOWN
 | Operation | Implementation | RCY alignment | Wire evidence | Status | Notes |
 |---|---|---|---|---|---|
 | Device info (GET_INFO 0x77) | `EP133Client.device_info()` | Unknown | `captures/sniffer-02-20-audit1.log` (raw SysEx 0x21, product info) | 🟡 | Response contains JSON-like payload |
-| Slot meta (GET_META 0x75) | `EP133Client.get_meta()` | N/A | `captures/sniffer-02-20-audit1.log` (raw SysEx 0x35), `captures/2026-02-20-audit-001-099.jsonl` (decoded), `captures/2026-02-20-audit-100-199.jsonl` (decoded) | ⚠️ | Names offset >127 |
+| Slot meta (GET_META 0x75) | `EP133Client.get_meta_legacy()` | N/A | `captures/sniffer-02-20-audit1.log` (raw SysEx 0x35), `captures/2026-02-20-audit-001-099.jsonl` (decoded), `captures/2026-02-20-audit-100-199.jsonl` (decoded) | ⚠️ | Legacy API can return stale/ghost metadata |
 | File list (/sounds) | `EP133Client.list_directory()` | Match | `captures/sniffer-02-20-audit1.log` (raw SysEx 0x2A), `captures/2026-02-20-audit-001-099.jsonl` (decoded) | ✅ | Uses 0x6A + FileOp.LIST |
 | Node meta GET | `EP133Client.get_node_metadata()` | Match | `captures/2026-02-20-audit-001-099.jsonl` (decoded), `captures/sniffer-readmeta.jsonl` (raw SysEx) | ✅ | Uses FileOp.METADATA GET |
 | Node meta SET | `EP133Client.rename()` | Match | `captures/sniffer-rename.jsonl` (raw SysEx) | ✅ | Official tool uses FileOp.METADATA SET with JSON name |
@@ -115,7 +115,7 @@ There are multiple sources of truth on the device, and they can diverge:
 3. **Slot metadata** (via legacy `GET_META` 0x75).
 
 ### Known Risks
-- **GET_META Offset Bug:** For slots >127, `GET_META` returns names shifted by +128. **Never trust `GET_META` names for slots >127.**
+- **No Active +128 Bug:** Earlier revisions incorrectly reported a `GET_META` slot-offset bug for slots >127. Root cause was host-side encoding mistakes (U14 bytes interpreted by device as BE16). With correct BE16 + 7-bit packing, slot mapping behaves as expected.
 - **Stale Metadata:** The device can return `GET_META` responses for deleted slots, resulting in "ghost" names.
 - **Lost Sound Params:** Move/Copy via download+upload resets sound parameters (start/end/loop/pitch) because the upload only carries name + channels + samplerate.
 
@@ -126,6 +126,7 @@ There are multiple sources of truth on the device, and they can diverge:
   - `stale`: 57, `name:diff`: 22, clean: 21
 
 ### Implemented Mitigations
-- `ko2 info` strictly prefers node metadata (`FileOp.METADATA GET`) for names. `GET_META` is used only as a fallback for missing fields.
+- `ko2 info` and `ko2 ls` now use `/sounds` + node metadata (`FileOp.METADATA GET`) only.
+- `GET_META` is retained only as an explicit legacy audit/debug source (`ko2 audit` path).
 - The inventory command (`ko2 ls`) relies entirely on the filesystem listing (`/sounds`), ensuring empty slots are reported accurately.
 - `ko2 audit` exists to compare the three sources and flag `name:diff` or `stale` states.

@@ -36,3 +36,7 @@ def test_parse_file_list_response_prefers_14bit_when_prefix_matches():
     payload.extend(b"129 snare\x00")
     entries = parse_file_list_response(bytes(payload))
     assert entries[0]["node_id"] == 1129
+
+
+def test_slot_from_sound_entry_prefers_filename_when_node_id_conflicts():
+    assert slot_from_sound_entry({"node_id": 285, "name": "001.pcm"}) == 1

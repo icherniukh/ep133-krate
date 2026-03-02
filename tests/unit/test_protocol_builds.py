@@ -14,10 +14,12 @@ def _decode_payload(msg: bytes) -> bytes:
 
 
 def test_build_info_request_slot_1():
-    # Legacy GET_META (0x75) uses 05 08 [unpacked_data]
+    # Legacy GET_META (0x75) uses standard 7-bit packing with a BE16 slot.
+    # Payload for slot=1: [0x07, 0x02, 0x00, 0x01, 0x00, 0x00]
+    # No bytes have MSB set, so pack_flags is 0x00.
     msg = MetadataGetLegacyRequest(slot=1).pack_payload()
-    assert msg[0] == 0x05
-    assert msg[1] == 0x08
+    assert msg[0] == 0x05  # CMD_FILE
+    assert msg[1] == 0x00  # pack_flags
     assert msg[2:] == bytes([0x07, 0x02, 0x00, 0x01, 0x00, 0x00])
 
 

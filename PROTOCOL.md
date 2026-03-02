@@ -85,13 +85,13 @@ F0 00 20 76 33 40 77 14 01 F7
 
 ### Get Sample Metadata
 ```
-F0 00 20 76 33 40 75 [slot] 05 08 07 02 [slot_hi] [slot_lo] 00 00 F7
+F0 00 20 76 33 40 75 [slot] 05 [pack_flags] 07 02 [slot_hi] [slot_lo] 00 00 F7
 ```
 - Device ID: `0x75` (GET_META)
 - Returns JSON with: name, sym, samplerate, format
-- Note: GET_META appears unreliable/stale. Hunter captures show the official
-  tool does **not** use 0x75/0x35; it uses FileOp.METADATA GET/SET via 0x6B/0x6F
-  (and LIST via 0x6A/0x6B). Treat GET_META as legacy/debug only.
+- Note: This is an older V1.0 API that uses standard 7-bit packing. Early reverse-engineering assumed `05 08` was a hardcoded command header, but `08` was merely the dynamically generated `pack_flags` byte observed when querying slots that had the MSB set in their `slot_lo` byte (e.g., slot 129 -> `0x0081`, causing the 4th byte's pack flag to be `1 << 3 = 0x08`).
+- **Slot Encoding:** The `slot` field must be encoded as a standard 16-bit big-endian integer (BE16) before 7-bit packing. Earlier tooling bugs used U14-style bytes, which created a host-side interpretation error for slots >127 (e.g., U14 bytes for 150 `[0x01, 0x16]` are BE16 `278` on the wire). Device behavior is correct when BE16 is used.
+- GET_META appears unreliable/stale in OS 2.0+ (returning ghost data for deleted slots). The official app relies entirely on `/sounds` (FILE LIST) and Node `METADATA GET` instead. Treat `GET_META` as legacy/debug only.
 
 ### Delete Sample
 ```
@@ -234,8 +234,14 @@ F0 00 20 76 33 40 7D [seq] 05 00 03 00 [slot_hi] [slot_lo] [offset: 5 bytes] F7
 - Sub-op: `0x00` (GET_INIT)
 - Slot encoding: **big-endian**
 - Offset: 5 zero bytes
-- Response: 7-bit encoded metadata — filename (`.pcm` extension) + 4-byte big-endian size at
-  decoded bytes [3:7]. **Size = raw PCM byte count (no RIFF header); use as trim target.**
+- Response: 7-bit encoded metadata. The payload structure precisely mirrors an upload init: `[0x03, 0x00, 0x05, size_hi, size_mh, size_ml, size_lo, filename...]`
+  - `0x03` = GET
+  - `0x00` = INIT
+  - `0x05` = Audio file type
+  - Size: 4-byte big-endian value at decoded bytes [3:7]. **Size = raw PCM byte count (no RIFF header); use as trim target.**
+  - Filename: Null-terminated string (usually ending in `.pcm`).
+
+> **Note on "sub_byte":** Earlier revisions of this document referred to a `sub_byte` following the `0x05` (CMD_FILE) byte. This is incorrect. The byte immediately following `0x05` on the wire is strictly the `pack_flags` bitmap used by the 7-bit encoding algorithm. In typical responses where the first 7 decoded bytes are all < 128 (e.g. `[0x03, 0x00, 0x05 ...]`), this flag byte evaluates to `0x00`, leading to the false assumption that it was a structural padding byte. In error scenarios where a returned string contains high-bytes (like `\x80invalid file`), this flag byte becomes non-zero to properly encode the MSB.
 
 ### 2. Get Data Chunk
 ```
@@ -247,7 +253,7 @@ F0 00 20 76 33 40 7D [seq] 05 00 03 01 [page_hi] [page_lo] F7
   - `page_hi = (page >> 7) & 0x7F`
   - Max page: 16383 (14 bits)
 - Response: 7-bit encoded chunk; assembled pages are **raw LE s16 PCM** (not RIFF WAV)
-  - 7-bit payload at SysEx offset 9 (structural: 5 mfg bytes + resp + seq + CMD_FILE + sub_byte)
+  - 7-bit payload at SysEx offset 9 (structural: 5 mfg bytes + resp + seq + CMD_FILE + pack_flags)
   - Each decoded chunk starts with a 2-byte page-number echo `[page_lo, page_hi]` — must strip
   - After stripping prefix, bytes are LE s16 — write directly, no byte swap needed.
   - Confirmed: downloaded bytes from slot 21 (official TE sample) match original WAV exactly.
@@ -364,7 +370,7 @@ Or use the `audio2ko2` tool.
 1. **Upload Command IDs** - Some operations use `0x6C` for data, while external refs show `0x7E`. Both appear to work depending on context.
 2. **Playback** - Protocol not fully documented (Command `0x76`).
 3. **Project files** - `.ppak` format known, but SysEx extraction path unknown.
-4. **"invalid file" Error Response** - When querying a missing or invalid node (e.g., via `METADATA GET`), the device may return the literal string `invalid file` prefixed by a byte with its MSB set (e.g., `0x80`). This violates strict 7-bit MIDI constraints and can crash naive parsers. Clients must treat error response payloads as raw, unvalidated bytes.
+4. **"invalid file" Error Response** - When querying a missing or invalid node (e.g., via `METADATA GET`), the device may return the literal string `invalid file` prefixed by a byte with its MSB set (e.g., `0x80`). Because the 7-bit encoder accurately reflects this MSB, the `pack_flags` byte immediately following `0x05` will be `0x01` (rather than `0x00`). Clients must treat error response payloads as raw, unvalidated bytes.
 
 ## Tools
 

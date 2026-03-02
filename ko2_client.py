@@ -130,10 +130,41 @@ def _parse_json_tolerant(data: bytes) -> dict | None:
     return None
 
 
+def _extract_download_file_size(payload: bytes) -> int | None:
+    """Extract PCM byte size from unpacked DOWNLOAD INIT payload."""
+    if not payload:
+        return None
+
+    # Primary structure from captures: 03 00 05 <size:4> ...
+    if len(payload) >= 7 and payload[:3] == b"\x03\x00\x05":
+        size = int.from_bytes(payload[3:7], "big")
+        if 0 < size < (512 * 1024 * 1024):
+            return size
+
+    # Fallbacks for capture variants.
+    for off in (3, 2, 4, 1):
+        if len(payload) >= off + 4:
+            size = int.from_bytes(payload[off : off + 4], "big")
+            if 0 < size < (512 * 1024 * 1024):
+                return size
+
+    # Last-resort heuristic for malformed payloads that still include filename.
+    dot_pcm = payload.find(b".pcm")
+    if dot_pcm >= 4:
+        size = int.from_bytes(payload[dot_pcm - 4 : dot_pcm], "big")
+        if 0 < size < (512 * 1024 * 1024):
+            return size
+    return None
+
+
 class EP133Client:
     """Client for EP-133 KO-II device transport."""
 
-    def __init__(self, device_name: Optional[str] = None):
+    def __init__(
+        self,
+        device_name: Optional[str] = None,
+        trace_hook: Optional[Callable[[str, bytes], None]] = None,
+    ):
         self.device_name = device_name or find_device()
         if not self.device_name:
             raise DeviceNotFoundError("EP-133 not found. Connect via USB.")
@@ -141,6 +172,7 @@ class EP133Client:
         self._outport: Optional[mido.ports.Output] = None
         self._inport: Optional[mido.ports.Input] = None
         self._seq = 0
+        self._trace_hook = trace_hook
 
     def connect(self):
         """Open MIDI connection to device."""
@@ -173,13 +205,25 @@ class EP133Client:
             bytes([SYSEX_START, *TE_MFG_ID, *DEVICE_FAMILY, SysExCmd.INIT, 0x18, 0x05, 0x00, 0x01, 0x01, 0x00, 0x40, 0x00, 0x00, SYSEX_END]),
         ]
         for msg in init_msgs:
+            self._emit_trace("TX", msg)
             self._outport.send(mido.Message("sysex", data=msg[1:-1]))
             time.sleep(0.05)
+
+    def _emit_trace(self, direction: str, data: bytes) -> None:
+        trace_hook = getattr(self, "_trace_hook", None)
+        if trace_hook is None:
+            return
+        try:
+            trace_hook(direction, data)
+        except Exception:
+            # Tracing should never interrupt protocol operations.
+            pass
 
     def _send_sysex(self, data: bytes, debug: bool = False) -> None:
         if debug:
             hx = " ".join(f"{b:02X}" for b in data[:80])
             print(f"  TX: {hx}...")
+        self._emit_trace("TX", data)
         self._outport.send(mido.Message("sysex", data=data[1:-1]))
 
     def _send_msg(self, msg: SysExMessage, seq: Optional[int] = None) -> int:
@@ -189,26 +233,35 @@ class EP133Client:
 
     def _send_and_wait(self, data: bytes, timeout: float = 2.0, expect_cmd: int | None = None) -> bytes | None:
         for _ in self._inport.iter_pending(): pass
+        self._emit_trace("TX", data)
         self._outport.send(mido.Message("sysex", data=data[1:-1]))
         deadline = time.time() + timeout
         while time.time() < deadline:
             for msg in self._inport.iter_pending():
                 if msg.type == "sysex":
                     raw = bytes([SYSEX_START]) + bytes(msg.data) + bytes([SYSEX_END])
+                    self._emit_trace("RX", raw)
                     if len(raw) < 8 or raw[1:4] != TE_MFG_ID or raw[4:6] != DEVICE_FAMILY: continue
                     cmd = raw[6]
-                    if (cmd & 0xF0) != 0x20: continue
+                    # Accept both 0x2x and 0x3x device response classes.
+                    if (cmd & 0xE0) != 0x20: continue
                     if expect_cmd is not None and cmd != (expect_cmd & 0x7F): continue
                     return raw
             time.sleep(0.01)
         return None
 
-    def _send_and_wait_msg(self, msg: SysExMessage, timeout: float = 2.0, expect_resp_cmd: Optional[int] = None) -> Optional[SysExResponse]:
+    def _send_and_wait_msg(
+        self,
+        msg: SysExMessage,
+        timeout: float = 2.0,
+        expect_resp_cmd: Optional[int] = None,
+        seq: Optional[int] = None,
+    ) -> Optional[SysExResponse]:
         # Drain stale responses first, then send once and read the single response.
         # Historically this sent twice (send in _send_msg + drain + resend in _send_and_wait),
         # which reset the device's page cursor for stateful paginated commands (METADATA GET).
         for _ in self._inport.iter_pending(): pass
-        seq = self._send_msg(msg)
+        seq = self._send_msg(msg, seq=seq)
         expected = expect_resp_cmd or (msg.opcode - 0x40)
         raw = self._recv_matching(timeout=timeout, expect_cmd=expected)
         return SysExResponse.from_sysex(raw) if raw else None
@@ -220,9 +273,11 @@ class EP133Client:
             for msg in self._inport.iter_pending():
                 if msg.type == "sysex":
                     raw = bytes([SYSEX_START]) + bytes(msg.data) + bytes([SYSEX_END])
+                    self._emit_trace("RX", raw)
                     if len(raw) < 8 or raw[1:4] != TE_MFG_ID or raw[4:6] != DEVICE_FAMILY: continue
                     cmd = raw[6]
-                    if (cmd & 0xF0) != 0x20: continue
+                    # Accept both 0x2x and 0x3x device response classes.
+                    if (cmd & 0xE0) != 0x20: continue
                     if expect_cmd is not None and cmd != (expect_cmd & 0x7F): continue
                     return raw
             time.sleep(0.01)
@@ -234,10 +289,35 @@ class EP133Client:
             for msg in self._inport.iter_pending():
                 if msg.type == "sysex":
                     data = bytes([SYSEX_START]) + bytes(msg.data) + bytes([SYSEX_END])
+                    self._emit_trace("RX", data)
                     if filter_fn is None or filter_fn(data): responses.append(data)
             if responses and filter_fn is None: break
             time.sleep(0.01)
         return responses
+
+    def _send_file_request(
+        self,
+        msg: SysExMessage,
+        timeout: float = 2.0,
+        expect_resp_cmd: Optional[int] = None,
+        seq: Optional[int] = None,
+    ) -> tuple[int, bytes] | None:
+        """Send a file-group request and return (status, unpacked_payload)."""
+        for _ in self._inport.iter_pending():
+            pass
+        self._send_msg(msg, seq=seq)
+        expected = expect_resp_cmd or (msg.opcode - 0x40)
+        raw = self._recv_matching(timeout=timeout, expect_cmd=expected)
+        if not raw:
+            return None
+
+        # Response body: [mfg(3),family(2),cmd,seq,file_cmd,status,packed_payload...]
+        body = raw[1:-1]
+        if len(body) < 9 or body[7] != CMD_FILE:
+            return None
+        status = int(body[8])
+        unpacked = Packed7.unpack(body[9:])
+        return status, unpacked
 
     def device_info(self) -> dict | None:
         self._send_msg(InfoRequest())
@@ -250,19 +330,18 @@ class EP133Client:
         return None
 
     def _get_file_size(self, slot: int) -> int | None:
-        self._send_msg(DownloadInitRequest(slot=slot), seq=0x2E)
-        time.sleep(0.2)
-        for msg in self._inport.iter_pending():
-            if msg.type == "sysex":
-                data = list(msg.data)
-                if len(data) > 20 and (b".pcm" in bytes(data) or b".PCM" in bytes(data)):
-                    for start_offset in [9, 10, 11]:
-                        decoded = Packed7.unpack(bytes(data[start_offset:]))
-                        if b".pcm" in decoded or b".PCM" in decoded:
-                            if len(decoded) >= 7: return int.from_bytes(decoded[3:7], "big")
-        return None
+        resp = self._send_file_request(
+            DownloadInitRequest(slot=slot),
+            timeout=2.0,
+            expect_resp_cmd=(SysExCmd.DOWNLOAD - 0x40),
+            seq=0x2E,
+        )
+        if not resp:
+            return None
+        _status, payload = resp
+        return _extract_download_file_size(payload)
 
-    def _meta_from_get_meta(self, slot: int) -> dict | None:
+    def get_meta_legacy(self, slot: int) -> dict | None:
         self._send_msg(MetadataGetLegacyRequest(slot=slot), seq=slot & 0x7F)
         time.sleep(0.2)
         responses = self._recv_sysex(timeout=0.4)
@@ -274,7 +353,7 @@ class EP133Client:
                 except: pass
         return None
 
-    def info(self, slot: int, include_size: bool = True, node_entry: dict | None = None, prefer_node: bool = True, allow_get_meta: bool = False) -> SampleInfo:
+    def info(self, slot: int, include_size: bool = True, node_entry: dict | None = None) -> SampleInfo:
         sounds = self.list_sounds()
         entry = node_entry or sounds.get(slot)
         
@@ -295,15 +374,6 @@ class EP133Client:
                         info.channels_known = True
                     info.samplerate = meta.get("samplerate", info.samplerate)
         
-        if allow_get_meta:
-            legacy = self._meta_from_get_meta(slot)
-            if legacy:
-                info.is_empty = False
-                if not entry or not prefer_node:
-                    info.name = legacy.get("name", info.name)
-                info.channels = legacy.get("channels", info.channels)
-                info.samplerate = legacy.get("samplerate", info.samplerate)
-
         if include_size and info.size_bytes == 0 and not info.is_empty:
             info.size_bytes = self._get_file_size(slot) or 0
             
@@ -324,11 +394,17 @@ class EP133Client:
     def list_directory(self, node_id: int = 1000) -> list[dict]:
         all_entries, page = [], 0
         while True:
-            resp = self._send_and_wait_msg(FileListRequest(node_id=node_id, page=page))
-            if not resp: break
+            resp = self._send_file_request(
+                FileListRequest(node_id=node_id, page=page),
+                expect_resp_cmd=(SysExCmd.LIST_FILES - 0x40),
+            )
+            if not resp:
+                break
+            _status, payload = resp
             from ko2_models import parse_file_list_response
-            entries = parse_file_list_response(resp.payload)
-            if not entries: break
+            entries = parse_file_list_response(payload)
+            if not entries:
+                break
             all_entries.extend(entries)
             page += 1
         return all_entries
@@ -336,11 +412,19 @@ class EP133Client:
     def get_node_metadata(self, node_id: int) -> dict | None:
         all_bytes, page = bytearray(), 0
         while page < 100:
-            resp = self._send_and_wait_msg(MetadataGetRequest(node_id=node_id, page=page))
-            if not resp or len(resp.payload) <= 2: break
+            resp = self._send_file_request(
+                MetadataGetRequest(node_id=node_id, page=page),
+                expect_resp_cmd=(SysExCmd.LIST_FILES - 0x40),
+            )
+            if not resp:
+                break
+            _status, payload = resp
+            if len(payload) <= 2:
+                break
             # First 2 bytes are the page echo; the rest is JSON content
-            content = resp.payload[2:].rstrip(b"\x00")
-            if not content: break
+            content = payload[2:].rstrip(b"\x00")
+            if not content:
+                break
             all_bytes.extend(content)
             if b"}" in all_bytes:
                 try: return json.loads(all_bytes.decode("utf-8"))
@@ -389,8 +473,16 @@ class EP133Client:
         if not entry: raise Exception(f"Slot {slot} empty")
         node_id = entry["node_id"]
         msg = MetadataSetRequest(node_id=node_id, metadata_json=json.dumps({"name": new_name}))
-        resp = self._send_and_wait_msg(msg)
-        if not resp or resp.status != 0: raise Exception("Rename failed")
+        resp = self._send_file_request(
+            msg,
+            timeout=2.0,
+            expect_resp_cmd=(SysExCmd.LIST_FILES - 0x40),
+        )
+        if not resp:
+            raise Exception("Rename failed: no response")
+        status, _payload = resp
+        if status != 0:
+            raise Exception(f"Rename failed: status=0x{status:02X}")
 
     def get(self, slot: int, output_path: Optional[Path] = None, debug: bool = False) -> Path:
         from ko2_models import SAMPLE_RATE
@@ -423,24 +515,19 @@ class EP133Client:
     def _download_data(self, slot: int, debug: bool = False) -> bytes:
         import struct
         seq = 0x2E
-        self._send_msg(DownloadInitRequest(slot=slot), seq=seq)
-        time.sleep(0.3)
+        init_resp = self._send_file_request(
+            DownloadInitRequest(slot=slot),
+            timeout=2.0,
+            expect_resp_cmd=(SysExCmd.DOWNLOAD - 0x40),
+            seq=seq,
+        )
 
         file_info = None
-        for msg in self._inport.iter_pending():
-            if msg.type == "sysex":
-                data = list(msg.data)
-                raw_bytes = bytes(data)
-                if len(data) > 20 and (b".pcm" in raw_bytes or b".PCM" in raw_bytes):
-                    for start_offset in [9, 10, 11]:
-                        encoded = bytes(data[start_offset:])
-                        decoded = Packed7.unpack(encoded)
-                        if b".pcm" in decoded or b".PCM" in decoded:
-                            if len(decoded) >= 7:
-                                file_size = int.from_bytes(decoded[3:7], "big")
-                                file_info = {"size": file_size}
-                                break
-                    break
+        if init_resp:
+            _status, payload = init_resp
+            size = _extract_download_file_size(payload)
+            if size is not None:
+                file_info = {"size": size}
 
         if not file_info:
             raise EP133Error("Failed to get file info")
@@ -461,6 +548,8 @@ class EP133Client:
             while timeout_counter < 50 and not chunk_received:
                 for msg in self._inport.iter_pending():
                     if msg.type == "sysex":
+                        raw = bytes([SYSEX_START]) + bytes(msg.data) + bytes([SYSEX_END])
+                        self._emit_trace("RX", raw)
                         data = list(msg.data)
                         if len(data) > 12 and data[5] in (SysExCmd.RESPONSE, SysExCmd.RESPONSE_ALT) and data[7] == CMD_FILE:
                             decoded = Packed7.unpack(bytes(data[9:]))
@@ -494,24 +583,19 @@ class EP133Client:
         """
         import struct
         seq = 0x2E
-        self._send_msg(DownloadInitRequest(slot=slot), seq=seq)
-        time.sleep(0.3)
+        init_resp = self._send_file_request(
+            DownloadInitRequest(slot=slot),
+            timeout=2.0,
+            expect_resp_cmd=(SysExCmd.DOWNLOAD - 0x40),
+            seq=seq,
+        )
 
         file_info = None
-        for msg in self._inport.iter_pending():
-            if msg.type == "sysex":
-                data = list(msg.data)
-                raw_bytes = bytes(data)
-                if len(data) > 20 and (b".pcm" in raw_bytes or b".PCM" in raw_bytes):
-                    for start_offset in [9, 10, 11]:
-                        encoded = bytes(data[start_offset:])
-                        decoded = Packed7.unpack(encoded)
-                        if b".pcm" in decoded or b".PCM" in decoded:
-                            if len(decoded) >= 7:
-                                file_size = int.from_bytes(decoded[3:7], "big")
-                                file_info = {"size": file_size}
-                                break
-                    break
+        if init_resp:
+            _status, payload = init_resp
+            size = _extract_download_file_size(payload)
+            if size is not None:
+                file_info = {"size": size}
 
         if not file_info:
             return 1, 0
@@ -528,6 +612,8 @@ class EP133Client:
         while timeout_counter < 50:
             for msg in self._inport.iter_pending():
                 if msg.type == "sysex":
+                    raw = bytes([SYSEX_START]) + bytes(msg.data) + bytes([SYSEX_END])
+                    self._emit_trace("RX", raw)
                     data = list(msg.data)
                     if len(data) > 12 and data[5] in (SysExCmd.RESPONSE, SysExCmd.RESPONSE_ALT) and data[7] == CMD_FILE:
                         decoded = Packed7.unpack(bytes(data[9:]))
@@ -558,4 +644,3 @@ class EP133Client:
             wav.setsampwidth(BIT_DEPTH // 8)
             wav.setframerate(samplerate)
             if data: wav.writeframes(data)
-

@@ -15,13 +15,12 @@ def test_file_list_response_handles_invalid_file_payload():
     payload = b'\x80invalid file'
     
     # Create the raw SysEx bytes for a FileListResponse (opcode = 0x2A)
-    # The payload starts after CMD_FILE (0x05) and sub_byte (0x00)
-    packed_payload = bytes([0x05, 0x00]) + Packed7.pack(payload)
-    
+    # The payload starts after CMD_FILE (0x05) and native pack_flags
+    packed_payload = bytes([0x05]) + Packed7.pack(payload)
+
     resp = FileListResponse.from_bytes(packed_payload)
     # Now it should be a RawBytesField which accepts anything
     assert resp.payload == payload
-
 
 def test_packed7_truncation_dirty_flags():
     """

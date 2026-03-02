@@ -32,6 +32,13 @@ def _incoming_te_sysex(cmd: int, seq: int = 1, sub: int = 5, status: int = 0) ->
     return mido.Message("sysex", data=data)
 
 
+def _incoming_file_response_empty_payload(cmd: int, seq: int = 1, status: int = 0) -> mido.Message:
+    # Response body without packed payload bytes:
+    # 00 20 76 33 40 <cmd> <seq> 05 <status>
+    data = bytes([0x00, 0x20, 0x76, 0x33, 0x40, cmd & 0x7F, seq & 0x7F, 0x05, status & 0x7F])
+    return mido.Message("sysex", data=data)
+
+
 def test_send_and_wait_ignores_notifications_and_filters_expected_cmd():
     from ko2_client import EP133Client
     from ko2_models import SysExCmd, SysExMessage
@@ -72,3 +79,25 @@ def test_send_and_wait_returns_none_if_only_notifications():
 
     assert resp is None
     assert elapsed < 1.0
+
+
+def test_send_file_request_accepts_empty_payload_response():
+    from ko2_client import EP133Client
+    from ko2_models import FileListRequest
+
+    inport = _FakeInPort()
+    # 0x2A = LIST_FILES response class for 0x6A requests.
+    outport = _FakeOutPort(inport, [_incoming_file_response_empty_payload(0x2A, seq=0, status=0)])
+
+    client = EP133Client.__new__(EP133Client)
+    client._inport = inport
+    client._outport = outport
+    client._seq = 0
+
+    resp = client._send_file_request(
+        FileListRequest(node_id=1000, page=0),
+        timeout=0.2,
+        expect_resp_cmd=0x2A,
+        seq=0,
+    )
+    assert resp == (0, b"")

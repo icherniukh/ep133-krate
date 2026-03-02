@@ -214,23 +214,16 @@ class SysExMessage(metaclass=MessageMeta):
 class FileMessage(SysExMessage):
     """Base class for 0x05 group messages."""
     file_cmd: ClassVar[int] = 0x05
-    sub_byte: ClassVar[Optional[int]] = None
     is_packed: ClassVar[bool] = True
 
     def pack_payload(self) -> bytes:
         raw_payload = super().pack_payload()
         data = Packed7.pack(raw_payload) if self.is_packed else raw_payload
-        result = bytes([self.file_cmd])
-        if self.sub_byte is not None:
-            result += bytes([self.sub_byte])
-        return result + data
+        return bytes([self.file_cmd]) + data
 
     @classmethod
     def from_bytes(cls: Type[M], data: bytes) -> M:
-        offset = 1
-        if cls.sub_byte is not None:
-            offset += 1
-        payload = data[offset:]
+        payload = data[1:]
         if cls.is_packed:
             payload = Packed7.unpack(payload)
         
@@ -328,23 +321,20 @@ class MetadataSetRequest(FileMessage):
 
 class MetadataGetLegacyRequest(FileMessage):
     opcode = SysExCmd.GET_META
-    sub_byte = 0x08
-    is_packed = False
     file_op = U7Field(default=0x07)
     meta_type = U7Field(default=0x02)
-    slot = U14Field(default=0)
+    slot = BE16Field(default=0)
     padding = NullBytesField(length=2)
 
 class InfoRequest(SysExMessage):
     opcode = SysExCmd.INFO
     fixed_byte = U7Field(default=0x14)
-    sub_byte = U7Field(default=0x01)
+    sub_cmd = U7Field(default=0x01)
 
 # --- Responses ---
 
 class SysExResponse(SysExMessage):
     file_cmd = U7Field(expected=0x05)
-    sub_byte = U7Field(default=0)
     status = U7Field(default=0)
     payload = RawBytesField(default=b"")
 
@@ -360,8 +350,15 @@ class GenericResponse(SysExResponse):
 
 @SysExMessage.register(SysExCmd.LIST_FILES - 0x40)  # 0x2A File List Response
 class FileListResponse(FileMessage):
-    sub_byte = 0x00
     payload = RawBytesField(default=b"")
+
+@SysExMessage.register(SysExCmd.DOWNLOAD - 0x40)  # 0x3D
+class DownloadInitResponse(FileMessage):
+    file_op = U7Field(expected=0x03)
+    get_type = U7Field(expected=0x00)
+    file_type = U7Field(expected=0x05)
+    file_size = BE32Field(default=0)
+    filename = NullTerminatedStringField()
 
 
 # --- Logical Helpers (Pure) ---
@@ -381,25 +378,46 @@ def decode_node_id(hi: int, lo: int, name: str | None = None) -> int:
     return node_id_14 if 1000 <= node_id_14 <= 12000 else node_id_16
 
 def slot_from_sound_entry(entry: dict) -> int | None:
-    nid = int(entry.get("node_id") or 0)
-    if 1 <= nid <= 999: return nid
-    if 1001 <= nid <= 1999: return nid - 1000
     import re
-    m = re.match(r"^(\d{1,3})", str(entry.get("name") or ""))
-    return int(m.group(1)) if m else None
+    name = str(entry.get("name") or "")
+    m = re.match(r"^(\d{1,3})", name)
+    prefix = int(m.group(1)) if m else None
+
+    nid = int(entry.get("node_id") or 0)
+    if 1 <= nid <= 999:
+        if prefix is not None and prefix != nid:
+            return prefix
+        return nid
+    if 1001 <= nid <= 1999:
+        mapped = nid - 1000
+        if prefix is not None and prefix != mapped:
+            return prefix
+        return mapped
+    return prefix
 
 def parse_file_list_response(payload: bytes) -> list[dict]:
-    if len(payload) < 2: return []
+    if len(payload) < 2:
+        return []
     data, entries, offset = payload[2:], [], 0
     while offset + 7 <= len(data):
-        hi, lo, flags = data[offset], data[offset+1], data[offset+2]
-        size = int.from_bytes(data[offset+3:offset+7], "big")
+        hi, lo, flags = data[offset], data[offset + 1], data[offset + 2]
+        size = int.from_bytes(data[offset + 3 : offset + 7], "big")
         offset += 7
         name_bytes = bytearray()
         while offset < len(data) and data[offset] != 0:
             name_bytes.append(data[offset])
             offset += 1
+        if offset >= len(data):
+            break
         offset += 1
         name = bytes(name_bytes).decode("utf-8", errors="replace")
-        entries.append({"node_id": decode_node_id(hi, lo, name), "flags": flags, "size": size, "name": name, "is_dir": bool(flags & 0x02)})
+        entries.append(
+            {
+                "node_id": decode_node_id(hi, lo, name),
+                "flags": flags,
+                "size": size,
+                "name": name,
+                "is_dir": bool(flags & 0x02),
+            }
+        )
     return entries
