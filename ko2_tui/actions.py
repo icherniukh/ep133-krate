@@ -29,6 +29,14 @@ def upload(slot: int, input_path: str, name: str | None = None) -> WorkerRequest
     )
 
 
+def copy(src: int, dst: int) -> WorkerRequest:
+    return WorkerRequest(op="copy", payload={"src": int(src), "dst": int(dst)})
+
+
+def move(src: int, dst: int) -> WorkerRequest:
+    return WorkerRequest(op="move", payload={"src": int(src), "dst": int(dst)})
+
+
 def rename(slot: int, new_name: str) -> WorkerRequest:
     return WorkerRequest(op="rename", payload={"slot": int(slot), "new_name": new_name})
 
@@ -39,6 +47,24 @@ def delete(slot: int) -> WorkerRequest:
 
 def bulk_delete(slots: list[int]) -> WorkerRequest:
     return WorkerRequest(op="bulk_delete", payload={"slots": [int(s) for s in slots]})
+
+
+def squash(start: int = 1, end: int = 999) -> WorkerRequest:
+    return WorkerRequest(op="squash", payload={"start": start, "end": end})
+
+
+def optimize_all(min_size: int = 0) -> WorkerRequest:
+    return WorkerRequest(op="optimize_all", payload={"min_size": min_size})
+
+
+def optimize(slots: list[int], mono: bool = True, rate: int | None = None, speed: float | None = None, pitch: float = 0.0) -> WorkerRequest:
+    return WorkerRequest(op="optimize", payload={
+        "slots": [int(s) for s in slots],
+        "mono": mono,
+        "rate": rate,
+        "speed": speed,
+        "pitch": pitch,
+    })
 
 
 def stop() -> WorkerRequest:

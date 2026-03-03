@@ -13,8 +13,17 @@ from . import actions
 from .debug_log import DebugLogger
 from .selectors import parse_selector
 from .state import TuiState
-from .ui import ConfirmModal, TextInputModal, UploadModal, table_row_values
+from .ui import ConfirmModal, OptimizeModal, TextInputModal, UploadModal, table_row_values
 from .worker import DeviceWorker, WorkerEvent
+from ko2_utils import (
+    COL_WIDTH_MARKER,
+    COL_WIDTH_SLOT,
+    COL_WIDTH_NAME,
+    COL_WIDTH_SIZE,
+    COL_WIDTH_CH,
+    COL_WIDTH_RATE,
+    COL_WIDTH_SEC,
+)
 
 
 class KO2TUIApp(App[None]):
@@ -56,13 +65,24 @@ class KO2TUIApp(App[None]):
     """
 
     BINDINGS = [
-        Binding("r", "refresh", "Refresh"),
+        Binding("ctrl+r", "refresh", "Reload"),
         Binding("enter", "view_details", "Details"),
-        Binding("g", "download", "Download"),
+        Binding("escape", "cancel_move", "Cancel", show=False),
+        Binding("d", "download", "Download"),
         Binding("u", "upload", "Upload"),
-        Binding("n", "rename", "Rename"),
-        Binding("s", "select", "Select"),
-        Binding("x", "delete", "Delete"),
+        Binding("c", "copy", "Copy"),
+        Binding("m", "start_move", "Move"),
+        Binding("r", "rename", "Rename"),
+        Binding("space", "toggle_select", "Select"),
+        Binding("v", "select_expr", "Select Expr"),
+        Binding("s", "squash", "Squash"),
+        Binding("o", "optimize", "Optimize"),
+        Binding("backspace", "delete", "Delete"),
+        Binding("delete", "delete", "Delete", show=False),
+        Binding("j", "cursor_down", "Down", show=False),
+        Binding("k", "cursor_up", "Up", show=False),
+        Binding("ctrl+d", "page_down", "Page Down", show=False),
+        Binding("ctrl+u", "page_up", "Page Up", show=False),
         Binding("q", "quit", "Quit"),
     ]
 
@@ -78,6 +98,7 @@ class KO2TUIApp(App[None]):
         self._worker: DeviceWorker | None = None
         self._debug_logger: DebugLogger | None = None
         self._col_keys: list = []
+        self.moving_src: int | None = None
 
     def compose(self) -> ComposeResult:
         yield Static(id="status")
@@ -122,16 +143,40 @@ class KO2TUIApp(App[None]):
             self._debug_logger = None
 
     def _init_table(self) -> None:
+        from rich.text import Text
         table = self.query_one("#slots", DataTable)
         table.cursor_type = "row"
-        self._col_keys = table.add_columns(" ", "Slot", "Name", "Size", "CH", "Rate", "Sec")
+        self._col_keys = [
+            table.add_column(" ", width=COL_WIDTH_MARKER),
+            table.add_column("Slot", width=COL_WIDTH_SLOT),
+            table.add_column("Name", width=COL_WIDTH_NAME),
+            table.add_column(Text("Size", justify="right"), width=COL_WIDTH_SIZE),
+            table.add_column("CH", width=COL_WIDTH_CH),
+            table.add_column("Rate", width=COL_WIDTH_RATE),
+            table.add_column(Text("Sec", justify="right"), width=COL_WIDTH_SEC),
+        ]
         self._refresh_table()
+
+    def _get_visual_row(self, slot: int) -> 'SlotRow':
+        from copy import copy
+        row = self.state.slots[slot]
+        if self.moving_src is not None:
+            dst = self.state.selected_slot
+            if slot == self.moving_src and dst != self.moving_src:
+                v = copy(self.state.slots[dst])
+                v.slot = self.moving_src
+                return v
+            elif slot == dst and dst != self.moving_src:
+                v = copy(self.state.slots[self.moving_src])
+                v.slot = dst
+                return v
+        return row
 
     def _refresh_table(self) -> None:
         table = self.query_one("#slots", DataTable)
         table.clear(columns=False)
         for slot in range(1, len(self.state.slots) + 1):
-            row = self.state.slots[slot]
+            row = self._get_visual_row(slot)
             selected = slot in self.state.selected_slots
             table.add_row(*table_row_values(row, selected), key=str(slot))
 
@@ -144,7 +189,9 @@ class KO2TUIApp(App[None]):
     def _update_table_rows(self, slot_nums: Iterable[int]) -> None:
         table = self.query_one("#slots", DataTable)
         for slot in slot_nums:
-            row = self.state.slots[slot]
+            if slot not in self.state.slots:
+                continue
+            row = self._get_visual_row(slot)
             selected = slot in self.state.selected_slots
             values = table_row_values(row, selected)
             for col_idx, val in enumerate(values):
@@ -158,7 +205,14 @@ class KO2TUIApp(App[None]):
             table.update_cell(str(slot), self._col_keys[0], marker)
 
     def on_data_table_row_highlighted(self, event: DataTable.RowHighlighted) -> None:
+        old_slot = self.state.selected_slot
         self.state.selected_slot = event.cursor_row + 1
+        
+        if self.moving_src is not None:
+            # Re-render old and new position to reflect visual swap
+            self._update_table_rows([self.moving_src, old_slot, self.state.selected_slot])
+            self._update_status("Move mode (Esc to cancel, Enter to drop)")
+
         self._render_details(self.state.selected_slot)
 
     def _current_slot(self) -> int:
@@ -244,6 +298,14 @@ class KO2TUIApp(App[None]):
             if line:
                 self._log(line)
 
+    def get_bindings(self) -> list[Binding]:
+        if self.moving_src is not None:
+            return [
+                Binding("enter", "view_details", "Drop / Swap"),
+                Binding("escape", "cancel_move", "Cancel Move"),
+            ]
+        return super().get_bindings()
+
     def _render_details(self, slot: int) -> None:
         slot = max(1, min(slot, len(self.state.slots)))
         self.state.selected_slot = slot
@@ -273,12 +335,17 @@ class KO2TUIApp(App[None]):
         self.query_one("#details", Static).update(text)
 
     def _update_status(self, state_text: str) -> None:
+        from .ui import format_size
         debug_suffix = ""
         if self._debug_logger and self._debug_logger.path:
             debug_suffix = f" | debug={self._debug_logger.path.name}"
         n_sel = len(self.state.selected_slots)
         sel_suffix = f" | {n_sel} selected" if n_sel else ""
-        status = f"Device: {self.device_name or 'EP-133'} | {state_text}{sel_suffix}{debug_suffix}"
+        
+        total_bytes = sum(row.size_bytes for row in self.state.slots.values() if row.exists)
+        mem_suffix = f" | Mem: {format_size(total_bytes)}/64.00M"
+
+        status = f"Device: {self.device_name or 'EP-133'} | {state_text}{sel_suffix}{mem_suffix}{debug_suffix}"
         self.query_one("#status", Static).update(status)
 
     def _log(self, line: str) -> None:
@@ -309,15 +376,31 @@ class KO2TUIApp(App[None]):
         self._queue_request(actions.refresh_inventory())
 
     def action_view_details(self) -> None:
+        if self.moving_src is not None:
+            src = self.moving_src
+            dst = self.state.selected_slot
+            self.moving_src = None
+            self._refresh_table()
+            self.refresh_bindings()
+            if src != dst:
+                self._queue_request(actions.move(src, dst))
+            else:
+                self._update_status(self.state.status)
+            return
+
         slot = self._current_slot()
         if slot in self.state.details_by_slot:
             self._render_details(slot)
         else:
             self._queue_request(actions.fetch_details(slot))
 
-    def action_select(self) -> None:
+    def action_select_expr(self) -> None:
         n = len(self.state.selected_slots)
-        title = f"Select slots  ({n} currently selected)" if n else "Select slots"
+        if n:
+            expr_list = self._format_selection_expr()
+            title = f"Select slots  ({n} currently selected: {expr_list})"
+        else:
+            title = "Select slots"
         self.push_screen(
             TextInputModal(
                 title=title,
@@ -326,6 +409,68 @@ class KO2TUIApp(App[None]):
             ),
             callback=self._on_select_modal,
         )
+
+    def action_toggle_select(self) -> None:
+        slot = self._current_slot()
+        prev = set(self.state.selected_slots)
+        if slot in self.state.selected_slots:
+            self.state.selected_slots.remove(slot)
+        else:
+            self.state.selected_slots.add(slot)
+        
+        self._update_selection_display(prev)
+        self._update_status(self.state.status)
+
+        # Move down after selecting like typical file managers
+        table = self.query_one("#slots", DataTable)
+        table.action_cursor_down()
+
+    def action_cursor_down(self) -> None:
+        table = self.query_one("#slots", DataTable)
+        table.action_cursor_down()
+
+    def action_cursor_up(self) -> None:
+        table = self.query_one("#slots", DataTable)
+        table.action_cursor_up()
+
+    def action_page_down(self) -> None:
+        table = self.query_one("#slots", DataTable)
+        step = max(1, table.size.height // 2)
+        new_row = min(table.row_count - 1, table.cursor_row + step)
+        table.move_cursor(row=new_row, animate=False)
+
+    def action_page_up(self) -> None:
+        table = self.query_one("#slots", DataTable)
+        step = max(1, table.size.height // 2)
+        new_row = max(0, table.cursor_row - step)
+        table.move_cursor(row=new_row, animate=False)
+
+    def _format_selection_expr(self) -> str:
+        if not self.state.selected_slots:
+            return ""
+        slots = sorted(self.state.selected_slots)
+        parts = []
+        start = slots[0]
+        prev = slots[0]
+        for s in slots[1:]:
+            if s == prev + 1:
+                prev = s
+            else:
+                if start == prev:
+                    parts.append(str(start))
+                else:
+                    parts.append(f"{start}-{prev}")
+                start = s
+                prev = s
+        if start == prev:
+            parts.append(str(start))
+        else:
+            parts.append(f"{start}-{prev}")
+        
+        full = ",".join(parts)
+        if len(full) > 30:
+            return full[:27] + "..."
+        return full
 
     def _on_select_modal(self, expr: str | None) -> None:
         if expr is None:
@@ -347,6 +492,23 @@ class KO2TUIApp(App[None]):
             self._log(f"Selected {n} slot{'s' if n != 1 else ''}")
         self._update_selection_display(prev)
         self._update_status(self.state.status)
+
+    def action_start_move(self) -> None:
+        slot = self._current_slot()
+        if not self.state.slots[slot].exists:
+            self._log(f"Slot {slot:03d} is empty")
+            return
+        self.moving_src = slot
+        self._refresh_table()
+        self.refresh_bindings()
+        self._update_status("Move mode (Esc to cancel, Enter to drop)")
+
+    def action_cancel_move(self) -> None:
+        if self.moving_src is not None:
+            self.moving_src = None
+            self._refresh_table()
+            self.refresh_bindings()
+            self._update_status(self.state.status)
 
     def action_download(self) -> None:
         if self.state.selected_slots:
@@ -372,6 +534,30 @@ class KO2TUIApp(App[None]):
             UploadModal(slot=slot),
             callback=lambda result: self._on_upload_modal(slot, result),
         )
+
+    def action_copy(self) -> None:
+        slot = self._current_slot()
+        if not self.state.slots[slot].exists:
+            self._log(f"Slot {slot:03d} is empty")
+            return
+        self.push_screen(
+            TextInputModal(
+                title=f"Copy slot {slot:03d} to...",
+                placeholder="Destination slot (1-999)",
+            ),
+            callback=lambda dst: self._on_copy_modal(slot, dst),
+        )
+
+    def _on_copy_modal(self, src: int, dst_str: str | None) -> None:
+        if dst_str:
+            try:
+                dst = int(dst_str.strip())
+                if 1 <= dst <= 999:
+                    self._queue_request(actions.copy(src, dst))
+                else:
+                    self._log("Destination slot must be between 1 and 999")
+            except ValueError:
+                self._log("Invalid destination slot")
 
     def action_rename(self) -> None:
         slot = self._current_slot()
@@ -425,6 +611,37 @@ class KO2TUIApp(App[None]):
         if confirmed:
             self.state.selected_slots = set()
             self._queue_request(actions.bulk_delete(slots))
+
+    def action_squash(self) -> None:
+        self.push_screen(
+            ConfirmModal("Squash all gaps? (Move samples to fill empty slots)"),
+            callback=self._on_squash_confirm,
+        )
+
+    def _on_squash_confirm(self, confirmed: bool) -> None:
+        if confirmed:
+            self._queue_request(actions.squash())
+
+    def action_optimize(self) -> None:
+        if self.state.selected_slots:
+            slots = sorted(self.state.selected_slots)
+            msg = f"Optimize {len(slots)} selected slots"
+        else:
+            slot = self._current_slot()
+            slots = [slot]
+            msg = f"Optimize slot {slot:03d}"
+
+        self.push_screen(
+            OptimizeModal(msg),
+            callback=lambda result: self._on_optimize_modal(slots, result),
+        )
+
+    def _on_optimize_modal(self, slots: list[int], result: tuple[bool, int | None, float | None, float] | None) -> None:
+        if result is None:
+            return
+        mono, rate, speed, pitch = result
+        self.state.selected_slots = set()
+        self._queue_request(actions.optimize(slots, mono=mono, rate=rate, speed=speed, pitch=pitch))
 
     def action_quit(self) -> None:
         self._shutdown_worker()

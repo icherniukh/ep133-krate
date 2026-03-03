@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import tempfile
 import threading
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -79,6 +80,66 @@ class DeviceWorker(threading.Thread):
                 client.rename(slot, new_name)
                 self._emit("success", message=f"Renamed slot {slot:03d} to '{new_name}'")
                 self._emit_inventory(client)
+            elif req.op == "copy":
+                src = int(req.payload["src"])
+                dst = int(req.payload["dst"])
+                info = client.info(src, include_size=False)
+                name = info.name
+
+                with tempfile.TemporaryDirectory() as td:
+                    temp_path = Path(td) / f"slot{src:03d}.wav"
+                    self._emit("busy", op=f"Copying {src:03d} -> {dst:03d}")
+                    client.get(src, temp_path)
+
+                    dst_info = None
+                    try:
+                        dst_info = client.info(dst, include_size=False)
+                    except Exception:
+                        pass
+                    
+                    if dst_info:
+                        client.delete(dst)
+                    
+                    client.put(temp_path, dst, name=name, progress=False)
+
+                self._emit("success", message=f"Copied slot {src:03d} to {dst:03d}")
+                self._emit_inventory(client)
+            elif req.op == "move":
+                src = int(req.payload["src"])
+                dst = int(req.payload["dst"])
+                if src == dst:
+                    self._emit("success", message="Move skipped (same slot)")
+                    return
+
+                src_info = client.info(src, include_size=False)
+                src_name = src_info.name
+
+                dst_info = None
+                try:
+                    dst_info = client.info(dst, include_size=False)
+                except Exception:
+                    pass
+
+                with tempfile.TemporaryDirectory() as td:
+                    temp_path = Path(td)
+                    src_wav = temp_path / f"slot{src:03d}.wav"
+                    self._emit("busy", op=f"Moving {src:03d} -> {dst:03d}")
+                    client.get(src, src_wav)
+
+                    if dst_info:
+                        dst_wav = temp_path / f"slot{dst:03d}.wav"
+                        client.get(dst, dst_wav)
+                        client.delete(src)
+                        client.delete(dst)
+                        client.put(src_wav, dst, name=src_name, progress=False)
+                        client.put(dst_wav, src, name=dst_info.name, progress=False)
+                        self._emit("success", message=f"Swapped {src:03d} ↔ {dst:03d}")
+                    else:
+                        client.delete(src)
+                        client.put(src_wav, dst, name=src_name, progress=False)
+                        self._emit("success", message=f"Moved {src:03d} → {dst:03d}")
+                
+                self._emit_inventory(client)
             elif req.op == "delete":
                 slot = int(req.payload["slot"])
                 client.delete(slot)
@@ -90,6 +151,104 @@ class DeviceWorker(threading.Thread):
                     client.delete(slot)
                 n = len(slots)
                 self._emit("success", message=f"Deleted {n} slot{'s' if n != 1 else ''}")
+                self._emit_inventory(client)
+            elif req.op == "squash":
+                start = int(req.payload.get("start", 1))
+                end = int(req.payload.get("end", 999))
+                sounds = client.list_sounds()
+                used_slots = [s for s in sorted(sounds.keys()) if start <= s <= end]
+
+                mapping = {}
+                target_slot = start
+                for slot in used_slots:
+                    if slot != target_slot:
+                        mapping[slot] = target_slot
+                    target_slot += 1
+
+                if not mapping:
+                    self._emit("success", message="Already compacted")
+                    return
+
+                total = len(mapping)
+                done = 0
+                for old_slot, new_slot in mapping.items():
+                    info = client.info(old_slot, include_size=False)
+                    name = info.name
+
+                    with tempfile.TemporaryDirectory() as td:
+                        temp_path = Path(td) / f"slot{old_slot:03d}.wav"
+                        self._emit("busy", op=f"Squashing ({done}/{total}): {old_slot:03d} -> {new_slot:03d}")
+                        client.get(old_slot, temp_path)
+
+                        deleted = False
+                        try:
+                            client.delete(old_slot)
+                            deleted = True
+                            client.put(temp_path, new_slot, name=name, progress=False)
+                        except Exception:
+                            if deleted:
+                                try:
+                                    client.put(temp_path, old_slot, name=name, progress=False)
+                                except Exception:
+                                    pass
+                            raise
+                    done += 1
+
+                self._emit("success", message=f"Squashed {total} slots")
+                self._emit_inventory(client)
+            elif req.op == "optimize":
+                slots = req.payload["slots"]
+                rate = req.payload.get("rate")
+                speed = req.payload.get("speed")
+                pitch = req.payload.get("pitch", 0.0)
+
+                from ko2 import backup_copy, optimize_sample
+                
+                total = len(slots)
+                done = 0
+                optimized_count = 0
+                for slot in slots:
+                    try:
+                        info = client.info(slot, include_size=False)
+                    except Exception:
+                        done += 1
+                        continue
+                    name = info.name
+
+                    with tempfile.TemporaryDirectory() as td:
+                        temp_path = Path(td) / f"slot{slot:03d}.wav"
+                        self._emit("busy", op=f"Optimizing ({done+1}/{total}): {slot:03d}")
+                        
+                        try:
+                            client.get(slot, temp_path)
+                            
+                            opt_path = temp_path.with_suffix(".opt.wav")
+                            success, msg, orig_size, opt_size = optimize_sample(temp_path, output_path=opt_path, downsample_rate=rate, speed=speed)
+                            
+                            if not success:
+                                self._emit("error", op=req.op, message=f"Failed to optimize slot {slot:03d}: {msg}")
+                                done += 1
+                                continue
+                            
+                            upload_path = opt_path if opt_path.exists() else temp_path
+                            savings = orig_size - opt_size
+                            
+                            # If no size savings and no speed/rate parameter was explicitly provided, 
+                            # and pitch is 0, we can skip
+                            if savings < 5 * 1024 and speed is None and rate is None and pitch == 0.0:
+                                done += 1
+                                continue
+
+                            # Backup
+                            backup_copy(temp_path, slot=slot, name_hint=name)
+                            
+                            client.put(upload_path, slot, name=name, progress=False, pitch=pitch)
+                            optimized_count += 1
+                        except Exception as e:
+                            self._emit("error", op=req.op, message=f"Error on slot {slot:03d}: {e}")
+                    done += 1
+
+                self._emit("success", message=f"Optimized {optimized_count} of {total} slots")
                 self._emit_inventory(client)
             else:
                 raise ValueError(f"Unknown operation: {req.op}")
