@@ -166,6 +166,8 @@ class KO2TUIApp(App[None]):
 
     def _refresh_table(self) -> None:
         table = self.query_one("#slots", DataTable)
+        prev_scroll_x = float(table.scroll_x)
+        prev_scroll_y = float(table.scroll_y)
         table.clear(columns=False)
         for slot in range(1, len(self.state.slots) + 1):
             row = self._get_visual_row(slot)
@@ -174,7 +176,15 @@ class KO2TUIApp(App[None]):
 
         cursor_row = max(0, min(len(self.state.slots) - 1, self.state.selected_slot - 1))
         try:
-            table.move_cursor(row=cursor_row, column=0, animate=False)
+            # Keep cursor on selected slot without forcing viewport jump.
+            table.move_cursor(row=cursor_row, column=0, animate=False, scroll=False)
+            table.scroll_to(
+                x=prev_scroll_x,
+                y=prev_scroll_y,
+                animate=False,
+                immediate=True,
+                force=True,
+            )
         except Exception:
             pass
 

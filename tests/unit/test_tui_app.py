@@ -5,6 +5,7 @@ import asyncio
 from ko2_tui.app import KO2TUIApp
 from ko2_tui.ui import ConfirmModal, TextInputModal, UploadModal
 from ko2_tui.worker import WorkerEvent
+from textual.widgets import DataTable
 
 
 class StubWorker:
@@ -191,6 +192,34 @@ def test_inventory_enriched_event_updates_name(monkeypatch):
             )
             assert app.state.slots[1].name == "afterparty kick"
             assert app.state.slots[1].channels == 1
+
+    asyncio.run(_run())
+
+
+def test_inventory_refresh_preserves_viewport_scroll(monkeypatch):
+    monkeypatch.setattr("ko2_tui.app.DeviceWorker", StubWorker)
+
+    async def _run():
+        app = KO2TUIApp(device_name="EP-133", debug=False)
+        async with app.run_test() as pilot:
+            _make_ready(app)
+            table = app.query_one("#slots", DataTable)
+
+            table.move_cursor(row=500, animate=False)
+            table.scroll_to(y=300, animate=False, immediate=True, force=True)
+            await pilot.pause()
+            before = float(table.scroll_y)
+
+            app._handle_event(
+                WorkerEvent(
+                    kind="inventory",
+                    payload={"sounds": {1: {"name": "001.pcm", "size": 1200, "node_id": 1}}},
+                )
+            )
+            await pilot.pause()
+            after = float(table.scroll_y)
+
+            assert abs(after - before) < 1.0
 
     asyncio.run(_run())
 
