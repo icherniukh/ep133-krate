@@ -13,7 +13,7 @@ import json
 from pathlib import Path
 from dataclasses import dataclass
 from queue import Empty
-from typing import Optional, Callable
+from typing import Any, Mapping, Optional, Callable
 
 try:
     import mido
@@ -531,22 +531,43 @@ class EP133Client:
         if status != 0:
             raise EP133Error(f"Delete failed: status=0x{status:02X}")
 
-    def rename(self, slot: int, new_name: str) -> None:
-        sounds = self.list_sounds()
-        entry = sounds.get(slot)
-        if not entry: raise Exception(f"Slot {slot} empty")
-        node_id = entry["node_id"]
-        msg = MetadataSetRequest(node_id=node_id, metadata_json=json.dumps({"name": new_name}))
+    def set_node_metadata(self, node_id: int, metadata: Mapping[str, Any]) -> None:
+        msg = MetadataSetRequest(
+            node_id=int(node_id),
+            metadata_json=json.dumps(dict(metadata), separators=(",", ":"), ensure_ascii=False),
+        )
         resp = self._send_file_request(
             msg,
             timeout=2.0,
             expect_resp_cmd=(SysExCmd.LIST_FILES - 0x40),
         )
         if not resp:
-            raise Exception("Rename failed: no response")
+            raise EP133Error("Metadata set failed: no response")
         status, _payload = resp
         if status != 0:
-            raise Exception(f"Rename failed: status=0x{status:02X}")
+            raise EP133Error(f"Metadata set failed: status=0x{status:02X}")
+
+    def update_slot_metadata(self, slot: int, patch: Mapping[str, Any]) -> dict[str, Any]:
+        """Merge metadata patch into the slot node and write back."""
+        sounds = self.list_sounds()
+        entry = sounds.get(int(slot))
+        if not entry:
+            raise SlotEmptyError(f"Slot {int(slot)} is empty")
+        node_id = int(entry.get("node_id") or int(slot))
+        current = self.get_node_metadata(node_id) or {}
+        if not isinstance(current, dict):
+            current = {}
+        merged = dict(current)
+        merged.update(dict(patch))
+        self.set_node_metadata(node_id, merged)
+        return merged
+
+    def rename(self, slot: int, new_name: str) -> None:
+        sounds = self.list_sounds()
+        entry = sounds.get(slot)
+        if not entry: raise Exception(f"Slot {slot} empty")
+        node_id = int(entry.get("node_id") or slot)
+        self.set_node_metadata(node_id, {"name": new_name})
 
     def get(self, slot: int, output_path: Optional[Path] = None, debug: bool = False) -> Path:
         from ko2_models import SAMPLE_RATE
