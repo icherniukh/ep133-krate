@@ -38,6 +38,7 @@ class TuiState:
         self.status = status or ("busy" if busy else "idle")
 
     def apply_inventory(self, sounds: Mapping[int, Mapping[str, Any]]) -> None:
+        previous = self.slots
         fresh = initial_slots(MAX_SLOTS)
 
         # When inventory is applied, it means we have listed all slots.
@@ -48,11 +49,27 @@ class TuiState:
         for slot, entry in sounds.items():
             if not (1 <= int(slot) <= MAX_SLOTS):
                 continue
-            row = fresh[int(slot)]
+            slot_num = int(slot)
+            row = fresh[slot_num]
             row.exists = True
             row.loaded = True
-            row.name = str(entry.get("name") or f"Slot {int(slot):03d}")
+            fallback_name = f"Slot {slot_num:03d}"
+            row.name = str(entry.get("name") or fallback_name)
             row.size_bytes = int(entry.get("size") or 0)
+
+            # Preserve previously hydrated metadata (friendly name/channels/rate)
+            # for unchanged slots when post-op refresh hydrates only touched slots.
+            prev = previous.get(slot_num)
+            if not prev or not prev.exists:
+                continue
+
+            if prev.channels > 0:
+                row.channels = int(prev.channels)
+                row.samplerate = int(prev.samplerate or SAMPLE_RATE)
+
+            prev_name = str(prev.name or "")
+            if prev_name and prev_name not in {"(empty)", fallback_name}:
+                row.name = prev_name
 
         for slot, details in self.details_by_slot.items():
             if slot in fresh:

@@ -74,3 +74,36 @@ def test_apply_inventory_updates_hydrates_names_and_audio_fields():
     assert state.slots[2].name == "nt hh closed b"
     assert state.slots[2].channels == 2
     assert state.slots[2].samplerate == 44100
+
+
+def test_apply_inventory_preserves_prior_hydration_for_untouched_slots():
+    state = TuiState()
+    sounds = {
+        1: {"name": "001.pcm", "size": 1200, "node_id": 1},
+        2: {"name": "002.pcm", "size": 2200, "node_id": 2},
+    }
+    state.apply_inventory(sounds)
+    state.apply_inventory_updates(
+        {
+            1: {"name": "afterparty kick", "channels": 1, "samplerate": 46875},
+            2: {"name": "nt hh closed b", "channels": 2, "samplerate": 44100},
+        }
+    )
+
+    # Simulate post-op refresh: full inventory first, then partial hydration only
+    # for touched slots.
+    state.apply_inventory(sounds)
+    state.apply_inventory_updates(
+        {
+            1: {"name": "afterparty kick v2", "channels": 1, "samplerate": 46875},
+        }
+    )
+
+    assert state.slots[1].name == "afterparty kick v2"
+    assert state.slots[1].channels == 1
+
+    # Slot 2 should keep previously known enriched metadata and not degrade to
+    # file-list fallback state.
+    assert state.slots[2].name == "nt hh closed b"
+    assert state.slots[2].channels == 2
+    assert state.slots[2].samplerate == 44100
