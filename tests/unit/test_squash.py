@@ -2,6 +2,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import ko2
+from ko2_display import SilentView
 
 
 class FakeClient:
@@ -90,7 +91,7 @@ def test_squash_execute_moves_gapped_slots(monkeypatch):
     monkeypatch.setattr(ko2, "EP133Client", lambda *_a, **_kw: FakeClient(sounds, log))
     monkeypatch.setattr(ko2, "backup_copy", lambda *a, **k: None)
 
-    rc = ko2.cmd_squash(_args(execute=True))
+    rc = ko2.cmd_squash(_args(execute=True), SilentView())
 
     assert rc == 0
     # slot 1 stays — must not be touched
@@ -115,7 +116,7 @@ def test_squash_execute_order_within_each_move(monkeypatch):
     monkeypatch.setattr(ko2, "EP133Client", lambda *_a, **_kw: FakeClient(sounds, log))
     monkeypatch.setattr(ko2, "backup_copy", lambda *a, **k: None)
 
-    ko2.cmd_squash(_args(execute=True))
+    ko2.cmd_squash(_args(execute=True), SilentView())
 
     # slot 2 → 1: get then delete then put
     assert log.index(("get", 2)) < log.index(("delete", 2))
@@ -132,7 +133,7 @@ def test_squash_dry_run_fires_no_operations(monkeypatch):
     monkeypatch.setattr(ko2, "EP133Client", lambda *_a, **_kw: FakeClient(sounds, log))
     monkeypatch.setattr(ko2, "backup_copy", lambda *a, **k: None)
 
-    rc = ko2.cmd_squash(_args(execute=False))
+    rc = ko2.cmd_squash(_args(execute=False), SilentView())
 
     assert rc == 0
     assert log == []
@@ -148,7 +149,7 @@ def test_squash_already_compact_exits_early(monkeypatch):
     }
     monkeypatch.setattr(ko2, "EP133Client", lambda *_a, **_kw: FakeClient(sounds, log))
 
-    rc = ko2.cmd_squash(_args(execute=True))
+    rc = ko2.cmd_squash(_args(execute=True), SilentView())
 
     assert rc == 0
     assert log == []

@@ -7,6 +7,7 @@ from types import SimpleNamespace
 import pytest
 
 import ko2
+from ko2_display import SilentView
 from ko2_models import SAMPLE_RATE
 from tests.helpers import create_test_wav
 
@@ -154,7 +155,7 @@ def test_cmd_optimize_downloads_then_uploads_when_savings_large(monkeypatch):
         lambda p, **kw: (True, "optimized with sox", p.stat().st_size, p.stat().st_size - 20 * 1024),
     )
 
-    rc = ko2.cmd_optimize(_args(slot=7))
+    rc = ko2.cmd_optimize(_args(slot=7), SilentView())
 
     assert rc == 0
     assert ("get", 7) in log
@@ -174,7 +175,7 @@ def test_cmd_optimize_skips_upload_when_savings_below_threshold(monkeypatch):
         lambda p, **kw: (True, "optimized with sox", p.stat().st_size, p.stat().st_size - 1024),  # 1 KB
     )
 
-    rc = ko2.cmd_optimize(_args(slot=7))
+    rc = ko2.cmd_optimize(_args(slot=7), SilentView())
 
     assert rc == 0
     assert ("get", 7) in log
@@ -203,7 +204,7 @@ def test_cmd_optimize_skips_entirely_when_already_optimal(monkeypatch):
     monkeypatch.setattr(ko2, "optimize_sample", lambda p, **kw: (True, "already optimal", p.stat().st_size, p.stat().st_size))
     monkeypatch.setattr(ko2, "backup_copy", lambda *a, **k: None)
 
-    rc = ko2.cmd_optimize(_args(slot=3))
+    rc = ko2.cmd_optimize(_args(slot=3), SilentView())
 
     assert rc == 0
     assert ("get", 3) in log                      # download happens

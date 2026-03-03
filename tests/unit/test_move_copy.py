@@ -2,6 +2,7 @@ from types import SimpleNamespace
 from pathlib import Path
 
 import ko2
+from ko2_display import SilentView
 
 
 class FakeClient:
@@ -44,7 +45,7 @@ def test_move_to_empty(monkeypatch):
     monkeypatch.setattr(ko2, "EP133Client", lambda *_args, **_kw: FakeClient(sounds, log))
     monkeypatch.setattr(ko2, "backup_copy", lambda *a, **k: None)
 
-    rc = ko2.cmd_move(_args(src=1, dst=2))
+    rc = ko2.cmd_move(_args(src=1, dst=2), SilentView())
     assert rc == 0
     assert log == [("get", 1), ("put", 2, "001.pcm"), ("delete", 1)]
 
@@ -58,7 +59,7 @@ def test_move_swap(monkeypatch):
     monkeypatch.setattr(ko2, "EP133Client", lambda *_args, **_kw: FakeClient(sounds, log))
     monkeypatch.setattr(ko2, "backup_copy", lambda *a, **k: None)
 
-    rc = ko2.cmd_move(_args(src=1, dst=2))
+    rc = ko2.cmd_move(_args(src=1, dst=2), SilentView())
     assert rc == 0
     assert log == [
         ("get", 1),
@@ -76,7 +77,7 @@ def test_copy_to_empty(monkeypatch):
     monkeypatch.setattr(ko2, "EP133Client", lambda *_args, **_kw: FakeClient(sounds, log))
     monkeypatch.setattr(ko2, "backup_copy", lambda *a, **k: None)
 
-    rc = ko2.cmd_copy(_args(src=1, dst=3))
+    rc = ko2.cmd_copy(_args(src=1, dst=3), SilentView())
     assert rc == 0
     assert log == [("get", 1), ("put", 3, "001.pcm")]
 
@@ -90,7 +91,7 @@ def test_copy_overwrite(monkeypatch):
     monkeypatch.setattr(ko2, "EP133Client", lambda *_args, **_kw: FakeClient(sounds, log))
     monkeypatch.setattr(ko2, "backup_copy", lambda *a, **k: None)
 
-    rc = ko2.cmd_copy(_args(src=1, dst=3))
+    rc = ko2.cmd_copy(_args(src=1, dst=3), SilentView())
     assert rc == 0
     assert log == [
         ("get", 1),
