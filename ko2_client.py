@@ -433,11 +433,11 @@ class EP133Client:
         return _parse_json_tolerant(bytes(all_bytes))
 
     @staticmethod
-    def build_upload_metadata(channels: int, samplerate: int, frames: int) -> dict:
+    def build_upload_metadata(channels: int, samplerate: int, frames: int, pitch: float = 0) -> dict:
         meta = {
             "sound.playmode": "oneshot",
             "sound.rootnote": 60,
-            "sound.pitch": 0,
+            "sound.pitch": pitch,
             "sound.pan": 0,
             "sound.amplitude": 100,
             "envelope.attack": 0,
@@ -451,13 +451,13 @@ class EP133Client:
             meta.update({"sound.loopstart": 0, "sound.loopend": loop_end})
         return meta
 
-    def put(self, input_path: Path, slot: int, name: Optional[str] = None, progress: bool = True) -> None:
+    def put(self, input_path: Path, slot: int, name: Optional[str] = None, progress: bool = True, pitch: float = 0) -> None:
         import wave
         with wave.open(str(input_path), "rb") as wav:
             frames, rate, channels = wav.getnframes(), wav.getframerate(), wav.getnchannels()
         def _cb(curr, total):
             if progress: print(f"\r  Uploading... {curr/total*100:.1f}%", end="", flush=True)
-        meta = self.build_upload_metadata(channels, rate, frames)
+        meta = self.build_upload_metadata(channels, rate, frames, pitch)
         tx = UploadTransaction(self, input_path, slot, name, meta, _cb)
         tx.execute()
         if progress: print(" done")
