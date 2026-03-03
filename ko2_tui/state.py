@@ -104,6 +104,11 @@ class TuiState:
             if patch.get("samplerate") is not None:
                 row.samplerate = int(patch.get("samplerate") or SAMPLE_RATE)
 
+    def clear_slot(self, slot: int) -> None:
+        if slot in self.slots:
+            self.slots[slot] = SlotRow(slot=slot, loaded=True)
+        self.details_by_slot.pop(slot, None)
+
     @staticmethod
     def _apply_details_to_row(row: SlotRow, details: Mapping[str, Any]) -> None:
         if details.get("size_bytes") is not None:

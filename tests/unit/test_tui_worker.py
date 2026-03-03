@@ -103,7 +103,37 @@ def test_worker_rename_emits_success_and_refresh():
     assert ("rename", 7, "new-name") in fake.calls
     kinds = [e.kind for e in events]
     assert "success" in kinds
-    assert "inventory" in kinds
+    # Rename skips list_sounds — emits inventory_enriched directly with the new name.
+    assert "inventory_enriched" in kinds
+    assert "inventory" not in kinds
+    enriched = next(e for e in events if e.kind == "inventory_enriched")
+    assert enriched.payload.get("updates") == {7: {"name": "new-name"}}
+    assert kinds[-1] == "idle"
+
+
+def test_worker_delete_emits_slot_removed():
+    req_q: Queue = Queue()
+    evt_q: Queue = Queue()
+    fake = FakeClient()
+
+    worker = DeviceWorker(
+        device_name="EP-133",
+        request_queue=req_q,
+        event_queue=evt_q,
+        client_factory=lambda *args, **kwargs: fake,
+    )
+
+    worker._process_request(actions.delete(5))
+    events = _drain(evt_q)
+
+    assert ("delete", 5) in fake.calls
+    kinds = [e.kind for e in events]
+    assert "success" in kinds
+    # Delete skips list_sounds — emits slot_removed instead.
+    assert "slot_removed" in kinds
+    assert "inventory" not in kinds
+    removed = next(e for e in events if e.kind == "slot_removed")
+    assert removed.payload.get("slot") == 5
     assert kinds[-1] == "idle"
 
 

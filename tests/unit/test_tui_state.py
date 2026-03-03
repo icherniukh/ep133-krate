@@ -107,3 +107,18 @@ def test_apply_inventory_preserves_prior_hydration_for_untouched_slots():
     assert state.slots[2].name == "nt hh closed b"
     assert state.slots[2].channels == 2
     assert state.slots[2].samplerate == 44100
+
+
+def test_clear_slot_marks_slot_empty_and_removes_details():
+    state = TuiState()
+    state.apply_inventory({5: {"name": "kick", "size": 1000, "node_id": 1005}})
+    state.apply_slot_details(5, {"name": "kick", "size_bytes": 1000, "channels": 1, "samplerate": 46875, "is_empty": False})
+
+    assert state.slots[5].exists is True
+    assert 5 in state.details_by_slot
+
+    state.clear_slot(5)
+
+    assert state.slots[5].exists is False
+    assert state.slots[5].name == "(empty)"
+    assert 5 not in state.details_by_slot

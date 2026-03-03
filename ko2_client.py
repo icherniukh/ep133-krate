@@ -410,8 +410,11 @@ class EP133Client:
         return None
 
     def info(self, slot: int, include_size: bool = True, node_entry: dict | None = None) -> SampleInfo:
-        sounds = self.list_sounds()
-        entry = node_entry or sounds.get(slot)
+        if node_entry is not None:
+            entry = node_entry
+        else:
+            sounds = self.list_sounds()
+            entry = sounds.get(slot)
         
         info = SampleInfo.empty(slot)
         if entry:

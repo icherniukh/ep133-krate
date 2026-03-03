@@ -337,6 +337,8 @@ class KO2TUIApp(App[None]):
             used = len(sounds)
             self._log(f"Inventory refreshed: {used} used slots")
             self._render_details(self.state.selected_slot)
+            self._render_waveform(self.state.selected_slot)
+            self._update_status(self.state.status)
             return
 
         if kind == "inventory_enriched":
@@ -347,10 +349,26 @@ class KO2TUIApp(App[None]):
                 self._render_details(self.state.selected_slot)
             return
 
+        if kind == "slot_removed":
+            slot = int(payload.get("slot") or 0)
+            if slot:
+                self._invalidate_waveform(slot)
+                self.state.clear_slot(slot)
+                self._update_table_rows([slot])
+                if slot == self.state.selected_slot:
+                    self._render_details(slot)
+            return
+
         if kind == "details":
             slot = int(payload.get("slot") or self.state.selected_slot)
             details = cast(dict, payload.get("details", {}))
+            preload = bool(payload.get("preload", False))
             self.state.apply_slot_details(slot, details)
+            if preload:
+                self._load_cached_waveform(slot)
+                if slot == self.state.selected_slot:
+                    self._render_details(slot)
+                return
             self._invalidate_waveform(slot)
             self._update_table_rows([slot])
             self._render_details(slot)
@@ -428,6 +446,13 @@ class KO2TUIApp(App[None]):
             self._log(
                 f"Timing: {op} took {total_s:.2f}s (p50 {p50_s:.2f}s, p95 {p95_s:.2f}s, n={count})"
             )
+            phases = cast(dict, payload.get("phases") or {})
+            if phases:
+                phase_str = ", ".join(
+                    f"{k}={v:.3f}s"
+                    for k, v in sorted(phases.items(), key=lambda kv: -kv[1])
+                )
+                self._log(f"  phases: {phase_str}")
             return
 
         if kind == "trace" and self.debug_enabled:
@@ -592,22 +617,33 @@ class KO2TUIApp(App[None]):
         self._waveform_by_slot.pop(int(slot), None)
         self._waveform_pending.discard(int(slot))
 
+    def _load_cached_waveform(self, slot: int) -> bool:
+        slot = int(slot)
+        if slot in self._waveform_by_slot:
+            return True
+        sig = self._waveform_signature(slot)
+        if sig is None:
+            return False
+        cached = self._waveform_store.get_for_slot(slot, sig)
+        if isinstance(cached, dict) and self._valid_waveform_bins(cached):
+            self._waveform_by_slot[slot] = cached
+            return True
+        return False
+
     def _ensure_waveform(self, slot: int) -> None:
         slot = int(slot)
         row = self.state.slots.get(slot)
         if not row or not row.exists:
             return
         if slot in self._waveform_by_slot or slot in self._waveform_pending:
+            if slot == self.state.selected_slot:
+                self._render_waveform(slot)
             return
 
-        sig = self._waveform_signature(slot)
-        if sig is not None:
-            cached = self._waveform_store.get_for_slot(slot, sig)
-            if isinstance(cached, dict) and self._valid_waveform_bins(cached):
-                self._waveform_by_slot[slot] = cached
-                if slot == self.state.selected_slot:
-                    self._render_waveform(slot)
-                return
+        if self._load_cached_waveform(slot):
+            if slot == self.state.selected_slot:
+                self._render_waveform(slot)
+            return
 
         self._waveform_pending.add(slot)
         if self._worker:

@@ -14,7 +14,8 @@ from pathlib import Path
 from queue import Empty, Queue
 from typing import Any, Callable
 
-from ko2_client import EP133Client
+from ko2_client import EP133Client, SlotEmptyError
+from ko2_models import SAMPLE_RATE
 
 from .actions import WorkerRequest
 from .debug_log import DebugLogger
@@ -108,7 +109,8 @@ class DeviceWorker(threading.Thread):
                 new_name = str(req.payload["new_name"])
                 self._timed("device.rename", phases, client.rename, slot, new_name)
                 self._emit_success(f"Renamed slot {slot:03d} to '{new_name}'", started_at=t_start)
-                self._emit_inventory(client, hydrate_slots={slot}, phases=phases)
+                # Slot still exists — skip list_sounds + get_node_metadata; patch directly.
+                self._emit("inventory_enriched", updates={slot: {"name": new_name}})
             elif req.op == "copy":
                 src = int(req.payload["src"])
                 dst = int(req.payload["dst"])
@@ -124,12 +126,12 @@ class DeviceWorker(threading.Thread):
                     dst_info = None
                     try:
                         dst_info = self._timed("device.info", phases, client.info, dst, include_size=False)
-                    except Exception:
+                    except SlotEmptyError:
                         pass
-                    
+
                     if dst_info:
                         self._timed("device.delete", phases, client.delete, dst)
-                    
+
                     self._timed("device.put", phases, client.put, temp_path, dst, name=name, progress=False)
 
                 self._emit_success(f"Copied slot {src:03d} to {dst:03d}", started_at=t_start)
@@ -148,7 +150,7 @@ class DeviceWorker(threading.Thread):
                 dst_info = None
                 try:
                     dst_info = self._timed("device.info", phases, client.info, dst, include_size=False)
-                except Exception:
+                except SlotEmptyError:
                     pass
 
                 with tempfile.TemporaryDirectory() as td:
@@ -173,7 +175,8 @@ class DeviceWorker(threading.Thread):
                 slot = int(req.payload["slot"])
                 self._timed("device.delete", phases, client.delete, slot)
                 self._emit_success(f"Deleted slot {slot:03d}", started_at=t_start)
-                self._emit_inventory(client, hydrate_slots={slot}, phases=phases)
+                # Slot is gone — skip list_sounds; clear it directly.
+                self._emit("slot_removed", slot=slot)
             elif req.op == "bulk_delete":
                 slots = [int(s) for s in req.payload["slots"]]
                 n = len(slots)
@@ -220,8 +223,8 @@ class DeviceWorker(threading.Thread):
                             if deleted:
                                 try:
                                     self._timed("device.put", phases, client.put, temp_path, old_slot, name=name, progress=False)
-                                except Exception:
-                                    pass
+                                except Exception as rollback_exc:
+                                    self._emit("error", op=req.op, message=f"Rollback failed for slot {old_slot:03d}: {rollback_exc}")
                             raise
                     done += 1
 
@@ -243,7 +246,11 @@ class DeviceWorker(threading.Thread):
                     self._emit_progress(req.op, done + 1, total, f"Optimizing slot {slot:03d}")
                     try:
                         info = self._timed("device.info", phases, client.info, slot, include_size=False)
-                    except Exception:
+                    except SlotEmptyError:
+                        done += 1
+                        continue
+                    except Exception as exc:
+                        self._emit("error", op=req.op, message=f"Skipping slot {slot:03d}: {exc}")
                         done += 1
                         continue
                     name = info.name
@@ -419,11 +426,14 @@ class DeviceWorker(threading.Thread):
                 display_name = str(meta.get("name") or meta.get("sym") or "").strip()
                 if display_name:
                     patch["name"] = display_name
+                channels = int(meta.get("channels") or 0)
                 if "channels" in meta:
-                    patch["channels"] = int(meta.get("channels") or 0)
+                    patch["channels"] = channels
+                samplerate = int(meta.get("samplerate") or 0)
                 if "samplerate" in meta:
-                    patch["samplerate"] = int(meta.get("samplerate") or 0)
-            except Exception:
+                    patch["samplerate"] = samplerate
+            except Exception as exc:
+                self._emit("trace", line=f"hydration failed for slot {slot}: {exc}", trace={})
                 continue
 
             if not patch:
@@ -432,6 +442,25 @@ class DeviceWorker(threading.Thread):
             if len(updates) >= 40:
                 self._emit("inventory_enriched", updates=updates)
                 updates = {}
+
+            # Preload details so the app can show them without waiting for user selection.
+            size_bytes = int(entry.get("size") or 0)
+            sr = samplerate if samplerate > 0 else SAMPLE_RATE
+            ch = channels if channels > 0 else 1
+            duration = size_bytes / (sr * ch * 2) if size_bytes > 0 else 0.0
+            self._emit(
+                "details",
+                slot=int(slot),
+                preload=True,
+                details={
+                    "name": patch.get("name", ""),
+                    "size_bytes": size_bytes,
+                    "channels": channels,
+                    "samplerate": samplerate,
+                    "duration": duration,
+                    "is_empty": False,
+                },
+            )
 
         if updates:
             self._emit("inventory_enriched", updates=updates)
@@ -447,7 +476,8 @@ class DeviceWorker(threading.Thread):
             phases = {}
         try:
             info = self._timed("device.info", phases, client.info, int(slot), include_size=True)
-        except Exception:
+        except Exception as exc:
+            self._emit("trace", line=f"slot_refresh failed for slot {slot:03d}: {exc}", trace={})
             return
         self._emit("slot_refresh", slot=int(slot), details=_sampleinfo_to_dict(info))
 
@@ -483,7 +513,8 @@ class DeviceWorker(threading.Thread):
                 wav_path = Path(td) / f"slot{slot:03d}.wav"
                 self._timed("device.get", phases, client.get, int(slot), wav_path)
                 return wav_path.read_bytes()
-        except Exception:
+        except Exception as exc:
+            self._emit("trace", line=f"waveform download failed for slot {slot:03d}: {exc}", trace={})
             return None
 
     def _schedule_waveform_precalc(self, sounds: dict[int, dict]) -> None:
@@ -540,7 +571,8 @@ class DeviceWorker(threading.Thread):
             slot, fp = item
             try:
                 bins = future.result()
-            except Exception:
+            except Exception as exc:
+                self._emit("trace", line=f"waveform render failed for slot {slot:03d}: {exc}", trace={})
                 continue
             if bins:
                 self._emit("waveform", slot=int(slot), bins=bins, fp=fp)
