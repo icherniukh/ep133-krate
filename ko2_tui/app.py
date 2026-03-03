@@ -11,19 +11,11 @@ from textual.widgets import DataTable, Footer, RichLog, Static
 
 from . import actions
 from .debug_log import DebugLogger
+from ko2_display import SampleFormat
 from .selectors import parse_selector
 from .state import TuiState
 from .ui import ConfirmModal, OptimizeModal, TextInputModal, UploadModal, table_row_values
 from .worker import DeviceWorker, WorkerEvent
-from ko2_utils import (
-    COL_WIDTH_MARKER,
-    COL_WIDTH_SLOT,
-    COL_WIDTH_NAME,
-    COL_WIDTH_SIZE,
-    COL_WIDTH_CH,
-    COL_WIDTH_RATE,
-    COL_WIDTH_SEC,
-)
 
 
 class KO2TUIApp(App[None]):
@@ -147,13 +139,13 @@ class KO2TUIApp(App[None]):
         table = self.query_one("#slots", DataTable)
         table.cursor_type = "row"
         self._col_keys = [
-            table.add_column(" ", width=COL_WIDTH_MARKER),
-            table.add_column("Slot", width=COL_WIDTH_SLOT),
-            table.add_column("Name", width=COL_WIDTH_NAME),
-            table.add_column(Text("Size", justify="right"), width=COL_WIDTH_SIZE),
-            table.add_column("CH", width=COL_WIDTH_CH),
-            table.add_column("Rate", width=COL_WIDTH_RATE),
-            table.add_column(Text("Sec", justify="right"), width=COL_WIDTH_SEC),
+            table.add_column(" ", width=2),
+            table.add_column("Slot", width=4),
+            table.add_column("Name", width=45),
+            table.add_column(Text("Size", justify="right"), width=9),
+            table.add_column("CH", width=2),
+            table.add_column("Rate", width=6),
+            table.add_column(Text("Sec", justify="right"), width=10),
         ]
         self._refresh_table()
 
@@ -335,7 +327,6 @@ class KO2TUIApp(App[None]):
         self.query_one("#details", Static).update(text)
 
     def _update_status(self, state_text: str) -> None:
-        from .ui import format_size
         debug_suffix = ""
         if self._debug_logger and self._debug_logger.path:
             debug_suffix = f" | debug={self._debug_logger.path.name}"
@@ -343,7 +334,7 @@ class KO2TUIApp(App[None]):
         sel_suffix = f" | {n_sel} selected" if n_sel else ""
         
         total_bytes = sum(row.size_bytes for row in self.state.slots.values() if row.exists)
-        mem_suffix = f" | Mem: {format_size(total_bytes)}/64.00M"
+        mem_suffix = f" | Mem: {SampleFormat.size(total_bytes)}/64.00M"
 
         status = f"Device: {self.device_name or 'EP-133'} | {state_text}{sel_suffix}{mem_suffix}{debug_suffix}"
         self.query_one("#status", Static).update(status)

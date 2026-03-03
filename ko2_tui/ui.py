@@ -8,7 +8,7 @@ from textual.screen import ModalScreen
 from textual.widgets import Button, Input, Label, Checkbox
 
 from .state import SlotRow
-from ko2_utils import format_size, format_duration
+from ko2_display import SampleFormat
 
 
 import typing
@@ -17,29 +17,26 @@ if typing.TYPE_CHECKING:
 
 from rich.text import Text
 
-def get_rich_size_color(size_bytes: int) -> str:
-    """Return a rich markup color string based on file size."""
-    if size_bytes <= 0:
+# Rich hex colour palette per size band — parallel to TerminalRenderer._ANSI_PALETTE
+_RICH_PALETTE: list[list[str]] = [
+    ["#113b11", "#155015"],
+    ["#4a4511", "#665c14"],
+    ["#8a601c", "#a86c14"],
+    ["#8c3b17", "#a63a12"],
+    ["#822515", "#58120c"],
+    ["#58120c", "#340b07"],
+]
+
+
+def _rich_size_color(size_bytes: int) -> str:
+    """Return a Rich markup background colour string based on file size."""
+    result = SampleFormat.size_band(size_bytes)
+    if result is None:
         return ""
-
-    ranges = [
-        (0, 50 * 1024, ["#113b11", "#155015"]),            # dark green
-        (50 * 1024, 200 * 1024, ["#4a4511", "#665c14"]),   # olive
-        (200 * 1024, 500 * 1024, ["#8a601c", "#a86c14"]),  # orange/brown
-        (500 * 1024, 1024 * 1024, ["#8c3b17", "#a63a12"]), # dark orange -> rust
-        (1024 * 1024, 2 * 1024 * 1024, ["#822515", "#58120c"]),  # rust -> dark red
-        (2 * 1024 * 1024, 10 * 1024 * 1024, ["#58120c", "#340b07"]),  # deep red
-    ]
-
-    for lo, hi, palette in ranges:
-        if size_bytes < hi:
-            if len(palette) == 1:
-                return f"on {palette[0]}"
-            ratio = (size_bytes - lo) / (hi - lo)
-            idx = min(len(palette) - 1, int(ratio * len(palette)))
-            return f"on {palette[idx]}"
-
-    return "on #340b07"
+    band_idx, ratio = result
+    palette = _RICH_PALETTE[band_idx]
+    idx = min(len(palette) - 1, int(ratio * len(palette)))
+    return f"on {palette[idx]}"
 
 def table_row_values(row: SlotRow, selected: bool = False) -> tuple[Any, ...]:
     marker = Text("●", style="bold green") if selected else Text(" ")
@@ -55,25 +52,21 @@ def table_row_values(row: SlotRow, selected: bool = False) -> tuple[Any, ...]:
 
     # If it exists but channels is 0, we haven't loaded node metadata yet
     if row.channels == 0:
-        size_str = format_size(row.size_bytes)
-        color_style = get_rich_size_color(row.size_bytes)
+        size_str = SampleFormat.size(row.size_bytes)
+        color_style = _rich_size_color(row.size_bytes)
         size_txt = Text(size_str, style=color_style, justify="right") if color_style else Text(size_str, justify="right")
         return (marker, slot_txt, name_txt, size_txt, Text("?", style="dim"), Text("?", style="dim"), Text("?", style="dim", justify="right"))
 
-    if row.channels == 2:
-        channels_txt = Text("S", style="bold red")
-    elif row.channels == 1:
-        channels_txt = Text("M", style="dim")
-    else:
-        channels_txt = Text("-", style="dim")
+    abbr = SampleFormat.channels_abbr(row.channels)
+    channels_txt = Text(abbr, style="bold red" if row.channels == 2 else "dim")
 
     rate_txt = Text(str(row.samplerate))
-    
-    size_str = format_size(row.size_bytes)
-    color_style = get_rich_size_color(row.size_bytes)
+
+    size_str = SampleFormat.size(row.size_bytes)
+    color_style = _rich_size_color(row.size_bytes)
     size_txt = Text(size_str, style=color_style, justify="right") if color_style else Text(size_str, justify="right")
-    
-    dur_str = format_duration(row.size_bytes, row.samplerate, row.channels)
+
+    dur_str = SampleFormat.duration(row.size_bytes, row.samplerate, row.channels)
     dur_txt = Text(dur_str, justify="right")
 
     return (marker, slot_txt, name_txt, size_txt, channels_txt, rate_txt, dur_txt)
