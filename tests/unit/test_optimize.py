@@ -129,7 +129,7 @@ def _fake_client_class(log, name="drums.pcm"):
             create_test_wav(path)
             log.append(("get", slot))
 
-        def put(self, path: Path, slot: int, name=None, progress=False):
+        def put(self, path: Path, slot: int, name=None, progress=False, pitch=0.0):
             log.append(("put", slot, name))
 
     return FakeClient
@@ -197,7 +197,7 @@ def test_cmd_optimize_skips_entirely_when_already_optimal(monkeypatch):
         def get(self, slot, path):
             log.append(("get", slot))
             create_test_wav(path)  # must be a valid WAV — cmd_optimize calls wave.open after get
-        def put(self, path, slot, name=None, progress=False): log.append(("put", slot, name))
+        def put(self, path, slot, name=None, progress=False, pitch=0.0): log.append(("put", slot, name))
 
     monkeypatch.setattr(ko2, "EP133Client", lambda *_a, **_kw: OptimalFakeClient())
     monkeypatch.setattr(ko2, "optimize_sample", lambda p, **kw: (True, "already optimal", p.stat().st_size, p.stat().st_size))

@@ -38,6 +38,7 @@ try:
     )
     from ko2_backup import backup_copy
     from ko2_models import SAMPLE_RATE, MAX_SLOTS, decode_node_id, decode_14bit
+    from ko2_utils import format_size, format_duration
 except ImportError as e:
     print(f"Error: {e}")
     sys.exit(1)
@@ -59,16 +60,6 @@ class Colors:
     FG_GREEN = "\033[38;5;82m"
     FG_YELLOW = "\033[38;5;226m"
     FG_RED = "\033[38;5;196m"
-
-
-def format_size(size_bytes: int) -> str:
-    """Format bytes to human readable size."""
-    if size_bytes < 1024:
-        return f"{size_bytes}B"
-    elif size_bytes < 1024 * 1024:
-        return f"{size_bytes / 1024:.1f}K"
-    else:
-        return f"{size_bytes / (1024 * 1024):.1f}M"
 
 
 def get_size_color(size_bytes: int) -> str:
@@ -98,24 +89,6 @@ def get_size_color(size_bytes: int) -> str:
             return bg(palette[idx])
 
     return bg(52)
-
-
-def format_duration(
-    size_bytes: int, samplerate: int = SAMPLE_RATE, channels: int = 1
-) -> str:
-    """Calculate duration from file size (seconds, 3 decimals)."""
-    if size_bytes == 0:
-        return "-"
-    if channels not in (1, 2):
-        channels = 1
-    # 16-bit = 2 bytes per sample per channel
-    bytes_per_frame = 2 * channels
-    samples = size_bytes // bytes_per_frame
-    seconds = samples / samplerate
-    dur = f"{seconds:.3f}"
-    if seconds < 1:
-        dur = dur[1:]  # omit leading zero
-    return dur
 
 
 def strip_slot_prefix(name: str, slot: int) -> str:
@@ -196,22 +169,22 @@ def format_table_row(info: SampleInfo) -> str:
     else:
         channels_color = Colors.FG_DIM
 
-    # Truncate name to fit (keep width 18)
+    # Truncate name to fit (keep width 32)
     name = info.name
-    if len(name) > 18:
-        name = name[:15] + "..."
+    if len(name) > 32:
+        name = name[:29] + "..."
 
-    size_width = 7
+    size_width = 8
     size_display = (
         f"{color}{size_str:>{size_width}}{reset}"
         if info.size_bytes
         else f"{size_str:>{size_width}}"
     )
-    duration_width = 7
+    duration_width = 9
 
     return (
         f"  {Colors.FG_DIM}{info.slot:03d}{Colors.RESET}  "
-        f"{name:<18}  "
+        f"{name:<32}  "
         f"{channels_color}{channels_str}{Colors.RESET}  "
         f"{size_display}  "
         f"{format_duration(info.size_bytes, info.samplerate, info.channels):>{duration_width}}"
@@ -271,9 +244,9 @@ def cmd_ls(args):
                 total_slots = len(all_slots)
                 if stream:
                     print(
-                        f"\n  {'Slot':>4}  {'Name':<18}  {'CH':>2}  {'Size':>7}  {'s':>7}"
+                        f"\n  {'Slot':>4}  {'Name':<32}  {'CH':>2}  {'Size':>8}  {'s':>9}"
                     )
-                    print(f"  {'-'*4}  {'-'*18}  {'--':>2}  {'-'*7}  {'-'*7}")
+                    print(f"  {'-'*4}  {'-'*32}  {'--':>2}  {'-'*8}  {'-'*9}")
                 for idx, slot in enumerate(all_slots, 1):
                     if total_slots:
                         if stream:
@@ -365,9 +338,9 @@ def cmd_ls(args):
             print(f"{Colors.CYAN}Scanning slots {start:03d}-{end:03d}...{Colors.RESET}")
             if stream:
                 print(
-                    f"\n  {'Slot':>4}  {'Name':<18}  {'CH':>2}  {'Size':>7}  {'s':>7}"
+                    f"\n  {'Slot':>4}  {'Name':<32}  {'CH':>2}  {'Size':>8}  {'s':>9}"
                 )
-                print(f"  {'-'*4}  {'-'*18}  {'--':>2}  {'-'*7}  {'-'*7}")
+                print(f"  {'-'*4}  {'-'*32}  {'--':>2}  {'-'*8}  {'-'*9}")
             for slot in range(start, end + 1):
                 if stream:
                     print(
@@ -407,9 +380,9 @@ def cmd_ls(args):
         if not stream:
             # Print header
             print(
-                f"  {'Slot':>4}  {'Name':<18}  {'CH':>2}  {'Size':>7}  {'s':>7}"
+                f"  {'Slot':>4}  {'Name':<32}  {'CH':>2}  {'Size':>8}  {'s':>9}"
             )
-            print(f"  {'-'*4}  {'-'*18}  {'--':>2}  {'-'*7}  {'-'*7}")
+            print(f"  {'-'*4}  {'-'*32}  {'--':>2}  {'-'*8}  {'-'*9}")
 
         # Print samples (including empty slots)
         if not stream:
@@ -851,7 +824,9 @@ def cmd_audit(args):
 
 
 def optimize_sample(
-    input_path: Path, output_path: Optional[Path] = None
+    input_path: Path, output_path: Optional[Path] = None,
+    downsample_rate: Optional[int] = None, speed: Optional[float] = None,
+    mono: bool = True
 ) -> tuple[bool, str, int, int]:
     """
     Optimize a WAV file for EP-133 using audio2ko2 or sox.
@@ -873,42 +848,52 @@ def optimize_sample(
         in_rate = w.getframerate()
         in_depth = w.getsampwidth() * 8
 
-    needs_downmix = in_channels > 1
-    needs_resample = in_rate > SAMPLE_RATE
-    needs_requantize = in_depth > 16
+    target_rate = downsample_rate if downsample_rate else SAMPLE_RATE
 
-    if not needs_downmix and not needs_resample and not needs_requantize:
+    needs_downmix = in_channels > 1 and mono
+    needs_resample = in_rate > target_rate
+    needs_requantize = in_depth > 16
+    needs_speed = speed is not None and speed != 1.0
+
+    if not needs_downmix and not needs_resample and not needs_requantize and not needs_speed:
         return True, "already optimal", original_size, original_size
 
-    # Try audio2ko2 first
-    audio2ko2 = Path.home() / "proj" / "audio2ko2" / "audio2ko2"
-    if audio2ko2.exists():
-        try:
-            result = subprocess.run(
-                [str(audio2ko2), str(input_path)],
-                capture_output=True,
-                text=True,
-                timeout=30,
-            )
-            if result.returncode == 0:
-                # audio2ko2 creates output with _ko2 suffix
-                ko2_output = input_path.with_stem(input_path.stem + "_ko2")
-                if ko2_output.exists():
-                    shutil.move(ko2_output, output_path)
-                    opt_size = output_path.stat().st_size
-                    return True, "optimized with audio2ko2", original_size, opt_size
-        except (subprocess.TimeoutExpired, FileNotFoundError):
-            pass
-
     # Fall back to sox — only pass flags for what actually needs changing
+    # Since audio2ko2 does not support parameters like speed or arbitrary downsampling natively yet,
+    # we bypass it if any special parameter is set.
+    if not needs_speed and downsample_rate is None:
+        # Try audio2ko2 first
+        audio2ko2 = Path.home() / "proj" / "audio2ko2" / "audio2ko2"
+        if audio2ko2.exists():
+            try:
+                result = subprocess.run(
+                    [str(audio2ko2), str(input_path)],
+                    capture_output=True,
+                    text=True,
+                    timeout=30,
+                )
+                if result.returncode == 0:
+                    # audio2ko2 creates output with _ko2 suffix
+                    ko2_output = input_path.with_stem(input_path.stem + "_ko2")
+                    if ko2_output.exists():
+                        shutil.move(ko2_output, output_path)
+                        opt_size = output_path.stat().st_size
+                        return True, "optimized with audio2ko2", original_size, opt_size
+            except (subprocess.TimeoutExpired, FileNotFoundError):
+                pass
+
     sox_args = ["sox", str(input_path)]
     if needs_downmix:
         sox_args += ["-c", "1"]
     if needs_resample:
-        sox_args += ["-r", str(SAMPLE_RATE)]
+        sox_args += ["-r", str(target_rate)]
     if needs_requantize:
         sox_args += ["-b", "16"]
+    
     sox_args.append(str(output_path))
+
+    if needs_speed:
+        sox_args += ["speed", str(speed)]
 
     try:
         subprocess.run(sox_args, capture_output=True, check=True, timeout=30)
@@ -925,6 +910,10 @@ def optimize_sample(
 def cmd_optimize(args):
     """Optimize a single sample on device."""
     slot = args.slot
+    downsample_rate = getattr(args, 'rate', None)
+    speed = getattr(args, 'speed', None)
+    pitch = getattr(args, 'pitch', 0.0)
+    mono = not getattr(args, 'keep_stereo', False)
 
     with EP133Client(args.device) as client:
         # Lightweight check: slot exists and get the name for display/re-upload.
@@ -962,7 +951,7 @@ def cmd_optimize(args):
             )
 
             print(f"  {Colors.FG_DIM}Optimizing...{Colors.RESET}")
-            success, msg, _, opt_size = optimize_sample(temp_path)
+            success, msg, _, opt_size = optimize_sample(temp_path, downsample_rate=downsample_rate, speed=speed, mono=mono)
 
             if not success:
                 print(f"  ❌ {msg}")
@@ -979,14 +968,14 @@ def cmd_optimize(args):
             print(f"  {Colors.FG_DIM}Backup:{Colors.RESET} {backup_path}")
             print(f"  {format_size(original_size)} → {format_size(opt_size)}  ({savings_pct:.1f}% saved)")
 
-            if savings < 5 * 1024:
+            if savings < 5 * 1024 and speed is None and downsample_rate is None:
                 print(f"  {Colors.FG_YELLOW}⚠ Savings too small (<5KB), skipping upload{Colors.RESET}")
                 return 0
 
             opt_path = temp_path.with_suffix(".opt.wav")
             print(f"  {Colors.FG_DIM}Uploading...{Colors.RESET}")
             try:
-                client.put(opt_path, slot, name=info.name, progress=False)
+                client.put(opt_path, slot, name=info.name, progress=False, pitch=pitch)
                 print(f"  {Colors.FG_GREEN}✓ Done{Colors.RESET}")
             except EP133Error as e:
                 print(f"  ❌ Upload failed: {e}")
@@ -1166,8 +1155,9 @@ def cmd_put(args):
     with EP133Client(args.device) as client:
         try:
             name = args.name if args.name else None
+            pitch = getattr(args, 'pitch', 0)
             print(f"  Uploading {input_path.name} → slot {args.slot}...")
-            client.put(input_path, args.slot, name=name, progress=True)
+            client.put(input_path, args.slot, name=name, progress=True, pitch=pitch)
             print(f"  {Colors.FG_GREEN}✓{Colors.RESET} Uploaded to slot {args.slot}")
         except EP133Error as e:
             print(f"  ❌ Error: {e}")
@@ -1713,6 +1703,7 @@ def main():
     put_parser.add_argument("file", help="WAV file to upload")
     put_parser.add_argument("slot", type=validate_slot, help="Target slot (1-999)")
     put_parser.add_argument("--name", help="Sample name")
+    put_parser.add_argument("--pitch", type=float, default=0.0, help="Pitch offset in semitones (e.g. -12.0)")
 
     # move
     mv_parser = subparsers.add_parser("mv", help="Move sample between slots")
@@ -1847,6 +1838,10 @@ def main():
         action="store_true",
         help="Skip confirmation",
     )
+    opt_parser.add_argument("--rate", type=int, help="Target downsample rate (e.g. 22050 or 11025)")
+    opt_parser.add_argument("--speed", type=float, help="Time stretch speed multiplier (e.g. 2.0 for double speed)")
+    opt_parser.add_argument("--pitch", type=float, default=0.0, help="Pitch offset in semitones (e.g. -12.0) applied after speed")
+    opt_parser.add_argument("--keep-stereo", action="store_true", help="Do not downmix stereo to mono")
 
     # optimize-all
     optall_parser = subparsers.add_parser(
