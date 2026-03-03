@@ -123,7 +123,7 @@ def test_delete_key_shows_confirm_then_submits(monkeypatch):
         async with app.run_test() as pilot:
             _make_ready(app)
 
-            await pilot.press("x")
+            await pilot.press("backspace")
             await pilot.pause()
             assert isinstance(app.screen, ConfirmModal)
             app.screen.dismiss(True)
@@ -143,7 +143,7 @@ def test_delete_confirm_cancel_skips_request(monkeypatch):
         async with app.run_test() as pilot:
             _make_ready(app)
 
-            await pilot.press("x")
+            await pilot.press("backspace")
             await pilot.pause()
             assert isinstance(app.screen, ConfirmModal)
             app.screen.dismiss(False)
@@ -163,7 +163,7 @@ def test_requests_are_queued_while_busy(monkeypatch):
         async with app.run_test() as pilot:
             _make_ready(app)
             app.state.set_busy(True, "Running refresh_inventory...")
-            await pilot.press("x")
+            await pilot.press("backspace")
             await pilot.pause()
             assert isinstance(app.screen, ConfirmModal)
             app.screen.dismiss(True)
@@ -203,7 +203,7 @@ def test_select_key_opens_modal_and_sets_selection(monkeypatch):
         async with app.run_test() as pilot:
             _make_ready(app)
 
-            await pilot.press("s")
+            await pilot.press("v")
             await pilot.pause()
             assert isinstance(app.screen, TextInputModal)
             app.screen.dismiss("1")
@@ -223,7 +223,7 @@ def test_select_empty_expression_clears_selection(monkeypatch):
             _make_ready(app)
             app.state.selected_slots = {1}
 
-            await pilot.press("s")
+            await pilot.press("v")
             await pilot.pause()
             assert isinstance(app.screen, TextInputModal)
             app.screen.dismiss("")  # empty = clear
@@ -262,7 +262,7 @@ def test_delete_on_selection_queues_bulk_delete(monkeypatch):
             _make_ready(app)
             app.state.selected_slots = {1}
 
-            await pilot.press("x")
+            await pilot.press("backspace")
             await pilot.pause()
             assert isinstance(app.screen, ConfirmModal)
             app.screen.dismiss(True)
@@ -285,7 +285,7 @@ def test_delete_with_no_selection_uses_single_delete(monkeypatch):
             _make_ready(app)
             assert app.state.selected_slots == set()
 
-            await pilot.press("x")
+            await pilot.press("backspace")
             await pilot.pause()
             assert isinstance(app.screen, ConfirmModal)
             app.screen.dismiss(True)

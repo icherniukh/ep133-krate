@@ -14,6 +14,7 @@ class SlotRow:
     channels: int = 0
     samplerate: int = SAMPLE_RATE
     exists: bool = False
+    loaded: bool = False
 
 
 
@@ -38,16 +39,23 @@ class TuiState:
 
     def apply_inventory(self, sounds: Mapping[int, Mapping[str, Any]]) -> None:
         fresh = initial_slots(MAX_SLOTS)
+
+        # When inventory is applied, it means we have listed all slots.
+        # Mark all of them as loaded.
+        for r in fresh.values():
+            r.loaded = True
+
         for slot, entry in sounds.items():
             if not (1 <= int(slot) <= MAX_SLOTS):
                 continue
             row = fresh[int(slot)]
             row.exists = True
+            row.loaded = True
             row.name = str(entry.get("name") or f"Slot {int(slot):03d}")
             row.size_bytes = int(entry.get("size") or 0)
 
         for slot, details in self.details_by_slot.items():
-            if slot in fresh and fresh[slot].exists:
+            if slot in fresh:
                 self._apply_details_to_row(fresh[slot], details)
 
         self.slots = fresh
@@ -60,6 +68,7 @@ class TuiState:
             row.name = str(details.get("name"))
         # is_empty=True → exists=False; is_empty=False → exists=True; absent → keep current
         row.exists = not bool(details.get("is_empty", not row.exists))
+        row.loaded = True
         self._apply_details_to_row(row, details)
         self.details_by_slot[slot] = dict(details)
 
