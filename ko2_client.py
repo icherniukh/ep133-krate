@@ -9,10 +9,10 @@ from __future__ import annotations
 
 import sys
 import time
-import struct
 import json
 from pathlib import Path
 from dataclasses import dataclass
+from queue import Empty
 from typing import Optional, Callable
 
 try:
@@ -30,7 +30,7 @@ from ko2_models import (
     MetadataGetLegacyRequest, MetadataGetRequest, MetadataSetRequest,
     FileListRequest, InfoRequest, DeleteRequest
 )
-from ko2_types import Packed7
+from ko2_types import Packed7, U14LE
 from ko2_operations import UploadTransaction
 
 
@@ -207,7 +207,6 @@ class EP133Client:
         for msg in init_msgs:
             self._emit_trace("TX", msg)
             self._outport.send(mido.Message("sysex", data=msg[1:-1]))
-            time.sleep(0.05)
 
     def _emit_trace(self, direction: str, data: bytes) -> None:
         trace_hook = getattr(self, "_trace_hook", None)
@@ -231,24 +230,82 @@ class EP133Client:
         self._send_sysex(msg.build(seq=s))
         return s
 
+    def _drain_pending(self) -> None:
+        self._prefetched_msgs = []
+        for _ in self._inport.iter_pending():
+            pass
+
+    def _iter_pending_messages(self):
+        prefetched = getattr(self, "_prefetched_msgs", [])
+        pending = list(self._inport.iter_pending())
+        if pending:
+            prefetched.extend(pending)
+        while prefetched:
+            yield prefetched.pop(0)
+
+    def _iter_pending_sysex(self):
+        for msg in self._iter_pending_messages():
+            if msg.type != "sysex":
+                continue
+            raw = bytes([SYSEX_START]) + bytes(msg.data) + bytes([SYSEX_END])
+            self._emit_trace("RX", raw)
+            yield raw
+
+    def _recv_message_blocking(self, timeout: float) -> Optional[mido.Message]:
+        """Receive one MIDI message with timeout, using backend queue blocking when available."""
+        if timeout <= 0:
+            return None
+        prefetched = getattr(self, "_prefetched_msgs", [])
+        if prefetched:
+            return prefetched.pop(0)
+
+        # Fast path for mido.rtmidi Input: block on the underlying queue with timeout.
+        parser_queue = getattr(self._inport, "_queue", None)
+        raw_queue = getattr(parser_queue, "_queue", None)
+        if raw_queue is not None and hasattr(raw_queue, "get"):
+            try:
+                return raw_queue.get(timeout=timeout)
+            except Empty:
+                return None
+
+        # Backend-agnostic fallback with light sleep to avoid hot spinning.
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            if hasattr(self._inport, "receive"):
+                msg = self._inport.receive(block=False)
+                if msg is not None:
+                    return msg
+            else:
+                pending = list(self._inport.iter_pending())
+                if pending:
+                    if len(pending) > 1:
+                        prefetched.extend(pending[1:])
+                    return pending[0]
+            time.sleep(0.001)
+        return None
+
+    def _recv_next_sysex(self, timeout: float) -> bytes | None:
+        """Receive the next SysEx frame within timeout, returning raw bytes including F0/F7."""
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            for raw in self._iter_pending_sysex():
+                return raw
+            remaining = deadline - time.monotonic()
+            msg = self._recv_message_blocking(remaining)
+            if msg is None:
+                return None
+            if msg.type != "sysex":
+                continue
+            raw = bytes([SYSEX_START]) + bytes(msg.data) + bytes([SYSEX_END])
+            self._emit_trace("RX", raw)
+            return raw
+        return None
+
     def _send_and_wait(self, data: bytes, timeout: float = 2.0, expect_cmd: int | None = None) -> bytes | None:
-        for _ in self._inport.iter_pending(): pass
+        self._drain_pending()
         self._emit_trace("TX", data)
         self._outport.send(mido.Message("sysex", data=data[1:-1]))
-        deadline = time.time() + timeout
-        while time.time() < deadline:
-            for msg in self._inport.iter_pending():
-                if msg.type == "sysex":
-                    raw = bytes([SYSEX_START]) + bytes(msg.data) + bytes([SYSEX_END])
-                    self._emit_trace("RX", raw)
-                    if len(raw) < 8 or raw[1:4] != TE_MFG_ID or raw[4:6] != DEVICE_FAMILY: continue
-                    cmd = raw[6]
-                    # Accept both 0x2x and 0x3x device response classes.
-                    if (cmd & 0xE0) != 0x20: continue
-                    if expect_cmd is not None and cmd != (expect_cmd & 0x7F): continue
-                    return raw
-            time.sleep(0.01)
-        return None
+        return self._recv_matching(timeout=timeout, expect_cmd=expect_cmd)
 
     def _send_and_wait_msg(
         self,
@@ -260,7 +317,7 @@ class EP133Client:
         # Drain stale responses first, then send once and read the single response.
         # Historically this sent twice (send in _send_msg + drain + resend in _send_and_wait),
         # which reset the device's page cursor for stateful paginated commands (METADATA GET).
-        for _ in self._inport.iter_pending(): pass
+        self._drain_pending()
         seq = self._send_msg(msg, seq=seq)
         expected = expect_resp_cmd or (msg.opcode - 0x40)
         raw = self._recv_matching(timeout=timeout, expect_cmd=expected)
@@ -268,31 +325,33 @@ class EP133Client:
 
     def _recv_matching(self, timeout: float = 2.0, expect_cmd: int | None = None) -> bytes | None:
         """Read the next TE SysEx response matching expect_cmd, without sending anything."""
-        deadline = time.time() + timeout
-        while time.time() < deadline:
-            for msg in self._inport.iter_pending():
-                if msg.type == "sysex":
-                    raw = bytes([SYSEX_START]) + bytes(msg.data) + bytes([SYSEX_END])
-                    self._emit_trace("RX", raw)
-                    if len(raw) < 8 or raw[1:4] != TE_MFG_ID or raw[4:6] != DEVICE_FAMILY: continue
-                    cmd = raw[6]
-                    # Accept both 0x2x and 0x3x device response classes.
-                    if (cmd & 0xE0) != 0x20: continue
-                    if expect_cmd is not None and cmd != (expect_cmd & 0x7F): continue
-                    return raw
-            time.sleep(0.01)
+        deadline = time.monotonic() + timeout
+        expected = (expect_cmd & 0x7F) if expect_cmd is not None else None
+        while time.monotonic() < deadline:
+            raw = self._recv_next_sysex(deadline - time.monotonic())
+            if raw is None:
+                return None
+            if len(raw) < 8 or raw[1:4] != TE_MFG_ID or raw[4:6] != DEVICE_FAMILY:
+                continue
+            cmd = raw[6]
+            # Accept both 0x2x and 0x3x device response classes.
+            if (cmd & 0xE0) != 0x20:
+                continue
+            if expected is not None and cmd != expected:
+                continue
+            return raw
         return None
 
     def _recv_sysex(self, timeout: float = 0.5, filter_fn: Optional[Callable] = None) -> list[bytes]:
-        responses, deadline = [], time.time() + timeout
-        while time.time() < deadline:
-            for msg in self._inport.iter_pending():
-                if msg.type == "sysex":
-                    data = bytes([SYSEX_START]) + bytes(msg.data) + bytes([SYSEX_END])
-                    self._emit_trace("RX", data)
-                    if filter_fn is None or filter_fn(data): responses.append(data)
-            if responses and filter_fn is None: break
-            time.sleep(0.01)
+        responses, deadline = [], time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            data = self._recv_next_sysex(deadline - time.monotonic())
+            if data is None:
+                break
+            if filter_fn is None or filter_fn(data):
+                responses.append(data)
+            if responses and filter_fn is None:
+                break
         return responses
 
     def _send_file_request(
@@ -303,8 +362,7 @@ class EP133Client:
         seq: Optional[int] = None,
     ) -> tuple[int, bytes] | None:
         """Send a file-group request and return (status, unpacked_payload)."""
-        for _ in self._inport.iter_pending():
-            pass
+        self._drain_pending()
         self._send_msg(msg, seq=seq)
         expected = expect_resp_cmd or (msg.opcode - 0x40)
         raw = self._recv_matching(timeout=timeout, expect_cmd=expected)
@@ -321,8 +379,7 @@ class EP133Client:
 
     def device_info(self) -> dict | None:
         self._send_msg(InfoRequest())
-        time.sleep(0.2)
-        responses = self._recv_sysex(timeout=0.4)
+        responses = self._recv_sysex(timeout=0.6)
         for resp in responses:
             if len(resp) > 7 and resp[6] in (0x37, SysExCmd.INFO):
                 # ... JSON parse logic ...
@@ -343,8 +400,7 @@ class EP133Client:
 
     def get_meta_legacy(self, slot: int) -> dict | None:
         self._send_msg(MetadataGetLegacyRequest(slot=slot), seq=slot & 0x7F)
-        time.sleep(0.2)
-        responses = self._recv_sysex(timeout=0.4)
+        responses = self._recv_sysex(timeout=0.6)
         for resp in responses:
             if len(resp) > 8 and resp[6] == 0x35:
                 payload = Packed7.unpack(resp[8:-1])
@@ -464,8 +520,16 @@ class EP133Client:
         self._initialize()
 
     def delete(self, slot: int) -> None:
-        self._send_msg(DeleteRequest(slot=slot))
-        time.sleep(0.1)
+        resp = self._send_file_request(
+            DeleteRequest(slot=slot),
+            timeout=2.0,
+            expect_resp_cmd=(SysExCmd.LIST_FILES - 0x40),
+        )
+        if not resp:
+            raise EP133Error("Delete failed: no response")
+        status, _payload = resp
+        if status != 0:
+            raise EP133Error(f"Delete failed: status=0x{status:02X}")
 
     def rename(self, slot: int, new_name: str) -> None:
         sounds = self.list_sounds()
@@ -513,7 +577,6 @@ class EP133Client:
         return output_path
 
     def _download_data(self, slot: int, debug: bool = False) -> bytes:
-        import struct
         seq = 0x2E
         init_resp = self._send_file_request(
             DownloadInitRequest(slot=slot),
@@ -532,44 +595,46 @@ class EP133Client:
         if not file_info:
             raise EP133Error("Failed to get file info")
 
-        all_data = []
+        all_data = bytearray()
         page = 0
         received = 0
 
         while received < file_info["size"]:
-            for _ in self._inport.iter_pending(): pass
-            
+            self._drain_pending()
             seq = (seq + 1) & 0x7F
             self._send_msg(DownloadChunkRequest(page=page), seq=seq)
-            time.sleep(0.05)
-
-            chunk_received = False
-            timeout_counter = 0
-            while timeout_counter < 50 and not chunk_received:
-                for msg in self._inport.iter_pending():
-                    if msg.type == "sysex":
-                        raw = bytes([SYSEX_START]) + bytes(msg.data) + bytes([SYSEX_END])
-                        self._emit_trace("RX", raw)
-                        data = list(msg.data)
-                        if len(data) > 12 and data[5] in (SysExCmd.RESPONSE, SysExCmd.RESPONSE_ALT) and data[7] == CMD_FILE:
-                            decoded = Packed7.unpack(bytes(data[9:]))
-                            if decoded and len(decoded) > 2:
-                                from ko2_types import U14LE
-                                echo_page, _ = U14LE.decode(decoded[:2])
-                                if int(echo_page) != page:
-                                    if debug: print(f"  ⚠ Page mismatch: expected {page}, got {int(echo_page)}")
-                                    continue
-                                all_data.extend(decoded[2:])
-                                received += len(decoded) - 2
-                                chunk_received = True
-                if chunk_received: break
-                time.sleep(0.05)
-                timeout_counter += 1
-
-            if not chunk_received: break
+            chunk = self._recv_download_chunk(page=page, timeout=2.5, debug=debug)
+            if chunk is None:
+                break
+            all_data.extend(chunk)
+            received += len(chunk)
             page = (page + 1) & 0x3FFF
 
         return bytes(all_data)[: file_info["size"]]
+
+    def _recv_download_chunk(self, page: int, timeout: float = 2.5, debug: bool = False) -> bytes | None:
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            raw = self._recv_next_sysex(deadline - time.monotonic())
+            if raw is None:
+                return None
+            body = raw[1:-1]
+            if (
+                len(body) <= 12
+                or body[5] not in (SysExCmd.RESPONSE, SysExCmd.RESPONSE_ALT)
+                or body[7] != CMD_FILE
+            ):
+                continue
+            decoded = Packed7.unpack(body[9:])
+            if len(decoded) <= 2:
+                continue
+            echo_page, _ = U14LE.decode(decoded[:2])
+            if int(echo_page) != page:
+                if debug:
+                    print(f"  ⚠ Page mismatch: expected {page}, got {int(echo_page)}")
+                continue
+            return bytes(decoded[2:])
+        return None
 
     def probe_channels(self, slot: int) -> tuple[int, int]:
         """Probe channel count and size via a single-chunk partial download.
@@ -581,7 +646,6 @@ class EP133Client:
         raw PCM byte count from the init response, or 0 on failure.
         Does NOT complete the download — the device silently discards the session.
         """
-        import struct
         seq = 0x2E
         init_resp = self._send_file_request(
             DownloadInitRequest(slot=slot),
@@ -601,32 +665,10 @@ class EP133Client:
             return 1, 0
 
         # Request just page 0
-        for _ in self._inport.iter_pending():
-            pass
+        self._drain_pending()
         seq = (seq + 1) & 0x7F
         self._send_msg(DownloadChunkRequest(page=0), seq=seq)
-        time.sleep(0.05)
-
-        chunk_data = None
-        timeout_counter = 0
-        while timeout_counter < 50:
-            for msg in self._inport.iter_pending():
-                if msg.type == "sysex":
-                    raw = bytes([SYSEX_START]) + bytes(msg.data) + bytes([SYSEX_END])
-                    self._emit_trace("RX", raw)
-                    data = list(msg.data)
-                    if len(data) > 12 and data[5] in (SysExCmd.RESPONSE, SysExCmd.RESPONSE_ALT) and data[7] == CMD_FILE:
-                        decoded = Packed7.unpack(bytes(data[9:]))
-                        if decoded and len(decoded) > 2:
-                            from ko2_types import U14LE
-                            echo_page, _ = U14LE.decode(decoded[:2])
-                            if int(echo_page) == 0:
-                                chunk_data = bytes(decoded[2:])
-                                break
-            if chunk_data is not None:
-                break
-            time.sleep(0.05)
-            timeout_counter += 1
+        chunk_data = self._recv_download_chunk(page=0, timeout=2.5)
 
         if not chunk_data:
             return 1, file_info["size"]

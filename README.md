@@ -22,6 +22,12 @@ python ko2.py tui
 **Phase 2 (TUI):** `[###-------] 30%`  
 **Phase 3 (Desktop/Web/Mobile):** `[----------] 0%`
 
+## Performance Notes (2026-03-02)
+
+- Download receive path is now event-driven (blocking MIDI queue reads) instead of hot-spin polling.
+- On-device profile run for a ~272KB sample improved from ~6.34s to ~2.60s (`ko2 get`, cProfile run).
+- TUI worker now emits operation timing telemetry and uses selective metadata hydration for post-op refresh.
+
 ## Tools
 
 ### 1. ko2-list - Backup Sample Lister

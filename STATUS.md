@@ -120,3 +120,67 @@ Our core objective is to wrap the robust `ko2_client` into a responsive, async-s
 ### Step 4: Stretch Goals (Phase 3 Prep)
 - [ ] Capture the "Audition" (0x76) protocol so the TUI can trigger remote playback.
 - [ ] Pad mapping visualizer (if the Group A/B/C/D mapping is fully decoded).
+
+---
+
+## 🚧 Active Work Items (2026-03-02)
+
+Tracking convention:
+- Priority: `P0` critical, `P1` high, `P2` normal.
+- Status: `[ ]` todo, `[x]` done.
+- Done means: implementation + tests + short note in this file.
+
+### KO2-001 (`P0`) Download latency bug hunt and timer/sleep removal
+- [x] Scan active runtime paths for fixed delays (`sleep`, timer polling loops), especially download paths.
+- [x] Remove/replace avoidable fixed waits in hot paths; document any protocol-required delay.
+- [x] Profile a real download run and attach timing breakdown.
+- [x] Acceptance: measurable download wall-time improvement on repeated runs.
+- Result:
+  - Removed fixed sleeps from active receive/download paths in `ko2_client.py` (`_download_data`, `_recv_matching`, `_recv_sysex`, `_send_and_wait`, `_initialize`), and replaced delete sleep with response-based ack handling.
+  - On-device benchmark (slot `001`, size `28636` bytes, `~67` download pages): old fixed-sleep floor was `~3.350s` (`67 * 50ms`); new measured median download time is `0.655s` (5 runs), total median for `info+download+save` is `0.816s`.
+  - cProfile-guided follow-up optimization replaced hot-spin polling with blocking queue receive in `ko2_client.py`; same-slot `ko2 get 43` (size `279502` bytes, ~272KB) improved from `~6.34s` total profile run to `~2.60s` profiled runtime, and plain wall clock is now `~2.08s`.
+
+### KO2-002 (`P1`) Log view hide/unhide via `l`
+- [ ] Add `l` keybinding in TUI to toggle log panel visibility.
+- [ ] Preserve log content while hidden.
+- [ ] Acceptance: no focus or interaction regressions while toggling during active work.
+
+### KO2-003 (`P0`) Investigate why some operations are slow
+- [x] Instrument operation timings (refresh, details, copy/move, optimize, squash, download/upload).
+- [ ] Identify top bottlenecks and separate protocol wait vs app overhead.
+- [ ] Fix at least the top bottlenecks or split into follow-up items with numbers.
+- [ ] Acceptance: before/after timing report with p50/p95 for major operations.
+- Note:
+  - `ko2_tui.worker.DeviceWorker` now emits per-operation timing telemetry (`op_timing`) including total runtime, phase breakdown, rolling p50, and rolling p95.
+  - Post-op metadata hydration now supports selective slot hydration (instead of always hydrating all slots), reducing avoidable refresh overhead after single-slot operations.
+
+### KO2-004 (`P1`) Optimize checklist ergonomics and key flow
+- [ ] `space`: toggle selection and move cursor down only when toggled ON.
+- [ ] `enter`: use current selection/context and proceed.
+- [ ] `escape`: cancel current modal/mode consistently.
+- [ ] Rename first optimize option label to either `Unstereofy` or `Unstereo` (pick one).
+- [ ] Acceptance: keyboard flow validated by tests and manual pass.
+
+### KO2-005 (`P1`) Show progress indicator during processing
+- [ ] Add always-visible busy indicator while worker is processing.
+- [ ] Add progress feedback for long operations (download/optimize/squash/bulk actions).
+- [ ] Acceptance: user can see active processing and completion state at all times.
+
+### KO2-006 (`P1`) Show operation duration and split debug/dialog logs
+- [ ] Include elapsed time in completion messages for operations.
+- [ ] Rework debug view into dialog-style informational output.
+- [ ] Stop showing command lines in dialog view.
+- [ ] Log commands/debug trace to one file and dialog messages to a separate file.
+- [ ] Acceptance: two independent log files, both validated and documented.
+
+### KO2-007 (`P2`) `Tab` key should play/audition sample
+- [ ] Bind `Tab` to play selected non-empty slot.
+- [ ] Handle empty slot gracefully.
+- [ ] If playback protocol remains unknown, capture/decode required wire traffic first.
+- [ ] Acceptance: audition works from current selection in TUI.
+
+### KO2-008 (`P1`) Sorting with in-place-only constraints
+- [ ] Implement sample sorting in TUI list.
+- [ ] In sorted mode, block invalid behavior: no move/copy/interact with empty slots.
+- [ ] Allow only in-place-safe operations while sorted.
+- [ ] Acceptance: sorted mode preserves slot integrity and enforces constraints clearly.
