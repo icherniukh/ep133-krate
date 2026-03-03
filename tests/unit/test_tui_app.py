@@ -3,9 +3,9 @@ from __future__ import annotations
 import asyncio
 
 from ko2_tui.app import KO2TUIApp
-from ko2_tui.ui import ConfirmModal, TextInputModal, UploadModal
+from ko2_tui.ui import ConfirmModal, OptimizeModal, TextInputModal, UploadModal
 from ko2_tui.worker import WorkerEvent
-from textual.widgets import DataTable
+from textual.widgets import Checkbox, DataTable, RichLog, Static
 
 
 class StubWorker:
@@ -403,3 +403,527 @@ def test_trace_friendly_label_uses_hydrated_name():
     rendered = app._with_friendly_trace_name(line, trace)
 
     assert 'label="nt hh closed b"' in rendered
+
+
+def test_trace_event_renders_user_friendly_debug_message():
+    app = KO2TUIApp(device_name="EP-133", debug=True)
+    app.state.apply_inventory({201: {"name": "201.pcm", "size": 9000, "node_id": 201}})
+    app.state.apply_inventory_updates({201: {"name": "nt hh closed b"}})
+    lines: list[str] = []
+    app._log = lines.append  # type: ignore[method-assign]
+
+    app._handle_event(
+        WorkerEvent(
+            kind="trace",
+            payload={"trace": {"dir": "TX", "op": "GET_INIT", "slot": 201, "name": "201.pcm"}},
+        )
+    )
+
+    assert lines == ['Debug: download requested for slot 201 "nt hh closed b"']
+
+
+def test_trace_event_suppresses_chunk_chatter():
+    app = KO2TUIApp(device_name="EP-133", debug=True)
+    lines: list[str] = []
+    app._log = lines.append  # type: ignore[method-assign]
+
+    app._handle_event(
+        WorkerEvent(
+            kind="trace",
+            payload={"trace": {"dir": "TX", "op": "GET_DATA", "slot": 43}},
+        )
+    )
+
+    assert lines == []
+
+
+def test_slot_refresh_does_not_change_selected_slot(monkeypatch):
+    monkeypatch.setattr("ko2_tui.app.DeviceWorker", StubWorker)
+
+    async def _run():
+        app = KO2TUIApp(device_name="EP-133", debug=False)
+        async with app.run_test() as _pilot:
+            _make_ready(app)
+            app.state.selected_slot = 1
+
+            app._handle_event(
+                WorkerEvent(
+                    kind="slot_refresh",
+                    payload={
+                        "slot": 2,
+                        "details": {
+                            "name": "fresh snare",
+                            "channels": 1,
+                            "samplerate": 46875,
+                            "size_bytes": 2222,
+                            "is_empty": False,
+                        },
+                    },
+                )
+            )
+
+            assert app.state.selected_slot == 1
+            assert app.state.slots[2].name == "fresh snare"
+            assert app.state.slots[2].size_bytes == 2222
+
+    asyncio.run(_run())
+
+
+def test_details_event_queues_waveform_request(monkeypatch):
+    class _EmptyWaveformStore:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def get_for_slot(self, slot, sig):
+            return None
+
+        def set_for_slot(self, slot, sig, bins, fingerprint=None):
+            return None
+
+    monkeypatch.setattr("ko2_tui.app.DeviceWorker", StubWorker)
+    monkeypatch.setattr("ko2_tui.app.WaveformStore", _EmptyWaveformStore)
+
+    async def _run():
+        app = KO2TUIApp(device_name="EP-133", debug=False)
+        async with app.run_test() as _pilot:
+            _make_ready(app)
+
+            before = list(_request_ops(app))
+            app._handle_event(
+                WorkerEvent(
+                    kind="details",
+                    payload={
+                        "slot": 1,
+                        "details": {
+                            "name": "afterparty kick",
+                            "channels": 1,
+                            "samplerate": 46875,
+                            "size_bytes": 2345,
+                            "is_empty": False,
+                        },
+                    },
+                )
+            )
+
+            after = _request_ops(app)
+            assert len(after) == len(before) + 1
+            assert after[-1] == "waveform"
+            assert 1 in app._waveform_pending
+
+            app._handle_event(
+                WorkerEvent(
+                    kind="waveform",
+                    payload={
+                        "slot": 1,
+                        "bins": {"mins": [-64, -12, -40], "maxs": [64, 45, 20], "width": 3},
+                    },
+                )
+            )
+            assert 1 not in app._waveform_pending
+            assert app._waveform_by_slot.get(1) == {"mins": [-64, -12, -40], "maxs": [64, 45, 20], "width": 3}
+
+    asyncio.run(_run())
+
+
+def test_cursor_up_wraps_from_first_to_last_slot(monkeypatch):
+    monkeypatch.setattr("ko2_tui.app.DeviceWorker", StubWorker)
+
+    async def _run():
+        app = KO2TUIApp(device_name="EP-133", debug=False)
+        async with app.run_test() as pilot:
+            _make_ready(app)
+            table = app.query_one("#slots", DataTable)
+            table.move_cursor(row=0, animate=False)
+            await pilot.pause()
+
+            await pilot.press("up")
+            await pilot.pause()
+
+            assert table.cursor_row == table.row_count - 1
+            assert app.state.selected_slot == 999
+
+    asyncio.run(_run())
+
+
+def test_cursor_down_wraps_from_last_to_first_slot(monkeypatch):
+    monkeypatch.setattr("ko2_tui.app.DeviceWorker", StubWorker)
+
+    async def _run():
+        app = KO2TUIApp(device_name="EP-133", debug=False)
+        async with app.run_test() as pilot:
+            _make_ready(app)
+            table = app.query_one("#slots", DataTable)
+            table.move_cursor(row=table.row_count - 1, animate=False)
+            await pilot.pause()
+
+            await pilot.press("down")
+            await pilot.pause()
+
+            assert table.cursor_row == 0
+            assert app.state.selected_slot == 1
+
+    asyncio.run(_run())
+
+
+def test_cursor_keys_move_one_row_in_middle(monkeypatch):
+    monkeypatch.setattr("ko2_tui.app.DeviceWorker", StubWorker)
+
+    async def _run():
+        app = KO2TUIApp(device_name="EP-133", debug=False)
+        async with app.run_test() as pilot:
+            _make_ready(app)
+            table = app.query_one("#slots", DataTable)
+            table.move_cursor(row=500, animate=False)
+            await pilot.pause()
+
+            await pilot.press("up")
+            await pilot.pause()
+            assert table.cursor_row == 499
+
+            await pilot.press("down")
+            await pilot.pause()
+            assert table.cursor_row == 500
+
+    asyncio.run(_run())
+
+
+def test_log_view_toggle_hides_and_preserves_lines(monkeypatch):
+    monkeypatch.setattr("ko2_tui.app.DeviceWorker", StubWorker)
+
+    async def _run():
+        app = KO2TUIApp(device_name="EP-133", debug=False)
+        async with app.run_test() as pilot:
+            _make_ready(app)
+            logs = app.query_one("#logs", RichLog)
+
+            app._log("line-a")
+            await pilot.pause()
+            before = len(logs.lines)
+            assert before >= 1
+            assert not logs.has_class("hidden")
+
+            await pilot.press("l")
+            await pilot.pause()
+            assert logs.has_class("hidden")
+            assert len(logs.lines) == before
+
+            app._log("line-b")
+            await pilot.pause()
+            mid = len(logs.lines)
+            assert mid == before + 1
+
+            await pilot.press("l")
+            await pilot.pause()
+            assert not logs.has_class("hidden")
+            assert len(logs.lines) == mid
+
+    asyncio.run(_run())
+
+
+def test_log_toggle_does_not_break_table_navigation(monkeypatch):
+    monkeypatch.setattr("ko2_tui.app.DeviceWorker", StubWorker)
+
+    async def _run():
+        app = KO2TUIApp(device_name="EP-133", debug=False)
+        async with app.run_test() as pilot:
+            _make_ready(app)
+            table = app.query_one("#slots", DataTable)
+            table.move_cursor(row=12, animate=False)
+            await pilot.pause()
+
+            await pilot.press("l")
+            await pilot.pause()
+            await pilot.press("j")
+            await pilot.pause()
+
+            assert table.cursor_row == 13
+            assert app.state.selected_slot == 14
+
+    asyncio.run(_run())
+
+
+def test_enter_key_triggers_details_request(monkeypatch):
+    monkeypatch.setattr("ko2_tui.app.DeviceWorker", StubWorker)
+
+    async def _run():
+        app = KO2TUIApp(device_name="EP-133", debug=False)
+        async with app.run_test() as pilot:
+            _make_ready(app)
+            before = list(_request_ops(app))
+
+            await pilot.press("enter")
+            await pilot.pause()
+
+            after = _request_ops(app)
+            assert len(after) == len(before) + 1
+            assert after[-1] == "fetch_details"
+
+    asyncio.run(_run())
+
+
+def test_enter_drops_in_move_mode(monkeypatch):
+    monkeypatch.setattr("ko2_tui.app.DeviceWorker", StubWorker)
+
+    async def _run():
+        app = KO2TUIApp(device_name="EP-133", debug=False)
+        async with app.run_test() as pilot:
+            _make_ready(app)
+            before = list(_request_ops(app))
+
+            await pilot.press("m")
+            await pilot.pause()
+            await pilot.press("j")
+            await pilot.pause()
+            await pilot.press("enter")
+            await pilot.pause()
+
+            after = _request_ops(app)
+            assert len(after) == len(before) + 1
+            assert after[-1] == "move"
+
+    asyncio.run(_run())
+
+
+def test_space_select_moves_down_only_on_toggle_on(monkeypatch):
+    monkeypatch.setattr("ko2_tui.app.DeviceWorker", StubWorker)
+
+    async def _run():
+        app = KO2TUIApp(device_name="EP-133", debug=False)
+        async with app.run_test() as pilot:
+            _make_ready(app)
+            table = app.query_one("#slots", DataTable)
+            table.move_cursor(row=10, animate=False)
+            await pilot.pause()
+
+            await pilot.press("space")
+            await pilot.pause()
+            assert 11 in app.state.selected_slots
+            assert table.cursor_row == 11
+
+            await pilot.press("space")
+            await pilot.pause()
+            assert 12 in app.state.selected_slots
+            assert table.cursor_row == 12
+
+            table.move_cursor(row=10, animate=False)
+            await pilot.pause()
+            await pilot.press("space")
+            await pilot.pause()
+            assert 11 not in app.state.selected_slots
+            assert table.cursor_row == 10
+
+    asyncio.run(_run())
+
+
+def test_escape_cancels_move_mode(monkeypatch):
+    monkeypatch.setattr("ko2_tui.app.DeviceWorker", StubWorker)
+
+    async def _run():
+        app = KO2TUIApp(device_name="EP-133", debug=False)
+        async with app.run_test() as pilot:
+            _make_ready(app)
+            await pilot.press("m")
+            await pilot.pause()
+            assert app.moving_src is not None
+
+            await pilot.press("escape")
+            await pilot.pause()
+            assert app.moving_src is None
+
+    asyncio.run(_run())
+
+
+def test_status_shows_busy_and_idle_marker(monkeypatch):
+    monkeypatch.setattr("ko2_tui.app.DeviceWorker", StubWorker)
+
+    async def _run():
+            app = KO2TUIApp(device_name="EP-133", debug=False)
+            async with app.run_test() as _pilot:
+                _make_ready(app)
+                status_widget = app.query_one("#status", Static)
+                assert "IDLE" in str(status_widget.render())
+
+                app._handle_event(WorkerEvent(kind="busy", payload={"op": "download"}))
+                assert "BUSY" in str(status_widget.render())
+
+    asyncio.run(_run())
+
+
+def test_progress_event_updates_status(monkeypatch):
+    monkeypatch.setattr("ko2_tui.app.DeviceWorker", StubWorker)
+
+    async def _run():
+        app = KO2TUIApp(device_name="EP-133", debug=False)
+        async with app.run_test() as _pilot:
+            _make_ready(app)
+            app._handle_event(
+                WorkerEvent(
+                    kind="progress",
+                    payload={"op": "optimize", "message": "Optimizing slot 003", "current": 2, "total": 5},
+                )
+            )
+            status_widget = app.query_one("#status", Static)
+            rendered = str(status_widget.render())
+            assert "Optimizing slot 003 (2/5)" in rendered
+            assert "BUSY" in rendered
+
+    asyncio.run(_run())
+
+
+def test_dialog_log_file_receives_ui_messages(monkeypatch, tmp_path):
+    monkeypatch.setattr("ko2_tui.app.DeviceWorker", StubWorker)
+
+    async def _run():
+        dialog_path = tmp_path / "dialog.log"
+        debug_path = tmp_path / "debug.jsonl"
+        app = KO2TUIApp(
+            device_name="EP-133",
+            debug=True,
+            debug_log=str(debug_path),
+            dialog_log=str(dialog_path),
+        )
+        async with app.run_test() as pilot:
+            _make_ready(app)
+            app._log("custom line")
+            await pilot.pause()
+
+        content = dialog_path.read_text(encoding="utf-8")
+        assert "custom line" in content
+
+    asyncio.run(_run())
+
+
+def test_optimize_modal_uses_unstereo_label(monkeypatch):
+    monkeypatch.setattr("ko2_tui.app.DeviceWorker", StubWorker)
+
+    async def _run():
+        app = KO2TUIApp(device_name="EP-133", debug=False)
+        async with app.run_test() as pilot:
+            _make_ready(app)
+            await pilot.press("o")
+            await pilot.pause()
+            assert isinstance(app.screen, OptimizeModal)
+            mono_box = app.screen.query_one("#opt_mono", Checkbox)
+            assert "Unstereo" in str(mono_box.label)
+
+    asyncio.run(_run())
+
+
+def test_waveform_cache_hit_skips_worker_request(monkeypatch):
+    class _FakeWaveformStore:
+        def __init__(self, *args, **kwargs):
+            self._d = {}
+            self._f = {}
+
+        def get_for_slot(self, slot, sig):
+            row = self._d.get(int(slot))
+            if not row:
+                return None
+            if row["sig"] != sig:
+                return None
+            return row["bins"]
+
+        def set_for_slot(self, slot, sig, bins, fingerprint=None):
+            self._d[int(slot)] = {"sig": sig, "bins": bins, "fp": fingerprint}
+
+        def set_fingerprint(self, hash_hex, payload):
+            self._f[str(hash_hex)] = dict(payload)
+
+    monkeypatch.setattr("ko2_tui.app.DeviceWorker", StubWorker)
+    monkeypatch.setattr("ko2_tui.app.WaveformStore", _FakeWaveformStore)
+
+    async def _run():
+        app = KO2TUIApp(device_name="EP-133", debug=False)
+        async with app.run_test() as _pilot:
+            _make_ready(app)
+            app._handle_event(
+                WorkerEvent(
+                    kind="details",
+                    payload={
+                        "slot": 1,
+                        "details": {
+                            "name": "afterparty kick",
+                            "channels": 1,
+                            "samplerate": 46875,
+                            "size_bytes": 2345,
+                            "is_empty": False,
+                        },
+                    },
+                )
+            )
+            app._waveform_by_slot.clear()
+            app._waveform_pending.clear()
+
+            sig = app._waveform_signature(1)
+            assert sig is not None
+            bins = {"mins": [-5, -3, 0], "maxs": [4, 7, 2], "width": 3}
+            app._waveform_store.set_for_slot(1, sig, bins)  # type: ignore[attr-defined]
+
+            before = list(_request_ops(app))
+            app._ensure_waveform(1)
+            after = _request_ops(app)
+
+            assert after == before
+            assert app._waveform_by_slot.get(1) == bins
+            assert 1 not in app._waveform_pending
+
+    asyncio.run(_run())
+
+
+def test_waveform_event_persists_fingerprint_index(monkeypatch):
+    class _FakeWaveformStore:
+        def __init__(self, *args, **kwargs):
+            self._d = {}
+            self._f = {}
+
+        def get_for_slot(self, slot, sig):
+            row = self._d.get(int(slot))
+            if not row:
+                return None
+            if row["sig"] != sig:
+                return None
+            return row["bins"]
+
+        def set_for_slot(self, slot, sig, bins, fingerprint=None):
+            self._d[int(slot)] = {"sig": sig, "bins": bins, "fp": fingerprint}
+
+        def set_fingerprint(self, hash_hex, payload):
+            self._f[str(hash_hex)] = dict(payload)
+
+    monkeypatch.setattr("ko2_tui.app.DeviceWorker", StubWorker)
+    monkeypatch.setattr("ko2_tui.app.WaveformStore", _FakeWaveformStore)
+
+    async def _run():
+        app = KO2TUIApp(device_name="EP-133", debug=False)
+        async with app.run_test() as _pilot:
+            _make_ready(app)
+            app._handle_event(
+                WorkerEvent(
+                    kind="details",
+                    payload={
+                        "slot": 1,
+                        "details": {
+                            "name": "afterparty kick",
+                            "channels": 1,
+                            "samplerate": 46875,
+                            "size_bytes": 2345,
+                            "is_empty": False,
+                        },
+                    },
+                )
+            )
+
+            bins = {"mins": [-64, -12, -40], "maxs": [64, 45, 20], "width": 3}
+            fp = {
+                "sha256": "c" * 64,
+                "frames": 100,
+                "channels": 1,
+                "samplerate": 46875,
+                "sample_width": 2,
+                "duration_s": 0.1,
+            }
+            app._handle_event(WorkerEvent(kind="waveform", payload={"slot": 1, "bins": bins, "fp": fp}))
+            store = app._waveform_store  # type: ignore[attr-defined]
+            assert store._f.get("c" * 64) is not None
+
+    asyncio.run(_run())

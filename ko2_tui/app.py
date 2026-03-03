@@ -2,8 +2,11 @@ from __future__ import annotations
 
 import re
 from queue import Empty, Queue
-from typing import Iterable, cast
+from typing import Any, Iterable, cast
 
+from rich.panel import Panel
+from rich.text import Text
+from textual import events
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
@@ -11,6 +14,8 @@ from textual.widgets import DataTable, Footer, RichLog, Static
 
 from . import actions
 from .debug_log import DebugLogger
+from .dialog_log import DialogLogger
+from .waveform_store import WaveformStore
 from ko2_display import SampleFormat
 from .selectors import parse_selector
 from .state import TuiState
@@ -30,14 +35,26 @@ class KO2TUIApp(App[None]):
     #slots {
         width: 2fr;
     }
-    #details {
+    #inspector {
         width: 1fr;
+    }
+    #details {
         padding: 1;
         border: round $boost;
+        height: auto;
+        min-height: 9;
+    }
+    #waveform {
+        border: round $accent;
+        padding: 0 1;
+        height: 1fr;
     }
     #logs {
         height: 12;
         border: round $boost;
+    }
+    #logs.hidden {
+        display: none;
     }
     #modal {
         width: 70;
@@ -58,8 +75,10 @@ class KO2TUIApp(App[None]):
 
     BINDINGS = [
         Binding("ctrl+r", "refresh", "Reload"),
-        Binding("enter", "view_details", "Details"),
-        Binding("escape", "cancel_move", "Cancel", show=False),
+        Binding("enter", "view_details", "Details", priority=True),
+        Binding("escape", "cancel", "Cancel", show=False),
+        Binding("up", "cursor_up", "Up", show=False, priority=True),
+        Binding("down", "cursor_down", "Down", show=False, priority=True),
         Binding("d", "download", "Download"),
         Binding("u", "upload", "Upload"),
         Binding("c", "copy", "Copy"),
@@ -67,6 +86,7 @@ class KO2TUIApp(App[None]):
         Binding("r", "rename", "Rename"),
         Binding("space", "toggle_select", "Select"),
         Binding("v", "select_expr", "Select Expr"),
+        Binding("l", "toggle_logs", "Logs"),
         Binding("s", "squash", "Squash"),
         Binding("o", "optimize", "Optimize"),
         Binding("backspace", "delete", "Delete"),
@@ -78,25 +98,39 @@ class KO2TUIApp(App[None]):
         Binding("q", "quit", "Quit"),
     ]
 
-    def __init__(self, device_name: str | None = None, debug: bool = False, debug_log: str | None = None):
+    def __init__(
+        self,
+        device_name: str | None = None,
+        debug: bool = False,
+        debug_log: str | None = None,
+        dialog_log: str | None = None,
+    ):
         super().__init__()
         self.device_name = device_name
         self.debug_enabled = bool(debug)
         self.debug_log = debug_log
+        self.dialog_log = dialog_log
 
         self.state = TuiState()
         self._request_queue: Queue[actions.WorkerRequest] = Queue()
         self._event_queue: Queue[WorkerEvent] = Queue()
         self._worker: DeviceWorker | None = None
         self._debug_logger: DebugLogger | None = None
+        self._dialog_logger: DialogLogger | None = None
         self._col_keys: list = []
         self.moving_src: int | None = None
+        self._waveform_by_slot: dict[int, dict[str, Any]] = {}
+        self._waveform_pending: set[int] = set()
+        self._waveform_store = WaveformStore()
+        self._logs_visible: bool = True
 
     def compose(self) -> ComposeResult:
         yield Static(id="status")
         with Horizontal(id="main"):
             yield DataTable(id="slots")
-            yield Static("No slot selected", id="details")
+            with Vertical(id="inspector"):
+                yield Static("No slot selected", id="details")
+                yield Static("Waveform unavailable", id="waveform")
         yield RichLog(id="logs", wrap=True, markup=False)
         yield Footer()
 
@@ -105,6 +139,10 @@ class KO2TUIApp(App[None]):
         self._debug_logger = DebugLogger(
             enabled=self.debug_enabled,
             output_path=self.debug_log,
+        )
+        self._dialog_logger = DialogLogger(
+            enabled=self.debug_enabled,
+            output_path=self.dialog_log,
         )
 
         self._worker = DeviceWorker(
@@ -120,6 +158,8 @@ class KO2TUIApp(App[None]):
         self._update_status("Ready")
         if self._debug_logger and self._debug_logger.path:
             self._log(f"Debug capture: {self._debug_logger.path}")
+        if self._dialog_logger and self._dialog_logger.path:
+            self._log(f"Dialog log: {self._dialog_logger.path}")
         self._queue_request(actions.refresh_inventory())
 
     def on_unmount(self) -> None:
@@ -133,6 +173,9 @@ class KO2TUIApp(App[None]):
         if self._debug_logger:
             self._debug_logger.close()
             self._debug_logger = None
+        if self._dialog_logger:
+            self._dialog_logger.close()
+            self._dialog_logger = None
 
     def _init_table(self) -> None:
         from rich.text import Text
@@ -217,6 +260,29 @@ class KO2TUIApp(App[None]):
 
         self._render_details(self.state.selected_slot)
 
+    def on_key(self, event: events.Key) -> None:
+        if event.key not in {"up", "down", "enter"}:
+            return
+        if event.key == "enter" and self.moving_src is not None:
+            self.action_view_details()
+            event.stop()
+            event.prevent_default()
+            return
+        try:
+            table = self.query_one("#slots", DataTable)
+        except Exception:
+            return
+        if self.focused is not table:
+            return
+        if event.key == "enter":
+            self.action_view_details()
+        elif event.key == "up":
+            self.action_cursor_up()
+        else:
+            self.action_cursor_down()
+        event.stop()
+        event.prevent_default()
+
     def _current_slot(self) -> int:
         table = self.query_one("#slots", DataTable)
         try:
@@ -226,10 +292,11 @@ class KO2TUIApp(App[None]):
         return max(1, row + 1)
 
     def _queue_request(self, request: actions.WorkerRequest) -> None:
+        op_label = self._human_op_label(request.op)
         if self.state.busy:
-            self._log(f"Queued: {request.op} (waiting for current operation)")
+            self._log(f"Queued: {op_label} (waiting for current operation)")
         else:
-            self.state.set_busy(True, f"Running {request.op}...")
+            self.state.set_busy(True, f"Running {op_label}...")
             self._update_status(self.state.status)
         if self._worker:
             self._worker.submit(request)
@@ -247,17 +314,24 @@ class KO2TUIApp(App[None]):
         payload = event.payload
 
         if kind == "busy":
-            self.state.set_busy(True, f"Running {payload.get('op', 'operation')}...")
+            if str(payload.get("op", "")) == "waveform":
+                return
+            op = self._human_op_label(str(payload.get("op", "operation")))
+            self.state.set_busy(True, f"Running {op}...")
             self._update_status(self.state.status)
             return
 
         if kind == "idle":
+            if str(payload.get("op", "")) == "waveform":
+                return
             self.state.set_busy(False, "Ready")
             self._update_status("Ready")
             return
 
         if kind == "inventory":
             sounds = cast(dict[int, dict], payload.get("sounds", {}))
+            self._waveform_by_slot.clear()
+            self._waveform_pending.clear()
             self.state.apply_inventory(sounds)
             self._update_table_rows(self.state.slots.keys())
             used = len(sounds)
@@ -277,9 +351,48 @@ class KO2TUIApp(App[None]):
             slot = int(payload.get("slot") or self.state.selected_slot)
             details = cast(dict, payload.get("details", {}))
             self.state.apply_slot_details(slot, details)
+            self._invalidate_waveform(slot)
             self._update_table_rows([slot])
             self._render_details(slot)
+            self._ensure_waveform(slot)
             self._log(f"Loaded details for slot {slot:03d}")
+            return
+
+        if kind == "slot_refresh":
+            slot = int(payload.get("slot") or self.state.selected_slot)
+            details = cast(dict, payload.get("details", {}))
+            self.state.apply_slot_details(slot, details)
+            self._invalidate_waveform(slot)
+            self._update_table_rows([slot])
+            if slot == self.state.selected_slot:
+                self._render_details(slot)
+            return
+
+        if kind == "waveform":
+            slot = int(payload.get("slot") or self.state.selected_slot)
+            self._waveform_pending.discard(slot)
+            bins = payload.get("bins")
+            fp = payload.get("fp") if isinstance(payload.get("fp"), dict) else None
+            if isinstance(bins, dict) and self._valid_waveform_bins(bins):
+                self._waveform_by_slot[slot] = bins
+                sig = self._waveform_signature(slot)
+                if sig is not None:
+                    self._waveform_store.set_for_slot(slot, sig, bins, fingerprint=fp)
+                    if fp and isinstance(fp.get("sha256"), str):
+                        self._waveform_store.set_fingerprint(
+                            str(fp.get("sha256")),
+                            {
+                                **fp,
+                                "slot": int(slot),
+                                "name": str(self.state.slots.get(slot).name if self.state.slots.get(slot) else ""),
+                                "size_bytes": int(self.state.slots.get(slot).size_bytes if self.state.slots.get(slot) else 0),
+                                "bins": bins,
+                            },
+                        )
+            else:
+                self._waveform_by_slot.pop(slot, None)
+            if slot == self.state.selected_slot:
+                self._render_waveform(slot)
             return
 
         if kind == "success":
@@ -293,12 +406,35 @@ class KO2TUIApp(App[None]):
             self._log(f"ERROR: {msg}")
             return
 
+        if kind == "progress":
+            msg = str(payload.get("message", "")).strip()
+            current = payload.get("current")
+            total = payload.get("total")
+            if isinstance(current, int) and isinstance(total, int) and total > 0:
+                msg = f"{msg} ({current}/{total})" if msg else f"Progress {current}/{total}"
+            if msg:
+                self.state.set_busy(True, msg)
+                self._update_status(msg)
+            return
+
+        if kind == "op_timing":
+            if str(payload.get("op", "")) == "waveform":
+                return
+            op = self._human_op_label(str(payload.get("op", "operation")))
+            total_s = float(payload.get("total_s") or 0.0)
+            p50_s = float(payload.get("p50_s") or 0.0)
+            p95_s = float(payload.get("p95_s") or 0.0)
+            count = int(payload.get("count") or 0)
+            self._log(
+                f"Timing: {op} took {total_s:.2f}s (p50 {p50_s:.2f}s, p95 {p95_s:.2f}s, n={count})"
+            )
+            return
+
         if kind == "trace" and self.debug_enabled:
-            line = str(payload.get("line", ""))
             trace = cast(dict, payload.get("trace", {}))
-            line = self._with_friendly_trace_name(line, trace)
-            if line:
-                self._log(line)
+            message = self._format_trace_message(trace)
+            if message:
+                self._log(message)
 
     def get_bindings(self) -> list[Binding]:
         if self.moving_src is not None:
@@ -307,6 +443,9 @@ class KO2TUIApp(App[None]):
                 Binding("escape", "cancel_move", "Cancel Move"),
             ]
         return super().get_bindings()
+
+    def action_cancel(self) -> None:
+        self.action_cancel_move()
 
     def _render_details(self, slot: int) -> None:
         slot = max(1, min(slot, len(self.state.slots)))
@@ -335,6 +474,7 @@ class KO2TUIApp(App[None]):
                     lines.append(f"Format: {fmt}")
             text = "\n".join(lines)
         self.query_one("#details", Static).update(text)
+        self._render_waveform(slot)
 
     def _update_status(self, state_text: str) -> None:
         debug_suffix = ""
@@ -342,15 +482,212 @@ class KO2TUIApp(App[None]):
             debug_suffix = f" | debug={self._debug_logger.path.name}"
         n_sel = len(self.state.selected_slots)
         sel_suffix = f" | {n_sel} selected" if n_sel else ""
+        logs_suffix = "" if self._logs_visible else " | logs:hidden"
+        busy_suffix = " | BUSY" if self.state.busy else " | IDLE"
         
         total_bytes = sum(row.size_bytes for row in self.state.slots.values() if row.exists)
         mem_suffix = f" | Mem: {SampleFormat.size(total_bytes)}/64.00M"
 
-        status = f"Device: {self.device_name or 'EP-133'} | {state_text}{sel_suffix}{mem_suffix}{debug_suffix}"
+        status = f"Device: {self.device_name or 'EP-133'}{busy_suffix} | {state_text}{sel_suffix}{mem_suffix}{logs_suffix}{debug_suffix}"
         self.query_one("#status", Static).update(status)
 
     def _log(self, line: str) -> None:
         self.query_one("#logs", RichLog).write(line)
+        if self._dialog_logger:
+            self._dialog_logger.record(line)
+
+    def _human_op_label(self, op: str) -> str:
+        key = op.strip().lower().replace(" ", "_")
+        labels = {
+            "refresh_inventory": "refresh inventory",
+            "fetch_details": "load details",
+            "download": "download",
+            "upload": "upload",
+            "copy": "copy",
+            "move": "move",
+            "rename": "rename",
+            "delete": "delete",
+            "bulk_delete": "bulk delete",
+            "squash": "squash",
+            "optimize": "optimize",
+            "optimize_all": "optimize all",
+            "stop": "stop",
+        }
+        return labels.get(key, op)
+
+    def _format_trace_message(self, trace: dict) -> str | None:
+        op = str(trace.get("op") or "").upper()
+        if not op:
+            return None
+
+        # Chunk-level protocol chatter is noisy and not useful in the dialog pane.
+        if op in {"GET_DATA", "PUT_DATA"}:
+            return None
+
+        direction = str(trace.get("dir") or "").upper()
+        slot = self._trace_slot(trace)
+        status = trace.get("status")
+        status_suffix = ""
+        if isinstance(status, int) and status != 0:
+            status_suffix = f" (status 0x{status:02X})"
+
+        slot_text = ""
+        if slot is not None:
+            slot_text = f" for slot {slot:03d}"
+            friendly = self._friendly_slot_name(slot)
+            if friendly:
+                slot_text += f' "{friendly}"'
+
+        node = trace.get("node")
+        node_text = f" (node {int(node)})" if isinstance(node, int) else ""
+
+        if op == "LIST":
+            return "Debug: requesting sample list"
+        if op == "LIST_RSP":
+            return f"Debug: sample list received{status_suffix}"
+        if op == "GET_INIT":
+            return f"Debug: download requested{slot_text}"
+        if op == "GET_INIT_RSP":
+            return f"Debug: download ready{slot_text}{status_suffix}"
+        if op == "PUT_INIT":
+            return f"Debug: upload start{slot_text}"
+        if op == "VERIFY":
+            return f"Debug: verify upload{slot_text}{status_suffix}"
+        if op == "META_GET":
+            return f"Debug: metadata read{slot_text}{node_text}"
+        if op == "META_SET":
+            return f"Debug: metadata update{slot_text}{node_text}{status_suffix}"
+        if op == "DELETE":
+            return f"Debug: delete requested{slot_text}"
+
+        # Keep unknown protocol events available in debug mode, but concise.
+        dir_prefix = "sent" if direction == "TX" else "received" if direction == "RX" else "event"
+        return f"Debug: {dir_prefix} {op}{slot_text}{status_suffix}"
+
+    def _trace_slot(self, trace: dict) -> int | None:
+        slot = trace.get("slot")
+        if isinstance(slot, int):
+            return slot
+        name = str(trace.get("name") or "")
+        m = re.match(r"^(\d{1,3})\.pcm$", name, flags=re.IGNORECASE)
+        if m:
+            try:
+                return int(m.group(1))
+            except Exception:
+                return None
+        return None
+
+    def _friendly_slot_name(self, slot: int) -> str:
+        row = self.state.slots.get(slot)
+        if not row or not row.exists:
+            return ""
+        friendly = row.name.strip()
+        if not friendly:
+            return ""
+        if friendly.lower() == f"{slot:03d}.pcm":
+            return ""
+        return friendly
+
+    def _invalidate_waveform(self, slot: int) -> None:
+        self._waveform_by_slot.pop(int(slot), None)
+        self._waveform_pending.discard(int(slot))
+
+    def _ensure_waveform(self, slot: int) -> None:
+        slot = int(slot)
+        row = self.state.slots.get(slot)
+        if not row or not row.exists:
+            return
+        if slot in self._waveform_by_slot or slot in self._waveform_pending:
+            return
+
+        sig = self._waveform_signature(slot)
+        if sig is not None:
+            cached = self._waveform_store.get_for_slot(slot, sig)
+            if isinstance(cached, dict) and self._valid_waveform_bins(cached):
+                self._waveform_by_slot[slot] = cached
+                if slot == self.state.selected_slot:
+                    self._render_waveform(slot)
+                return
+
+        self._waveform_pending.add(slot)
+        if self._worker:
+            self._worker.submit(actions.waveform(slot, width=320, height=24))
+        if slot == self.state.selected_slot:
+            self._render_waveform(slot)
+
+    def _valid_waveform_bins(self, bins: dict[str, Any]) -> bool:
+        mins = bins.get("mins")
+        maxs = bins.get("maxs")
+        if not isinstance(mins, list) or not isinstance(maxs, list):
+            return False
+        if not mins or len(mins) != len(maxs):
+            return False
+        return True
+
+    def _waveform_signature(self, slot: int) -> dict[str, Any] | None:
+        row = self.state.slots.get(int(slot))
+        if not row or not row.exists or row.size_bytes <= 0:
+            return None
+        return {
+            "name": str(row.name or ""),
+            "size_bytes": int(row.size_bytes),
+            "channels": int(row.channels or 0),
+            "samplerate": int(row.samplerate or 0),
+        }
+
+    def _render_waveform(self, slot: int) -> None:
+        widget = self.query_one("#waveform", Static)
+        row = self.state.slots.get(slot)
+        if not row or not row.exists:
+            widget.update(Panel(Text("No sample in this slot", style="dim"), title="Waveform", border_style="grey37"))
+            return
+
+        if slot in self._waveform_pending:
+            widget.update(
+                Panel(
+                    Text("Rendering waveform...", style="italic #f59e0b"),
+                    title=f"Waveform {slot:03d}",
+                    subtitle="background job",
+                    border_style="#f59e0b",
+                )
+            )
+            return
+
+        bins = self._waveform_by_slot.get(slot)
+        if not bins:
+            widget.update(
+                Panel(
+                    Text("Press Enter to load waveform", style="dim"),
+                    title=f"Waveform {slot:03d}",
+                    border_style="grey50",
+                )
+            )
+            return
+
+        cols = max(24, min(120, int(widget.size.width or 0) - 4 if int(widget.size.width or 0) > 0 else 72))
+        rows = max(6, min(16, int(widget.size.height or 0) - 3 if int(widget.size.height or 0) > 0 else 10))
+        art = _render_waveform_braille(
+            cast(list[int], bins.get("mins", [])),
+            cast(list[int], bins.get("maxs", [])),
+            width_chars=cols,
+            height_chars=rows,
+        )
+        text = Text()
+        n = max(1, len(art) - 1)
+        for idx, line in enumerate(art):
+            # Teal-forward gradient with a warm accent near center.
+            t = idx / n
+            color = "#22d3ee" if t < 0.45 else "#2dd4bf" if t < 0.8 else "#f59e0b"
+            text.append(line + ("\n" if idx < len(art) - 1 else ""), style=f"bold {color}")
+
+        widget.update(
+            Panel(
+                text,
+                title=f"Waveform {slot:03d}",
+                subtitle="cached",
+                border_style="#0ea5e9",
+            )
+        )
 
     def _with_friendly_trace_name(self, line: str, trace: dict) -> str:
         slot = trace.get("slot")
@@ -392,6 +729,7 @@ class KO2TUIApp(App[None]):
         slot = self._current_slot()
         if slot in self.state.details_by_slot:
             self._render_details(slot)
+            self._ensure_waveform(slot)
         else:
             self._queue_request(actions.fetch_details(slot))
 
@@ -411,9 +749,19 @@ class KO2TUIApp(App[None]):
             callback=self._on_select_modal,
         )
 
+    def action_toggle_logs(self) -> None:
+        logs = self.query_one("#logs", RichLog)
+        self._logs_visible = not self._logs_visible
+        if self._logs_visible:
+            logs.remove_class("hidden")
+        else:
+            logs.add_class("hidden")
+        self._update_status(self.state.status)
+
     def action_toggle_select(self) -> None:
         slot = self._current_slot()
         prev = set(self.state.selected_slots)
+        was_selected = slot in self.state.selected_slots
         if slot in self.state.selected_slots:
             self.state.selected_slots.remove(slot)
         else:
@@ -422,16 +770,27 @@ class KO2TUIApp(App[None]):
         self._update_selection_display(prev)
         self._update_status(self.state.status)
 
-        # Move down after selecting like typical file managers
-        table = self.query_one("#slots", DataTable)
-        table.action_cursor_down()
+        # Move down only when toggled on.
+        if not was_selected:
+            table = self.query_one("#slots", DataTable)
+            table.action_cursor_down()
 
     def action_cursor_down(self) -> None:
         table = self.query_one("#slots", DataTable)
+        if table.row_count <= 0:
+            return
+        if table.cursor_row >= table.row_count - 1:
+            table.move_cursor(row=0, animate=False)
+            return
         table.action_cursor_down()
 
     def action_cursor_up(self) -> None:
         table = self.query_one("#slots", DataTable)
+        if table.row_count <= 0:
+            return
+        if table.cursor_row <= 0:
+            table.move_cursor(row=table.row_count - 1, animate=False)
+            return
         table.action_cursor_up()
 
     def action_page_down(self) -> None:
@@ -647,3 +1006,78 @@ class KO2TUIApp(App[None]):
     def action_quit(self) -> None:
         self._shutdown_worker()
         self.exit()
+
+
+def _render_waveform_braille(mins_q: list[int], maxs_q: list[int], *, width_chars: int, height_chars: int) -> list[str]:
+    if not mins_q or not maxs_q or len(mins_q) != len(maxs_q):
+        return [" " * max(1, width_chars) for _ in range(max(1, height_chars))]
+
+    width_chars = max(8, int(width_chars))
+    height_chars = max(3, int(height_chars))
+    px_w = width_chars * 2
+    px_h = height_chars * 4
+
+    mins = _resample_series([max(-127, min(127, int(v))) / 127.0 for v in mins_q], px_w)
+    maxs = _resample_series([max(-127, min(127, int(v))) / 127.0 for v in maxs_q], px_w)
+
+    cells = [[0 for _ in range(width_chars)] for _ in range(height_chars)]
+    for x in range(px_w):
+        lo = mins[x]
+        hi = maxs[x]
+        if lo > hi:
+            lo, hi = hi, lo
+        y_top = int(round((1.0 - hi) * 0.5 * (px_h - 1)))
+        y_bottom = int(round((1.0 - lo) * 0.5 * (px_h - 1)))
+        y_top = max(0, min(px_h - 1, y_top))
+        y_bottom = max(0, min(px_h - 1, y_bottom))
+        if y_top > y_bottom:
+            y_top, y_bottom = y_bottom, y_top
+
+        for y in range(y_top, y_bottom + 1):
+            cx = x // 2
+            cy = y // 4
+            lx = x % 2
+            ly = y % 4
+            cells[cy][cx] |= _braille_bit(lx, ly)
+
+    lines: list[str] = []
+    for row in cells:
+        line = "".join(chr(0x2800 + bits) if bits else " " for bits in row).rstrip()
+        lines.append(line if line else " ")
+    return lines
+
+
+def _resample_series(values: list[float], target: int) -> list[float]:
+    if not values:
+        return [0.0] * max(1, target)
+    if target <= 1:
+        return [float(values[0])]
+    if len(values) == target:
+        return [float(v) for v in values]
+    out: list[float] = []
+    last = len(values) - 1
+    for i in range(target):
+        pos = (i * last) / (target - 1)
+        lo = int(pos)
+        hi = min(lo + 1, last)
+        frac = pos - lo
+        out.append((values[lo] * (1.0 - frac)) + (values[hi] * frac))
+    return out
+
+
+def _braille_bit(x: int, y: int) -> int:
+    if x == 0:
+        if y == 0:
+            return 1 << 0
+        if y == 1:
+            return 1 << 1
+        if y == 2:
+            return 1 << 2
+        return 1 << 6
+    if y == 0:
+        return 1 << 3
+    if y == 1:
+        return 1 << 4
+    if y == 2:
+        return 1 << 5
+    return 1 << 7

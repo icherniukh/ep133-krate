@@ -1,11 +1,17 @@
 from __future__ import annotations
 
+import array
+import hashlib
+import io
+import os
 import tempfile
 import threading
 import time
+import wave
+from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from queue import Queue
+from queue import Empty, Queue
 from typing import Any, Callable
 
 from ko2_client import EP133Client
@@ -37,6 +43,14 @@ class DeviceWorker(threading.Thread):
         self._client: EP133Client | None = None
         self._debug_logger = debug_logger
         self._op_samples: dict[str, list[float]] = {}
+        self._waveform_precalc_slots: list[int] = []
+        self._waveform_precalc_max_load = _env_float("KO2_TUI_WAVEFORM_PRECALC_MAX_LOAD", 0.75)
+        self._waveform_precalc_mode = _env_mode("KO2_TUI_WAVEFORM_PRECALC_MODE", "single")
+        self._waveform_render_pool: ThreadPoolExecutor | None = None
+        self._waveform_render_futures: dict[Future[dict[str, Any] | None], tuple[int, dict[str, Any] | None]] = {}
+        if self._waveform_precalc_mode == "threaded":
+            workers = max(1, min(4, (os.cpu_count() or 2) // 2))
+            self._waveform_render_pool = ThreadPoolExecutor(max_workers=workers, thread_name_prefix="ko2-wave")
 
     def submit(self, request: WorkerRequest) -> None:
         self._request_queue.put(request)
@@ -44,11 +58,20 @@ class DeviceWorker(threading.Thread):
     def run(self) -> None:
         try:
             while True:
-                req = self._request_queue.get()
+                try:
+                    req = self._request_queue.get(timeout=0.05)
+                except Empty:
+                    self._drain_waveform_render_futures()
+                    self._maybe_run_waveform_precalc_step()
+                    continue
                 if req.op == "stop":
                     break
                 self._process_request(req)
         finally:
+            self._drain_waveform_render_futures()
+            if self._waveform_render_pool is not None:
+                self._waveform_render_pool.shutdown(wait=False, cancel_futures=True)
+                self._waveform_render_pool = None
             self._close_client()
 
     def _process_request(self, req: WorkerRequest) -> None:
@@ -67,26 +90,29 @@ class DeviceWorker(threading.Thread):
             elif req.op == "download":
                 slot = int(req.payload["slot"])
                 output_path = Path(str(req.payload["output_path"]))
+                self._emit_progress(req.op, 1, 2, f"Downloading slot {slot:03d}")
                 result = self._timed("device.get", phases, client.get, slot, output_path)
-                self._emit("success", message=f"Downloaded slot {slot:03d} to {result}")
+                self._emit_success(f"Downloaded slot {slot:03d} to {result}", started_at=t_start)
             elif req.op == "upload":
                 slot = int(req.payload["slot"])
                 input_path = Path(str(req.payload["input_path"]))
                 if not input_path.exists():
                     raise FileNotFoundError(f"File not found: {input_path}")
                 name = req.payload.get("name")
+                self._emit_progress(req.op, 1, 2, f"Uploading to slot {slot:03d}")
                 self._timed("device.put", phases, client.put, input_path, slot, name=name, progress=False)
-                self._emit("success", message=f"Uploaded {input_path.name} to slot {slot:03d}")
+                self._emit_success(f"Uploaded {input_path.name} to slot {slot:03d}", started_at=t_start)
                 self._emit_inventory(client, hydrate_slots={slot}, phases=phases)
             elif req.op == "rename":
                 slot = int(req.payload["slot"])
                 new_name = str(req.payload["new_name"])
                 self._timed("device.rename", phases, client.rename, slot, new_name)
-                self._emit("success", message=f"Renamed slot {slot:03d} to '{new_name}'")
+                self._emit_success(f"Renamed slot {slot:03d} to '{new_name}'", started_at=t_start)
                 self._emit_inventory(client, hydrate_slots={slot}, phases=phases)
             elif req.op == "copy":
                 src = int(req.payload["src"])
                 dst = int(req.payload["dst"])
+                self._emit_progress(req.op, 1, 3, f"Copying {src:03d} -> {dst:03d}")
                 info = self._timed("device.info", phases, client.info, src, include_size=False)
                 name = info.name
 
@@ -106,15 +132,16 @@ class DeviceWorker(threading.Thread):
                     
                     self._timed("device.put", phases, client.put, temp_path, dst, name=name, progress=False)
 
-                self._emit("success", message=f"Copied slot {src:03d} to {dst:03d}")
+                self._emit_success(f"Copied slot {src:03d} to {dst:03d}", started_at=t_start)
                 self._emit_inventory(client, hydrate_slots={src, dst}, phases=phases)
             elif req.op == "move":
                 src = int(req.payload["src"])
                 dst = int(req.payload["dst"])
                 if src == dst:
-                    self._emit("success", message="Move skipped (same slot)")
+                    self._emit_success("Move skipped (same slot)", started_at=t_start)
                     return
 
+                self._emit_progress(req.op, 1, 3, f"Moving {src:03d} -> {dst:03d}")
                 src_info = self._timed("device.info", phases, client.info, src, include_size=False)
                 src_name = src_info.name
 
@@ -133,28 +160,27 @@ class DeviceWorker(threading.Thread):
                     if dst_info:
                         dst_wav = temp_path / f"slot{dst:03d}.wav"
                         self._timed("device.get", phases, client.get, dst, dst_wav)
-                        self._timed("device.delete", phases, client.delete, src)
-                        self._timed("device.delete", phases, client.delete, dst)
                         self._timed("device.put", phases, client.put, src_wav, dst, name=src_name, progress=False)
                         self._timed("device.put", phases, client.put, dst_wav, src, name=dst_info.name, progress=False)
-                        self._emit("success", message=f"Swapped {src:03d} ↔ {dst:03d}")
+                        self._emit_success(f"Swapped {src:03d} ↔ {dst:03d}", started_at=t_start)
                     else:
-                        self._timed("device.delete", phases, client.delete, src)
                         self._timed("device.put", phases, client.put, src_wav, dst, name=src_name, progress=False)
-                        self._emit("success", message=f"Moved {src:03d} → {dst:03d}")
+                        self._timed("device.delete", phases, client.delete, src)
+                        self._emit_success(f"Moved {src:03d} → {dst:03d}", started_at=t_start)
                 
                 self._emit_inventory(client, hydrate_slots={src, dst}, phases=phases)
             elif req.op == "delete":
                 slot = int(req.payload["slot"])
                 self._timed("device.delete", phases, client.delete, slot)
-                self._emit("success", message=f"Deleted slot {slot:03d}")
+                self._emit_success(f"Deleted slot {slot:03d}", started_at=t_start)
                 self._emit_inventory(client, hydrate_slots={slot}, phases=phases)
             elif req.op == "bulk_delete":
                 slots = [int(s) for s in req.payload["slots"]]
-                for slot in slots:
-                    self._timed("device.delete", phases, client.delete, slot)
                 n = len(slots)
-                self._emit("success", message=f"Deleted {n} slot{'s' if n != 1 else ''}")
+                for idx, slot in enumerate(slots, start=1):
+                    self._emit_progress(req.op, idx, n, f"Deleting slot {slot:03d}")
+                    self._timed("device.delete", phases, client.delete, slot)
+                self._emit_success(f"Deleted {n} slot{'s' if n != 1 else ''}", started_at=t_start)
                 self._emit_inventory(client, hydrate_slots=set(slots), phases=phases)
             elif req.op == "squash":
                 start = int(req.payload.get("start", 1))
@@ -170,12 +196,13 @@ class DeviceWorker(threading.Thread):
                     target_slot += 1
 
                 if not mapping:
-                    self._emit("success", message="Already compacted")
+                    self._emit_success("Already compacted", started_at=t_start)
                     return
 
                 total = len(mapping)
                 done = 0
                 for old_slot, new_slot in mapping.items():
+                    self._emit_progress(req.op, done + 1, total, f"Squashing {old_slot:03d} -> {new_slot:03d}")
                     info = self._timed("device.info", phases, client.info, old_slot, include_size=False)
                     name = info.name
 
@@ -198,7 +225,7 @@ class DeviceWorker(threading.Thread):
                             raise
                     done += 1
 
-                self._emit("success", message=f"Squashed {total} slots")
+                self._emit_success(f"Squashed {total} slots", started_at=t_start)
                 changed = set(mapping.keys()) | set(mapping.values())
                 self._emit_inventory(client, hydrate_slots=changed, phases=phases)
             elif req.op == "optimize":
@@ -213,6 +240,7 @@ class DeviceWorker(threading.Thread):
                 done = 0
                 optimized_count = 0
                 for slot in slots:
+                    self._emit_progress(req.op, done + 1, total, f"Optimizing slot {slot:03d}")
                     try:
                         info = self._timed("device.info", phases, client.info, slot, include_size=False)
                     except Exception:
@@ -268,10 +296,22 @@ class DeviceWorker(threading.Thread):
                             optimized_count += 1
                         except Exception as e:
                             self._emit("error", op=req.op, message=f"Error on slot {slot:03d}: {e}")
+                        finally:
+                            self._emit_slot_refresh(client, slot, phases=phases)
                     done += 1
 
-                self._emit("success", message=f"Optimized {optimized_count} of {total} slots")
+                self._emit_success(f"Optimized {optimized_count} of {total} slots", started_at=t_start)
                 self._emit_inventory(client, hydrate_slots=set(slots), phases=phases)
+            elif req.op == "waveform":
+                slot = int(req.payload["slot"])
+                width = int(req.payload.get("width") or 60)
+                height = int(req.payload.get("height") or 9)
+                self._waveform_precalc_slots = [s for s in self._waveform_precalc_slots if s != slot]
+                preview = self._build_waveform_preview(client, slot=slot, width=width, height=height, phases=phases)
+                if preview:
+                    self._emit("waveform", slot=slot, bins=preview.get("bins"), fp=preview.get("fp"))
+                else:
+                    self._emit("waveform", slot=slot, bins=None, fp=None)
             else:
                 raise ValueError(f"Unknown operation: {req.op}")
         except Exception as exc:
@@ -343,6 +383,7 @@ class DeviceWorker(threading.Thread):
         if phases is None:
             phases = {}
         sounds = self._timed("device.list_sounds", phases, client.list_sounds)
+        self._schedule_waveform_precalc(sounds)
         self._emit("inventory", sounds=sounds)
         self._emit_inventory_name_hydration(client, sounds, hydrate_slots=hydrate_slots, phases=phases)
 
@@ -395,6 +436,123 @@ class DeviceWorker(threading.Thread):
         if updates:
             self._emit("inventory_enriched", updates=updates)
 
+    def _emit_slot_refresh(
+        self,
+        client: EP133Client,
+        slot: int,
+        *,
+        phases: dict[str, float] | None = None,
+    ) -> None:
+        if phases is None:
+            phases = {}
+        try:
+            info = self._timed("device.info", phases, client.info, int(slot), include_size=True)
+        except Exception:
+            return
+        self._emit("slot_refresh", slot=int(slot), details=_sampleinfo_to_dict(info))
+
+    def _build_waveform_preview(
+        self,
+        client: EP133Client,
+        *,
+        slot: int,
+        width: int,
+        height: int,
+        phases: dict[str, float],
+    ) -> dict[str, Any] | None:
+        width = max(96, min(640, int(width)))
+        _ = int(height)  # Reserved for future render-specific hinting.
+        wav_bytes = self._download_slot_wav_bytes(client, slot=slot, phases=phases)
+        if not wav_bytes:
+            return None
+        bins = _extract_waveform_bins_from_wav_bytes(wav_bytes, width=width)
+        if not bins:
+            return None
+        fp = _extract_fingerprint_from_wav_bytes(wav_bytes)
+        return {"bins": bins, "fp": fp}
+
+    def _download_slot_wav_bytes(
+        self,
+        client: EP133Client,
+        *,
+        slot: int,
+        phases: dict[str, float],
+    ) -> bytes | None:
+        try:
+            with tempfile.TemporaryDirectory() as td:
+                wav_path = Path(td) / f"slot{slot:03d}.wav"
+                self._timed("device.get", phases, client.get, int(slot), wav_path)
+                return wav_path.read_bytes()
+        except Exception:
+            return None
+
+    def _schedule_waveform_precalc(self, sounds: dict[int, dict]) -> None:
+        ordered = sorted(
+            ((int(slot), int(entry.get("size") or 0)) for slot, entry in sounds.items()),
+            key=lambda item: item[1],
+        )
+        self._waveform_precalc_slots = [slot for slot, _size in ordered if slot > 0]
+
+    def _maybe_run_waveform_precalc_step(self) -> None:
+        self._drain_waveform_render_futures()
+        if not self._waveform_precalc_slots:
+            return
+        if not self._request_queue.empty():
+            return
+        if self._load_ratio() > self._waveform_precalc_max_load:
+            return
+
+        try:
+            client = self._ensure_client()
+        except Exception:
+            self._waveform_precalc_slots.clear()
+            return
+
+        slot = int(self._waveform_precalc_slots.pop(0))
+        phases: dict[str, float] = {}
+        wav_bytes = self._download_slot_wav_bytes(client, slot=slot, phases=phases)
+        if not wav_bytes:
+            return
+
+        width = 320
+        fp = _extract_fingerprint_from_wav_bytes(wav_bytes)
+        if self._waveform_render_pool is None:
+            bins = _extract_waveform_bins_from_wav_bytes(wav_bytes, width=width)
+            if bins:
+                self._emit("waveform", slot=slot, bins=bins, fp=fp)
+            return
+
+        future = self._waveform_render_pool.submit(
+            _extract_waveform_bins_from_wav_bytes,
+            wav_bytes,
+            width,
+        )
+        self._waveform_render_futures[future] = (slot, fp)
+
+    def _drain_waveform_render_futures(self) -> None:
+        if not self._waveform_render_futures:
+            return
+        done = [f for f in self._waveform_render_futures.keys() if f.done()]
+        for future in done:
+            item = self._waveform_render_futures.pop(future, None)
+            if item is None:
+                continue
+            slot, fp = item
+            try:
+                bins = future.result()
+            except Exception:
+                continue
+            if bins:
+                self._emit("waveform", slot=int(slot), bins=bins, fp=fp)
+
+    def _load_ratio(self) -> float:
+        try:
+            load1, _load5, _load15 = os.getloadavg()
+            cpus = max(1, int(os.cpu_count() or 1))
+            return float(load1) / float(cpus)
+        except Exception:
+            return 0.0
+
     def _trace_hook(self, direction: str, raw: bytes) -> None:
         if not self._debug_logger:
             return
@@ -402,6 +560,19 @@ class DeviceWorker(threading.Thread):
         if event is None:
             return
         self._emit("trace", line=event.ui_line(), trace=asdict(event))
+
+    def _emit_success(self, message: str, *, started_at: float) -> None:
+        elapsed = max(0.0, time.perf_counter() - float(started_at))
+        self._emit("success", message=f"{message} ({elapsed:.2f}s)")
+
+    def _emit_progress(self, op: str, current: int, total: int, message: str = "") -> None:
+        self._emit(
+            "progress",
+            op=op,
+            current=int(current),
+            total=max(1, int(total)),
+            message=message,
+        )
 
     def _emit(self, kind: str, **payload: Any) -> None:
         self._event_queue.put(WorkerEvent(kind=kind, payload=payload))
@@ -431,3 +602,105 @@ def _sampleinfo_to_dict(info: Any) -> dict[str, Any]:
         "duration": float(getattr(info, "duration", 0.0) or 0.0),
         "is_empty": bool(getattr(info, "is_empty", False)),
     }
+
+
+def _extract_waveform_bins_from_wav_bytes(wav_bytes: bytes, width: int) -> dict[str, Any] | None:
+    width = max(64, min(1024, int(width)))
+    with wave.open(io.BytesIO(wav_bytes), "rb") as wf:
+        channels = max(1, int(wf.getnchannels() or 1))
+        sample_width = int(wf.getsampwidth() or 2)
+        n_frames = int(wf.getnframes() or 0)
+        if n_frames <= 0:
+            return None
+        raw = wf.readframes(n_frames)
+
+    samples = _decode_samples(raw, sample_width)
+    if not samples:
+        return None
+
+    mins = [1.0] * width
+    maxs = [-1.0] * width
+
+    frame_count = min(n_frames, len(samples) // channels)
+    if frame_count <= 0:
+        return None
+    for frame in range(frame_count):
+        idx = frame * channels
+        total = 0.0
+        for c in range(channels):
+            total += samples[idx + c]
+        value = total / channels
+        bucket = min(width - 1, (frame * width) // max(1, frame_count))
+        if value < mins[bucket]:
+            mins[bucket] = value
+        if value > maxs[bucket]:
+            maxs[bucket] = value
+
+    for i in range(width):
+        if mins[i] > maxs[i]:
+            mins[i] = 0.0
+            maxs[i] = 0.0
+
+    mins_q = [int(max(-127, min(127, round(v * 127.0)))) for v in mins]
+    maxs_q = [int(max(-127, min(127, round(v * 127.0)))) for v in maxs]
+    return {"mins": mins_q, "maxs": maxs_q, "width": width}
+
+
+def _extract_fingerprint_from_wav_bytes(wav_bytes: bytes) -> dict[str, Any] | None:
+    try:
+        with wave.open(io.BytesIO(wav_bytes), "rb") as wf:
+            channels = max(1, int(wf.getnchannels() or 1))
+            sample_width = int(wf.getsampwidth() or 2)
+            samplerate = int(wf.getframerate() or 0)
+            n_frames = int(wf.getnframes() or 0)
+            pcm = wf.readframes(n_frames)
+    except Exception:
+        return None
+
+    if not pcm:
+        return None
+
+    sha256 = hashlib.sha256(pcm).hexdigest()
+    duration_s = (n_frames / samplerate) if samplerate > 0 else 0.0
+    return {
+        "sha256": sha256,
+        "frames": n_frames,
+        "channels": channels,
+        "samplerate": samplerate,
+        "sample_width": sample_width,
+        "duration_s": duration_s,
+    }
+
+
+def _decode_samples(raw: bytes, sample_width: int) -> list[float]:
+    if sample_width == 2:
+        pcm = array.array("h")
+        pcm.frombytes(raw)
+        # WAV data is little-endian PCM.
+        if pcm.itemsize == 2 and array.array("H", [1]).tobytes() != b"\x01\x00":
+            pcm.byteswap()
+        scale = 32768.0
+        return [max(-1.0, min(1.0, sample / scale)) for sample in pcm]
+
+    if sample_width == 1:
+        return [((b - 128) / 128.0) for b in raw]
+
+    # Unsupported/rare sample widths in this app path.
+    return []
+
+
+def _env_mode(name: str, default: str) -> str:
+    raw = str(os.getenv(name, default)).strip().lower()
+    if raw in {"single", "threaded"}:
+        return raw
+    return default
+
+
+def _env_float(name: str, default: float) -> float:
+    raw = os.getenv(name)
+    if raw is None:
+        return float(default)
+    try:
+        return float(raw)
+    except Exception:
+        return float(default)

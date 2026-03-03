@@ -67,5 +67,9 @@ def optimize(slots: list[int], mono: bool = True, rate: int | None = None, speed
     })
 
 
+def waveform(slot: int, width: int = 320, height: int = 24) -> WorkerRequest:
+    return WorkerRequest(op="waveform", payload={"slot": int(slot), "width": int(width), "height": int(height)})
+
+
 def stop() -> WorkerRequest:
     return WorkerRequest(op="stop")

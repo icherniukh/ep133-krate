@@ -64,8 +64,6 @@ def test_move_swap(monkeypatch):
     assert log == [
         ("get", 1),
         ("get", 2),
-        ("delete", 1),
-        ("delete", 2),
         ("put", 2, "001.pcm"),
         ("put", 1, "002.pcm"),
     ]

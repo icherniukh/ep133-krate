@@ -198,7 +198,7 @@ class OptimizeModal(ModalScreen[tuple[bool, int | None, float | None, float] | N
             yield Label(self._message, id="modal_title")
             
             # TODO: We can later load defaults from a config file
-            yield Checkbox("Downmix to Mono (Stereo -> Mono)", value=True, id="opt_mono")
+            yield Checkbox("Unstereo (Stereo -> Mono)", value=True, id="opt_mono")
             yield Checkbox("Downsample to 22.05 kHz", value=False, id="opt_22k")
             yield Checkbox("Downsample to 11.025 kHz", value=False, id="opt_11k")
             yield Checkbox("Time-stretch 2x (with -12.0 pitch correction)", value=False, id="opt_fast")

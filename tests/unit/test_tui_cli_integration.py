@@ -53,6 +53,29 @@ def test_tui_command_passes_debug_flags(monkeypatch):
     assert _FakeApp.last_kwargs["debug_log"] == "captures/test.jsonl"
 
 
+def test_tui_command_passes_dialog_log_flag(monkeypatch):
+    _FakeApp.last_kwargs = None
+    _FakeApp.ran = False
+
+    fake_module = types.SimpleNamespace(KO2TUIApp=_FakeApp)
+    monkeypatch.setattr(importlib, "import_module", lambda name: fake_module)
+    monkeypatch.setattr(ko2, "find_device", lambda: "EP-133")
+    monkeypatch.setattr("sys.argv", [
+        "ko2.py",
+        "tui",
+        "--debug",
+        "captures/test.jsonl",
+        "--dialog-log",
+        "captures/dialog.log",
+    ])
+
+    rc = ko2.main()
+
+    assert rc == 0
+    assert _FakeApp.ran is True
+    assert _FakeApp.last_kwargs["dialog_log"] == "captures/dialog.log"
+
+
 def test_tui_import_error_is_user_friendly(monkeypatch, capsys):
     def _raise(_name):
         raise ImportError("missing textual")
