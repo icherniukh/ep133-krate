@@ -15,12 +15,14 @@ Usage:
     ko2 squash [--page N]      - Squash samples to fill gaps
     ko2 optimize <slot>        - Optimize single sample
     ko2 optimize-all           - Optimize all oversized samples
+    ko2 fingerprint ...        - Fingerprint/cache waveform hashes in KV store
 """
 import sys
 import argparse
 import re
 import shutil
 import json
+import hashlib
 import importlib
 import subprocess
 import tempfile
@@ -485,6 +487,7 @@ def cmd_tui(args, view: View):
         device_name=args.device,
         debug=debug_enabled,
         debug_log=debug_path,
+        dialog_log=getattr(args, "dialog_log", None),
     )
     app.run()
     return 0
@@ -1048,8 +1051,6 @@ def cmd_move(args, view: View):
                     backup_copy(dst_path, slot=dst, name_hint=dst_name)
 
                 if dst_entry:
-                    client.delete(src)
-                    client.delete(dst)
                     client.put(src_path, dst, name=src_name, progress=False)
                     client.put(dst_path, src, name=dst_name, progress=False)
                     view.success(f"Swapped {src:03d} ↔ {dst:03d}")
@@ -1407,6 +1408,186 @@ def cmd_rename(args, view: View):
     return 0
 
 
+def _extract_waveform_bins_for_wav(wav_path: Path, width: int) -> dict:
+    from ko2_tui.worker import _extract_waveform_bins_from_wav_bytes
+
+    wav_bytes = wav_path.read_bytes()
+    bins = _extract_waveform_bins_from_wav_bytes(wav_bytes, width=max(64, int(width)))
+    if not isinstance(bins, dict):
+        raise ValueError("Failed to extract waveform bins")
+    return bins
+
+
+def _build_wav_fingerprint(wav_path: Path, width: int) -> dict:
+    with wave.open(str(wav_path), "rb") as wf:
+        channels = int(wf.getnchannels() or 1)
+        sample_width = int(wf.getsampwidth() or 2)
+        samplerate = int(wf.getframerate() or SAMPLE_RATE)
+        frames = int(wf.getnframes() or 0)
+        pcm_bytes = wf.readframes(frames)
+
+    if not pcm_bytes:
+        raise ValueError("Empty WAV data")
+
+    bins = _extract_waveform_bins_for_wav(wav_path, width=width)
+    duration_s = (frames / samplerate) if samplerate > 0 else 0.0
+    sha256 = hashlib.sha256(pcm_bytes).hexdigest()
+    return {
+        "sha256": sha256,
+        "frames": frames,
+        "channels": channels,
+        "samplerate": samplerate,
+        "sample_width": sample_width,
+        "duration_s": duration_s,
+        "bins": bins,
+    }
+
+
+def _slot_signature(name: str, size_bytes: int, channels: int, samplerate: int) -> dict:
+    return {
+        "name": str(name or ""),
+        "size_bytes": int(size_bytes or 0),
+        "channels": int(channels or 0),
+        "samplerate": int(samplerate or 0),
+    }
+
+
+def cmd_fingerprint(args, view: View):
+    """Manage local waveform fingerprint KV records and optional device hash metadata."""
+    from ko2_tui.waveform_store import WaveformStore
+
+    action = str(getattr(args, "fp_action", "") or "").strip().lower()
+    if action not in {"write", "read", "verify"}:
+        view.error("Invalid fingerprint action")
+        return 1
+
+    store = WaveformStore(path=getattr(args, "store", None))
+    slot = int(getattr(args, "slot"))
+    width = max(64, int(getattr(args, "width", 320)))
+
+    with EP133Client(args.device) as client:
+        try:
+            info = client.info(slot, include_size=True)
+        except SlotEmptyError:
+            view.error(f"Slot {slot:03d} is empty")
+            return 1
+
+        if action == "read":
+            sig = _slot_signature(info.name, info.size_bytes, info.channels, info.samplerate)
+            entry = store.get_entry_for_slot(slot, sig)
+            if entry is None:
+                entry = store.get_entry_for_slot(slot, None)
+                if entry is not None:
+                    view.warn("Signature changed since cache write; showing latest slot entry anyway.")
+            if entry is None:
+                view.error(f"No cached waveform/fingerprint for slot {slot:03d}")
+                return 1
+
+            fp = entry.get("fp") if isinstance(entry.get("fp"), dict) else {}
+            bins = entry.get("bins") if isinstance(entry.get("bins"), dict) else {}
+            view.section(f"Fingerprint slot {slot:03d}")
+            if fp.get("sha256"):
+                view.kv("Hash", str(fp.get("sha256")))
+            view.kv("Bins", str(len(bins.get("mins") or [])))
+            if fp.get("duration_s") is not None:
+                view.kv("Duration", f"{float(fp.get('duration_s') or 0.0):.3f}s")
+            if fp.get("samplerate"):
+                view.kv("Rate", str(int(fp.get("samplerate") or 0)))
+            if fp.get("channels"):
+                view.kv("Channels", str(int(fp.get("channels") or 0)))
+            return 0
+
+        with tempfile.TemporaryDirectory(prefix=f"ko2-fp-{slot:03d}-") as td:
+            wav_path = Path(td) / f"slot{slot:03d}.wav"
+            client.get(slot, wav_path)
+            fp = _build_wav_fingerprint(wav_path, width=width)
+
+            if action == "verify":
+                sig = _slot_signature(
+                    info.name,
+                    info.size_bytes,
+                    int(fp.get("channels") or 0),
+                    int(fp.get("samplerate") or 0),
+                )
+                entry = store.get_entry_for_slot(slot, sig)
+                if entry is None:
+                    entry = store.get_entry_for_slot(slot, None)
+                if entry is None:
+                    view.error(f"No cached fingerprint for slot {slot:03d}")
+                    return 1
+
+                cached_fp = entry.get("fp") if isinstance(entry.get("fp"), dict) else {}
+                expected = str(cached_fp.get("sha256") or "").strip().lower()
+                if not expected:
+                    view.error(f"Cached entry for slot {slot:03d} has no hash")
+                    return 1
+
+                observed = str(fp.get("sha256") or "").strip().lower()
+                if observed != expected:
+                    view.error(f"Mismatch for slot {slot:03d}: {observed[:12]} != {expected[:12]}")
+                    return 2
+
+                compare_file = getattr(args, "file", None)
+                if compare_file:
+                    file_fp = _build_wav_fingerprint(Path(compare_file), width=width)
+                    file_hash = str(file_fp.get("sha256") or "").strip().lower()
+                    if file_hash != expected:
+                        view.error(f"File mismatch: {file_hash[:12]} != {expected[:12]}")
+                        return 2
+                    view.kv("File hash", file_hash)
+
+                view.success(f"Fingerprint verified for slot {slot:03d}")
+                view.kv("Hash", observed)
+                return 0
+
+            # write
+            sig = _slot_signature(
+                info.name,
+                info.size_bytes,
+                int(fp.get("channels") or 0),
+                int(fp.get("samplerate") or 0),
+            )
+            fp_summary = {
+                "sha256": fp["sha256"],
+                "frames": int(fp["frames"]),
+                "channels": int(fp["channels"]),
+                "samplerate": int(fp["samplerate"]),
+                "duration_s": float(fp["duration_s"]),
+            }
+            store.set_for_slot(slot, sig, fp["bins"], fingerprint=fp_summary)
+            store.set_fingerprint(
+                fp["sha256"],
+                {
+                    **fp_summary,
+                    "slot": int(slot),
+                    "name": str(info.name),
+                    "size_bytes": int(info.size_bytes or 0),
+                    "bins": fp["bins"],
+                },
+            )
+
+            if not bool(getattr(args, "no_meta", False)):
+                patch = {
+                    "ko2.fp.v": 1,
+                    "ko2.fp.sha256": fp["sha256"],
+                    "ko2.fp.frames": int(fp["frames"]),
+                    "ko2.fp.channels": int(fp["channels"]),
+                    "ko2.fp.samplerate": int(fp["samplerate"]),
+                    "ko2.fp.duration_s": round(float(fp["duration_s"]), 6),
+                    "ko2.fp.width": int(width),
+                }
+                try:
+                    client.update_slot_metadata(slot, patch)
+                except Exception as exc:
+                    view.warn(f"Fingerprint stored locally, but metadata update failed: {exc}")
+
+            view.success(f"Fingerprint cached for slot {slot:03d}")
+            view.kv("Hash", str(fp["sha256"]))
+            view.kv("Bins", str(len(fp["bins"].get("mins") or [])))
+            view.kv("Store", str(store.path))
+            return 0
+
+
 def validate_slot(slot) -> int:
     """Validate slot number is within EP-133 range (1-999)."""
     try:
@@ -1754,6 +1935,67 @@ def main():
     rename_parser.add_argument("slot", type=validate_slot, help="Slot number (1-999)")
     rename_parser.add_argument("name", help="New name")
 
+    # fingerprint: local KV waveform + hash records
+    fp_parser = subparsers.add_parser(
+        "fingerprint", help="Manage waveform fingerprint KV cache"
+    )
+    fp_sub = fp_parser.add_subparsers(dest="fp_action", required=True)
+
+    fp_write = fp_sub.add_parser("write", help="Download slot and write fingerprint to KV store")
+    fp_write.add_argument("slot", type=validate_slot, help="Slot number (1-999)")
+    fp_write.add_argument(
+        "--width",
+        type=int,
+        default=320,
+        help="Waveform bin width to store (default: 320)",
+    )
+    fp_write.add_argument(
+        "--store",
+        default=None,
+        metavar="PATH",
+        help="KV store path (default: captures/waveform-kv.json)",
+    )
+    fp_write.add_argument(
+        "--no-meta",
+        action="store_true",
+        help="Do not write ko2.fp.* hash fields into device metadata",
+    )
+
+    fp_read = fp_sub.add_parser("read", help="Read cached fingerprint info for slot")
+    fp_read.add_argument("slot", type=validate_slot, help="Slot number (1-999)")
+    fp_read.add_argument(
+        "--store",
+        default=None,
+        metavar="PATH",
+        help="KV store path (default: captures/waveform-kv.json)",
+    )
+    fp_read.add_argument(
+        "--width",
+        type=int,
+        default=320,
+        help="Reserved for output compatibility",
+    )
+
+    fp_verify = fp_sub.add_parser("verify", help="Verify slot hash matches cached fingerprint")
+    fp_verify.add_argument("slot", type=validate_slot, help="Slot number (1-999)")
+    fp_verify.add_argument(
+        "file",
+        nargs="?",
+        help="Optional WAV file to compare against cached hash",
+    )
+    fp_verify.add_argument(
+        "--width",
+        type=int,
+        default=320,
+        help="Waveform bin width for hash extraction (default: 320)",
+    )
+    fp_verify.add_argument(
+        "--store",
+        default=None,
+        metavar="PATH",
+        help="KV store path (default: captures/waveform-kv.json)",
+    )
+
     # tui
     tui_parser = subparsers.add_parser("tui", help="Launch interactive TUI")
     tui_parser.add_argument(
@@ -1765,6 +2007,15 @@ def main():
         help=(
             "Enable in-app raw MIDI debug log and JSONL capture. "
             "Optionally provide PATH (default: captures/tui-*.jsonl)."
+        ),
+    )
+    tui_parser.add_argument(
+        "--dialog-log",
+        default=None,
+        metavar="PATH",
+        help=(
+            "Dialog/status message log path used with --debug "
+            "(default: captures/tui-dialog-*.log)."
         ),
     )
 
@@ -1806,6 +2057,7 @@ def main():
         "squash": cmd_squash,
         "fs-ls": cmd_fs_ls,
         "rename": cmd_rename,
+        "fingerprint": cmd_fingerprint,
         "tui": cmd_tui,
     }
 
