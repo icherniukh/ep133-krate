@@ -108,14 +108,48 @@ python ko2.py tui --debug
 
 # Explicit debug log path
 python ko2.py tui --debug captures/session.jsonl
+
+# Optional separate dialog/status log file (with --debug)
+python ko2.py tui --debug captures/session.jsonl --dialog-log captures/session-dialog.log
 ```
 
 **Current TUI features:**
 - 999-slot browser table
-- Detail pane for selected slot
-- Core actions: download (`g`), upload (`u`), rename (`n`), delete (`x`)
-- Manual refresh (`r`) and post-operation refresh
-- Operation log pane + raw MIDI TX/RX log lines in debug mode
+- Detail pane for selected slot with high-resolution stylized waveform preview
+- Core actions: download (`d`), upload (`u`), rename (`r`), delete (`backspace`)
+- Selection ergonomics: `space` toggles selection (auto-advance only on select), `enter` uses current context, `escape` cancels move mode
+- Manual refresh (`ctrl+r`) and post-operation refresh
+- Operation log pane + concise debug protocol summaries in debug mode (chunk-level chatter suppressed)
+- Debug trace and dialog/status logs are written to separate files in debug mode
+- Waveform previews are persisted in a single-file KV store: `captures/waveform-kv.json`
+- Background waveform precalc for all used slots (idle/low-load only)
+
+**Waveform precalc tuning (optional):**
+```bash
+# Single-core render path (default)
+KO2_TUI_WAVEFORM_PRECALC_MODE=single python ko2.py tui
+
+# Threaded render path for comparison
+KO2_TUI_WAVEFORM_PRECALC_MODE=threaded python ko2.py tui
+
+# Keep background precalc chill on busy systems (default 0.75)
+KO2_TUI_WAVEFORM_PRECALC_MAX_LOAD=0.60 python ko2.py tui
+```
+
+### 4. ko2 fingerprint - KV Fingerprint Store
+
+Use one-file waveform/hash storage for fast reuse and verification.
+
+```bash
+# Download slot, compute hash + waveform bins, store in captures/waveform-kv.json
+python ko2.py fingerprint write 43
+
+# Read cached fingerprint info for a slot
+python ko2.py fingerprint read 43
+
+# Verify device slot against cached hash (and optional WAV file)
+python ko2.py fingerprint verify 43 ./sample.wav
+```
 
 ---
 

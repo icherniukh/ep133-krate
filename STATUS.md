@@ -141,9 +141,12 @@ Tracking convention:
   - cProfile-guided follow-up optimization replaced hot-spin polling with blocking queue receive in `ko2_client.py`; same-slot `ko2 get 43` (size `279502` bytes, ~272KB) improved from `~6.34s` total profile run to `~2.60s` profiled runtime, and plain wall clock is now `~2.08s`.
 
 ### KO2-002 (`P1`) Log view hide/unhide via `l`
-- [ ] Add `l` keybinding in TUI to toggle log panel visibility.
-- [ ] Preserve log content while hidden.
-- [ ] Acceptance: no focus or interaction regressions while toggling during active work.
+- [x] Add `l` keybinding in TUI to toggle log panel visibility.
+- [x] Preserve log content while hidden.
+- [x] Acceptance: no focus or interaction regressions while toggling during active work.
+- Note:
+  - Added `l` binding to hide/unhide the log pane without destroying the widget or clearing `RichLog` lines.
+  - Status bar now indicates hidden state (`logs:hidden`) and navigation remains stable while toggling.
 
 ### KO2-003 (`P0`) Investigate why some operations are slow
 - [x] Instrument operation timings (refresh, details, copy/move, optimize, squash, download/upload).
@@ -153,25 +156,39 @@ Tracking convention:
 - Note:
   - `ko2_tui.worker.DeviceWorker` now emits per-operation timing telemetry (`op_timing`) including total runtime, phase breakdown, rolling p50, and rolling p95.
   - Post-op metadata hydration now supports selective slot hydration (instead of always hydrating all slots), reducing avoidable refresh overhead after single-slot operations.
+  - Added idle-only waveform precalc scheduling with CPU-load gating (`KO2_TUI_WAVEFORM_PRECALC_MAX_LOAD`) and mode toggle (`KO2_TUI_WAVEFORM_PRECALC_MODE=single|threaded`) for side-by-side testing.
 
 ### KO2-004 (`P1`) Optimize checklist ergonomics and key flow
-- [ ] `space`: toggle selection and move cursor down only when toggled ON.
-- [ ] `enter`: use current selection/context and proceed.
-- [ ] `escape`: cancel current modal/mode consistently.
-- [ ] Rename first optimize option label to either `Unstereofy` or `Unstereo` (pick one).
+- [x] `space`: toggle selection and move cursor down only when toggled ON.
+- [x] `enter`: use current selection/context and proceed.
+- [x] `escape`: cancel current modal/mode consistently.
+- [x] Rename first optimize option label to either `Unstereofy` or `Unstereo` (pick one).
 - [ ] Acceptance: keyboard flow validated by tests and manual pass.
+- Note:
+  - `space` now advances only when selection flips ON; deselect keeps cursor in place.
+  - App-level `escape` routes through a single cancel action so move mode cancels consistently.
+  - Optimize modal first option is now labeled `Unstereo (Stereo -> Mono)`.
+  - Added/updated TUI tests for `space`, `enter`, `escape`, and optimize modal label.
 
 ### KO2-005 (`P1`) Show progress indicator during processing
-- [ ] Add always-visible busy indicator while worker is processing.
-- [ ] Add progress feedback for long operations (download/optimize/squash/bulk actions).
+- [x] Add always-visible busy indicator while worker is processing.
+- [x] Add progress feedback for long operations (download/optimize/squash/bulk actions).
 - [ ] Acceptance: user can see active processing and completion state at all times.
+- Note:
+  - Status line now always shows `BUSY`/`IDLE`.
+  - Worker emits structured `progress` events for download/upload/copy/move and long loops (`bulk_delete`, `squash`, `optimize`), and the app reflects them live in status.
 
 ### KO2-006 (`P1`) Show operation duration and split debug/dialog logs
-- [ ] Include elapsed time in completion messages for operations.
-- [ ] Rework debug view into dialog-style informational output.
-- [ ] Stop showing command lines in dialog view.
-- [ ] Log commands/debug trace to one file and dialog messages to a separate file.
-- [ ] Acceptance: two independent log files, both validated and documented.
+- [x] Include elapsed time in completion messages for operations.
+- [x] Rework debug view into dialog-style informational output.
+- [x] Stop showing command lines in dialog view.
+- [x] Log commands/debug trace to one file and dialog messages to a separate file.
+- [x] Acceptance: two independent log files, both validated and documented.
+- Note:
+  - TUI debug trace lines now render as concise user-facing messages (for example, "download requested for slot ..."), no longer raw command/payload style lines.
+  - High-frequency chunk chatter (`GET_DATA`/`PUT_DATA`) is suppressed from the dialog log to keep it readable.
+  - Worker success messages now include elapsed runtime suffix (for example, `(... 1.23s)`).
+  - Added `ko2_tui/dialog_log.py` and wired it to `KO2TUIApp`; with `--debug`, protocol trace stays in JSONL and dialog/status messages go to a separate `tui-dialog-*.log` file (or `--dialog-log PATH`).
 
 ### KO2-007 (`P2`) `Tab` key should play/audition sample
 - [ ] Bind `Tab` to play selected non-empty slot.
