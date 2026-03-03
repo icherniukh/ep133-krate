@@ -224,6 +224,72 @@ def test_inventory_refresh_preserves_viewport_scroll(monkeypatch):
     asyncio.run(_run())
 
 
+def test_inventory_event_does_not_full_rebuild(monkeypatch):
+    monkeypatch.setattr("ko2_tui.app.DeviceWorker", StubWorker)
+
+    async def _run():
+        app = KO2TUIApp(device_name="EP-133", debug=False)
+        async with app.run_test() as _pilot:
+            _make_ready(app)
+
+            called = False
+
+            def _mark_rebuild() -> None:
+                nonlocal called
+                called = True
+
+            app._refresh_table = _mark_rebuild  # type: ignore[method-assign]
+            app._handle_event(
+                WorkerEvent(
+                    kind="inventory",
+                    payload={"sounds": {1: {"name": "001.pcm", "size": 1234, "node_id": 1}}},
+                )
+            )
+
+            assert called is False
+            assert app.state.slots[1].size_bytes == 1234
+
+    asyncio.run(_run())
+
+
+def test_details_event_does_not_full_rebuild(monkeypatch):
+    monkeypatch.setattr("ko2_tui.app.DeviceWorker", StubWorker)
+
+    async def _run():
+        app = KO2TUIApp(device_name="EP-133", debug=False)
+        async with app.run_test() as _pilot:
+            _make_ready(app)
+
+            called = False
+
+            def _mark_rebuild() -> None:
+                nonlocal called
+                called = True
+
+            app._refresh_table = _mark_rebuild  # type: ignore[method-assign]
+            app._handle_event(
+                WorkerEvent(
+                    kind="details",
+                    payload={
+                        "slot": 1,
+                        "details": {
+                            "name": "afterparty kick",
+                            "channels": 1,
+                            "samplerate": 46875,
+                            "size_bytes": 2345,
+                            "is_empty": False,
+                        },
+                    },
+                )
+            )
+
+            assert called is False
+            assert app.state.slots[1].name == "afterparty kick"
+            assert app.state.slots[1].size_bytes == 2345
+
+    asyncio.run(_run())
+
+
 def test_select_key_opens_modal_and_sets_selection(monkeypatch):
     monkeypatch.setattr("ko2_tui.app.DeviceWorker", StubWorker)
 

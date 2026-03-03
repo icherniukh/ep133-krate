@@ -259,7 +259,7 @@ class KO2TUIApp(App[None]):
         if kind == "inventory":
             sounds = cast(dict[int, dict], payload.get("sounds", {}))
             self.state.apply_inventory(sounds)
-            self._refresh_table()
+            self._update_table_rows(self.state.slots.keys())
             used = len(sounds)
             self._log(f"Inventory refreshed: {used} used slots")
             self._render_details(self.state.selected_slot)
@@ -277,7 +277,7 @@ class KO2TUIApp(App[None]):
             slot = int(payload.get("slot") or self.state.selected_slot)
             details = cast(dict, payload.get("details", {}))
             self.state.apply_slot_details(slot, details)
-            self._refresh_table()
+            self._update_table_rows([slot])
             self._render_details(slot)
             self._log(f"Loaded details for slot {slot:03d}")
             return
