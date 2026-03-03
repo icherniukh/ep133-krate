@@ -38,57 +38,10 @@ try:
     )
     from ko2_backup import backup_copy
     from ko2_models import SAMPLE_RATE, MAX_SLOTS, decode_node_id, decode_14bit
-    from ko2_utils import format_size, format_duration
+    from ko2_display import View, TerminalView, SilentView, JsonView, SampleFormat
 except ImportError as e:
     print(f"Error: {e}")
     sys.exit(1)
-
-
-# ANSI colors
-class Colors:
-    RESET = "\033[0m"
-    BOLD = "\033[1m"
-    BRIGHT_GREEN = "\033[48;5;22m"
-    GREEN = "\033[48;5;28m"
-    YELLOW = "\033[48;5;226m"
-    ORANGE = "\033[48;5;208m"
-    RED = "\033[48;5;196m"
-    BRIGHT_RED = "\033[48;5;88m"
-    CYAN = "\033[38;5;39m"
-    FG_GRAY = "\033[38;5;245m"
-    FG_DIM = "\033[90m"
-    FG_GREEN = "\033[38;5;82m"
-    FG_YELLOW = "\033[38;5;226m"
-    FG_RED = "\033[38;5;196m"
-
-
-def get_size_color(size_bytes: int) -> str:
-    """Get background color based on file size."""
-    if size_bytes <= 0:
-        return ""
-
-    def bg(code: int) -> str:
-        return f"\033[48;5;{code}m"
-
-    # Subtle palettes per range (darker, lower chroma) with intra-range gradation.
-    ranges = [
-        (0, 50 * 1024, [22, 28]),            # dark green
-        (50 * 1024, 200 * 1024, [28, 34]),    # green -> teal
-        (200 * 1024, 500 * 1024, [58, 94]),   # muted yellow
-        (500 * 1024, 1024 * 1024, [94, 130]), # yellow -> orange
-        (1024 * 1024, 2 * 1024 * 1024, [130, 88]),  # orange -> dark red
-        (2 * 1024 * 1024, 10 * 1024 * 1024, [88, 52]),  # deep red
-    ]
-
-    for lo, hi, palette in ranges:
-        if size_bytes < hi:
-            if len(palette) == 1:
-                return bg(palette[0])
-            ratio = (size_bytes - lo) / (hi - lo)
-            idx = min(len(palette) - 1, int(ratio * len(palette)))
-            return bg(palette[idx])
-
-    return bg(52)
 
 
 def strip_slot_prefix(name: str, slot: int) -> str:
@@ -156,54 +109,8 @@ def parse_page(arg: str) -> tuple[int, int] | None:
         return None
 
 
-def format_table_row(info: SampleInfo) -> str:
-    """Format a sample as a table row."""
-    size_str = format_size(info.size_bytes) if info.size_bytes else "-"
-    color = get_size_color(info.size_bytes) if info.size_bytes else ""
-    reset = Colors.RESET if info.size_bytes else ""
 
-    # Stereo indicator
-    channels_str = "S" if info.channels == 2 else "M" if info.channels == 1 else "-"
-    if info.channels == 2:
-        channels_color = f"{Colors.BOLD}{Colors.FG_RED}"
-    else:
-        channels_color = Colors.FG_DIM
-
-    # Truncate name to fit (keep width 32)
-    name = info.name
-    if len(name) > 32:
-        name = name[:29] + "..."
-
-    size_width = 8
-    size_display = (
-        f"{color}{size_str:>{size_width}}{reset}"
-        if info.size_bytes
-        else f"{size_str:>{size_width}}"
-    )
-    duration_width = 9
-
-    return (
-        f"  {Colors.FG_DIM}{info.slot:03d}{Colors.RESET}  "
-        f"{name:<32}  "
-        f"{channels_color}{channels_str}{Colors.RESET}  "
-        f"{size_display}  "
-        f"{format_duration(info.size_bytes, info.samplerate, info.channels):>{duration_width}}"
-    )
-
-
-def show_progress(current: int, total: int, message: str = ""):
-    """Show progress bar."""
-    if total <= 0:
-        return
-    pct = current / total
-    bar_len = 30
-    filled = int(bar_len * pct)
-    bar = "█" * filled + "░" * (bar_len - filled)
-    sys.stdout.write(f"\r  {bar} {pct*100:.0f}% {message}")
-    sys.stdout.flush()
-
-
-def cmd_ls(args):
+def cmd_ls(args, view: View):
     """List samples by pages."""
     with EP133Client(args.device) as client:
         # Determine range
@@ -216,12 +123,12 @@ def cmd_ls(args):
             if start > end:
                 start, end = end, start
             if start < 1 or end > MAX_SLOTS:
-                print(f"❌ Range must be within 1-{MAX_SLOTS}")
+                view.error(f"Range must be within 1-{MAX_SLOTS}")
                 return 1
         elif args.page:
             page_range = parse_page(args.page)
             if page_range is None:
-                print("❌ Page must be 1-10")
+                view.error("Page must be 1-10")
                 return 1
             start, end = page_range
         elif args.all:
@@ -230,37 +137,23 @@ def cmd_ls(args):
             start, end = 1, 99  # Default to first page
 
         source = args.source
-        stream = args.stream
         name_source = args.name_source
         # Prefer filesystem listing (/sounds/) for ground truth; slot-scan can be stale.
         samples = []
         entries = None
         if source in ("auto", "fs"):
             try:
-                print(f"{Colors.CYAN}Fetching /sounds listing...{Colors.RESET}")
+                view.step("Fetching /sounds listing...")
                 sounds = client.list_sounds()
                 entries = list(sounds.values())
                 all_slots = list(range(start, end + 1))
                 total_slots = len(all_slots)
-                if stream:
-                    print(
-                        f"\n  {'Slot':>4}  {'Name':<32}  {'CH':>2}  {'Size':>8}  {'s':>9}"
-                    )
-                    print(f"  {'-'*4}  {'-'*32}  {'--':>2}  {'-'*8}  {'-'*9}")
                 for idx, slot in enumerate(all_slots, 1):
                     if total_slots:
-                        if stream:
-                            print(
-                                f"  {Colors.FG_DIM}{idx:>3}/{total_slots:<3}{Colors.RESET} ",
-                                end="",
-                            )
-                        else:
-                            show_progress(idx, total_slots, f"(slot {slot})")
+                        view.progress(idx, total_slots, f"(slot {slot})")
                     e = sounds.get(slot)
                     if not e:
                         samples.append(empty_sample(slot))
-                        if stream:
-                            print(format_table_row(samples[-1]))
                         continue
 
                     size_bytes = int(e.get("size") or 0)
@@ -313,42 +206,27 @@ def cmd_ls(args):
                             size_bytes=size_bytes,
                         )
                     )
-                    if stream:
-                        print(format_table_row(samples[-1]))
-                if total_slots and not stream:
+                if total_slots:
                     print()
             except Exception as e:
                 if source == "fs":
-                    print(f"❌ Failed to list /sounds via filesystem API: {e}")
+                    view.error(f"Failed to list /sounds via filesystem API: {e}")
                     return 1
                 entries = None
 
         if entries is None:
             if source == "auto":
-                print(
-                    f"{Colors.FG_YELLOW}⚠ Falling back to slot-scan (may be stale).{Colors.RESET}"
-                )
+                view.warn("Falling back to slot-scan (may be stale).")
             elif source == "scan":
                 pass
             else:
-                print("❌ Invalid source")
+                view.error("Invalid source")
                 return 1
 
         if entries is None and source in ("auto", "scan"):
-            print(f"{Colors.CYAN}Scanning slots {start:03d}-{end:03d}...{Colors.RESET}")
-            if stream:
-                print(
-                    f"\n  {'Slot':>4}  {'Name':<32}  {'CH':>2}  {'Size':>8}  {'s':>9}"
-                )
-                print(f"  {'-'*4}  {'-'*32}  {'--':>2}  {'-'*8}  {'-'*9}")
+            view.step(f"Scanning slots {start:03d}-{end:03d}...")
             for slot in range(start, end + 1):
-                if stream:
-                    print(
-                        f"  {Colors.FG_DIM}{slot - start + 1:>3}/{end - start + 1:<3}{Colors.RESET} ",
-                        end="",
-                    )
-                else:
-                    show_progress(slot - start + 1, end - start + 1, f"(slot {slot})")
+                view.progress(slot - start + 1, end - start + 1, f"(slot {slot})")
                 try:
                     info = client.info(
                         slot,
@@ -361,46 +239,15 @@ def cmd_ls(args):
                         samples.append(empty_sample(slot))
                 except SlotEmptyError:
                     samples.append(empty_sample(slot))
-                if stream:
-                    print(format_table_row(samples[-1]))
-            if not stream:
-                print()  # Clear progress line
+            print()  # Clear progress line
 
         samples = [s for s in samples if start <= s.slot <= end]
-
-        # Calculate totals
-        used_samples = [s for s in samples if s.size_bytes]
-        total_size = sum(s.size_bytes for s in used_samples)
-        total_samples = len(used_samples)
-
-        # Show summary
-        print(f"\n  Slots {start:03d}-{end:03d}")
-        print(f"  Found {total_samples} samples, {format_size(total_size)} total\n")
-
-        if not stream:
-            # Print header
-            print(
-                f"  {'Slot':>4}  {'Name':<32}  {'CH':>2}  {'Size':>8}  {'s':>9}"
-            )
-            print(f"  {'-'*4}  {'-'*32}  {'--':>2}  {'-'*8}  {'-'*9}")
-
-        # Print samples (including empty slots)
-        if not stream:
-            for info in samples:
-                print(format_table_row(info))
-
-        # Show oversized warning
-        oversized = [s for s in used_samples if s.size_bytes > 100 * 1024]
-        if oversized:
-            print(
-                f"\n  {Colors.FG_YELLOW}⚠ {len(oversized)} samples over 100KB{Colors.RESET}"
-            )
-            print(f"  Run {Colors.FG_GREEN}ko2 optimize-all{Colors.RESET} to optimize")
+        view.render_samples(samples, start, end)
 
     return 0
 
 
-def cmd_info(args):
+def cmd_info(args, view: View):
     """Show sample metadata for slot or range."""
     slot_spec = parse_range(args.slot)
 
@@ -428,20 +275,9 @@ def cmd_info(args):
                                 info.format = str(node_meta.get("format") or info.format)
                 except Exception:
                     pass
-                print(f"📵 Slot {info.slot:03d}")
-                print(f"   Name: {info.name}")
-                if info.sym:
-                    print(f"   Symbol: {info.sym}")
-                print(f"   Rate: {info.samplerate} Hz")
-                print(f"   Format: {info.format}")
-                print(f"   Channels: {info.channels}")
-                if info.size_bytes:
-                    print(f"   Size: {format_size(info.size_bytes)}")
-                    print(
-                        f"   Duration: {format_duration(info.size_bytes, info.samplerate, info.channels)}s"
-                    )
+                view.sample_detail(info)
             except SlotEmptyError:
-                print(f"Slot {slot_spec} is empty")
+                view.error(f"Slot {slot_spec} is empty")
                 return 1
         else:
             start, end = slot_spec
@@ -452,7 +288,7 @@ def cmd_info(args):
             empty_count = 0
 
             for slot in range(start, end + 1):
-                show_progress(slot - start + 1, end - start + 1)
+                view.progress(slot - start + 1, end - start + 1)
                 try:
                     info = client.info(slot, include_size=True)
                     samples.append(info)
@@ -460,21 +296,12 @@ def cmd_info(args):
                     empty_count += 1
             print()
 
-            total = end - start + 1
-            used = len(samples)
-            print(f"\nSlots {start:03d}-{end:03d}: {used} used, {empty_count} empty\n")
-
             if samples:
-                for info in samples:
-                    print(format_table_row(info))
+                view.render_samples(samples, start, end)
             else:
-                print(f"  {Colors.FG_DIM}(all empty){Colors.RESET}")
+                view.step("(all empty)")
 
     return 0
-
-
-def _print_kv(label: str, value: str) -> None:
-    print(f"  {label:<14} {value}")
 
 
 def _confirm(prompt: str, assume_yes: bool) -> bool:
@@ -562,10 +389,10 @@ def _extract_total_memory(info: dict | None) -> int | None:
     return None
 
 
-def cmd_status(args):
+def cmd_status(args, view: View):
     """Show quick device status."""
     with EP133Client(args.device) as client:
-        print(f"{Colors.CYAN}Device status{Colors.RESET}")
+        view.section("Device status")
 
         info = None
         try:
@@ -578,13 +405,13 @@ def cmd_status(args):
             version = info.get("device_version") or info.get("firmware") or info.get("version")
             serial = info.get("serial") or info.get("serial_number")
             sku = info.get("device_sku") or info.get("sku")
-            _print_kv("Device", str(name) if name else "(unknown)")
+            view.kv("Device", str(name) if name else "(unknown)")
             if version:
-                _print_kv("Firmware", str(version))
+                view.kv("Firmware", str(version))
             if sku:
-                _print_kv("SKU", str(sku))
+                view.kv("SKU", str(sku))
             if serial:
-                _print_kv("Serial", str(serial))
+                view.kv("Serial", str(serial))
 
             # Print any remaining keys as extras
             extras = {}
@@ -605,20 +432,20 @@ def cmd_status(args):
                 extras[k] = v
             if extras:
                 for k in sorted(extras.keys()):
-                    _print_kv(k, str(extras[k]))
+                    view.kv(k, str(extras[k]))
         else:
-            _print_kv("Device", "(info unavailable)")
+            view.kv("Device", "(info unavailable)")
 
         try:
             sounds = client.list_sounds()
         except Exception as e:
-            _print_kv("Samples", f"(list failed: {e})")
+            view.kv("Samples", f"(list failed: {e})")
             return 1
 
         used = len(sounds)
         total_size = sum(int(e.get("size") or 0) for e in sounds.values())
         empty = MAX_SLOTS - used
-        _print_kv("Samples", f"{used} used, {empty} empty")
+        view.kv("Samples", f"{used} used, {empty} empty")
 
         total_mem = _extract_total_memory(info)
         assumed = False
@@ -626,28 +453,28 @@ def cmd_status(args):
             total_mem = 64 * 1024 * 1024
             assumed = True
         pct = (total_size / total_mem) * 100 if total_mem else 0.0
-        _print_kv(
+        view.kv(
             "Memory",
-            f"{format_size(total_size)} / {format_size(total_mem)} ({pct:.0f}%)"
+            f"{SampleFormat.size(total_size)} / {SampleFormat.size(total_mem)} ({pct:.0f}%)"
             + (" (assumed total)" if assumed else ""),
         )
         bar = _format_bar(total_size, total_mem)
         if bar:
-            print(f"  {'':<14} {bar}")
+            view.kv("", bar)
 
     return 0
 
 
-def cmd_tui(args):
+def cmd_tui(args, view: View):
     """Launch Textual TUI."""
     try:
         module = importlib.import_module("ko2_tui.app")
         app_cls = getattr(module, "KO2TUIApp")
     except ImportError:
-        print("  ❌ TUI dependencies are missing. Install `textual` and try again.")
+        view.error("TUI dependencies are missing. Install `textual` and try again.")
         return 1
     except AttributeError:
-        print("  ❌ TUI module is installed but missing KO2TUIApp.")
+        view.error("TUI module is installed but missing KO2TUIApp.")
         return 1
 
     debug_arg = getattr(args, "debug", None)
@@ -663,7 +490,7 @@ def cmd_tui(args):
     return 0
 
 
-def cmd_audit(args):
+def cmd_audit(args, view: View):
     """Compare metadata sources for mismatches."""
     if args.range:
         slot_spec = parse_range(args.range)
@@ -674,7 +501,7 @@ def cmd_audit(args):
     elif args.page:
         page_range = parse_page(args.page)
         if page_range is None:
-            print("❌ Page must be 1-10")
+            view.error("Page must be 1-10")
             return 1
         start, end = page_range
     elif args.all:
@@ -695,7 +522,8 @@ def cmd_audit(args):
     with EP133Client(args.device) as client:
         sounds = client.list_sounds()
 
-        print(f"{Colors.CYAN}Metadata audit {start:03d}-{end:03d}{Colors.RESET}\n")
+        view.section(f"Metadata audit {start:03d}-{end:03d}")
+        print()
         print(
             f"  {'Slot':>4}  {'FS Name':<18}  {'Node Name':<18}  {'Meta Name':<18}  Flags"
         )
@@ -907,7 +735,7 @@ def optimize_sample(
         return False, f"error: {e}", original_size, 0
 
 
-def cmd_optimize(args):
+def cmd_optimize(args, view: View):
     """Optimize a single sample on device."""
     slot = args.slot
     downsample_rate = getattr(args, 'rate', None)
@@ -921,20 +749,20 @@ def cmd_optimize(args):
         try:
             info = client.info(slot, include_size=False)
         except SlotEmptyError:
-            print(f"❌ Slot {slot} is empty")
+            view.error(f"Slot {slot} is empty")
             return 1
 
         if not _confirm(f"Optimize slot {slot:03d} ({info.name})?", bool(args.yes)):
-            print("  Cancelled")
+            view.step("Cancelled")
             return 0
 
-        print(f"  {Colors.FG_DIM}Downloading...{Colors.RESET}")
+        view.step("Downloading...")
         with tempfile.TemporaryDirectory(prefix=f"ko2-slot{slot:03d}-") as td:
             temp_path = Path(td) / f"slot{slot:03d}.wav"
             try:
                 client.get(slot, temp_path)
             except EP133Error as e:
-                print(f"  ❌ Download failed: {e}")
+                view.error(f"Download failed: {e}")
                 return 1
 
             # Evaluate the file independently — no metadata involved from here on.
@@ -947,44 +775,44 @@ def cmd_optimize(args):
 
             print(
                 f"  {in_channels}ch  {in_rate} Hz  {in_depth}-bit  "
-                f"{format_size(original_size)}  {duration:.2f}s"
+                f"{SampleFormat.size(original_size)}  {duration:.2f}s"
             )
 
-            print(f"  {Colors.FG_DIM}Optimizing...{Colors.RESET}")
+            view.step("Optimizing...")
             success, msg, _, opt_size = optimize_sample(temp_path, downsample_rate=downsample_rate, speed=speed, mono=mono)
 
             if not success:
-                print(f"  ❌ {msg}")
+                view.error(msg)
                 return 1
 
             if msg == "already optimal":
-                print(f"  {Colors.FG_GREEN}✓ Already optimal{Colors.RESET}")
+                view.success("Already optimal")
                 return 0
 
             savings = original_size - opt_size
             savings_pct = (savings / original_size) * 100
 
             backup_path = backup_copy(temp_path, slot=slot, name_hint=info.name)
-            print(f"  {Colors.FG_DIM}Backup:{Colors.RESET} {backup_path}")
-            print(f"  {format_size(original_size)} → {format_size(opt_size)}  ({savings_pct:.1f}% saved)")
+            view.kv("Backup:", str(backup_path))
+            print(f"  {SampleFormat.size(original_size)} → {SampleFormat.size(opt_size)}  ({savings_pct:.1f}% saved)")
 
             if savings < 5 * 1024 and speed is None and downsample_rate is None:
-                print(f"  {Colors.FG_YELLOW}⚠ Savings too small (<5KB), skipping upload{Colors.RESET}")
+                view.warn("Savings too small (<5KB), skipping upload")
                 return 0
 
             opt_path = temp_path.with_suffix(".opt.wav")
-            print(f"  {Colors.FG_DIM}Uploading...{Colors.RESET}")
+            view.step("Uploading...")
             try:
                 client.put(opt_path, slot, name=info.name, progress=False, pitch=pitch)
-                print(f"  {Colors.FG_GREEN}✓ Done{Colors.RESET}")
+                view.success("Done")
             except EP133Error as e:
-                print(f"  ❌ Upload failed: {e}")
+                view.error(f"Upload failed: {e}")
                 return 1
 
     return 0
 
 
-def cmd_optimize_all(args):
+def cmd_optimize_all(args, view: View):
     """Optimize stereo samples on device (downmix to mono).
 
     Scan phase:
@@ -996,7 +824,8 @@ def cmd_optimize_all(args):
     slot_filter = getattr(args, "slot", None)
 
     with EP133Client(args.device) as client:
-        print(f"{Colors.CYAN}Scanning...{Colors.RESET}\n")
+        view.section("Scanning...")
+        print()
 
         sounds = client.list_sounds()
         if slot_filter is not None:
@@ -1025,7 +854,8 @@ def cmd_optimize_all(args):
 
         probe_stereo = []
         if to_probe:
-            print(f"  {len(to_probe)} samples without channel metadata — probing...\n")
+            view.step(f"{len(to_probe)} samples without channel metadata — probing...")
+            print()
             for info in to_probe:
                 channels, probed_size = client.probe_channels(info.slot)
                 if probed_size:
@@ -1038,7 +868,7 @@ def cmd_optimize_all(args):
         candidates = meta_stereo + probe_stereo
 
         if not candidates:
-            print(f"  {Colors.FG_GREEN}No stereo samples found{Colors.RESET}")
+            view.success("No stereo samples found")
             return 0
 
         print(f"\n  Found {len(candidates)} stereo samples:\n")
@@ -1046,14 +876,14 @@ def cmd_optimize_all(args):
         for info in candidates:
             total_original += info.size_bytes
             print(
-                f"    Slot {info.slot:03d}: {info.name[:30]:<30} {format_size(info.size_bytes)}"
+                f"    Slot {info.slot:03d}: {info.name[:30]:<30} {SampleFormat.size(info.size_bytes)}"
             )
 
-        print(f"\n  Total: {format_size(total_original)}")
+        print(f"\n  Total: {SampleFormat.size(total_original)}")
 
         assume_yes = bool(args.yes)
         if not _confirm(f"Optimize {len(candidates)} samples?", assume_yes):
-            print("  Cancelled")
+            view.step("Cancelled")
             return 0
 
         # Process each sample
@@ -1062,7 +892,7 @@ def cmd_optimize_all(args):
         total_savings = 0
 
         for i, info in enumerate(candidates, 1):
-            print(f"\n[{i}/{len(candidates)}] Slot {info.slot}: {info.name}")
+            view.section(f"[{i}/{len(candidates)}] Slot {info.slot}: {info.name}")
 
             with tempfile.TemporaryDirectory(prefix=f"ko2-slot{info.slot:03d}-") as td:
                 temp_path = Path(td) / f"slot{info.slot:03d}.wav"
@@ -1072,20 +902,20 @@ def cmd_optimize_all(args):
                 try:
                     client.get(info.slot, temp_path)
                 except EP133Error as e:
-                    print(f"  ❌ Download failed: {e}")
+                    view.error(f"Download failed: {e}")
                     continue
 
                 original_size = temp_path.stat().st_size
 
                 # Backup
                 backup_path = backup_copy(temp_path, slot=info.slot, name_hint=info.name)
-                print(f"  {Colors.FG_DIM}Backup:{Colors.RESET} {backup_path}")
+                view.kv("Backup:", str(backup_path))
 
                 # Optimize
                 success, msg, _, opt_size = optimize_sample(temp_path, output_path=opt_path)
 
                 if not success:
-                    print(f"  ❌ {msg}")
+                    view.error(msg)
                     continue
 
                 if msg == "already optimal":
@@ -1096,28 +926,26 @@ def cmd_optimize_all(args):
 
                 # Skip if savings too small
                 if savings < 5 * 1024:
-                    print(f"  ⊘ Skipped (savings: {format_size(savings)})")
+                    print(f"  ⊘ Skipped (savings: {SampleFormat.size(savings)})")
                     continue
 
                 # Upload
                 try:
                     client.put(opt_path, info.slot, name=info.name, progress=False)
-                    print(
-                        f"  {Colors.FG_GREEN}✓ Saved {format_size(savings)} ({savings/original_size*100:.1f}%){Colors.RESET}"
-                    )
+                    view.success(f"Saved {SampleFormat.size(savings)} ({savings/original_size*100:.1f}%)")
                     optimized += 1
                     total_savings += savings
                 except EP133Error as e:
-                    print(f"  ❌ Upload failed: {e}")
+                    view.error(f"Upload failed: {e}")
 
-        print(f"\n{Colors.CYAN}{'='*40}{Colors.RESET}")
+        view.section("=" * 40)
         print(f"  Optimized: {optimized}/{len(candidates)} samples")
-        print(f"  Total savings: {format_size(total_savings)}")
+        print(f"  Total savings: {SampleFormat.size(total_savings)}")
 
     return 0
 
 
-def cmd_get(args):
+def cmd_get(args, view: View):
     """Download sample from device."""
     slot = validate_slot(args.slot)
     output = Path(args.output) if args.output else None
@@ -1125,45 +953,45 @@ def cmd_get(args):
     # Determine final output path to check for existence
     if output and output.exists():
         if not _confirm(f"File '{output}' already exists. Overwrite?", bool(getattr(args, "yes", False))):
-            print("  Cancelled")
+            view.step("Cancelled")
             return 0
 
     with EP133Client(args.device) as client:
         try:
-            print(f"  Downloading slot {slot}...")
+            view.step(f"Downloading slot {slot}...")
             # If output is None, client.get will generate a name based on metadata
             result_path = client.get(slot, output)
-            print(f"  {Colors.FG_GREEN}✓{Colors.RESET} Downloaded to {result_path}")
+            view.success(f"Downloaded to {result_path}")
         except SlotEmptyError:
-            print(f"  ❌ Slot {slot} is empty")
+            view.error(f"Slot {slot} is empty")
             return 1
         except EP133Error as e:
-            print(f"  ❌ Error: {e}")
+            view.error(f"Error: {e}")
             return 1
 
     return 0
 
 
-def cmd_put(args):
+def cmd_put(args, view: View):
     """Upload sample to device."""
     input_path = Path(args.file)
 
     if not input_path.exists():
-        print(f"  ❌ File not found: {input_path}")
+        view.error(f"File not found: {input_path}")
         return 1
 
     with EP133Client(args.device) as client:
         try:
             name = args.name if args.name else None
             pitch = getattr(args, 'pitch', 0)
-            print(f"  Uploading {input_path.name} → slot {args.slot}...")
+            view.step(f"Uploading {input_path.name} → slot {args.slot}...")
             client.put(input_path, args.slot, name=name, progress=True, pitch=pitch)
-            print(f"  {Colors.FG_GREEN}✓{Colors.RESET} Uploaded to slot {args.slot}")
+            view.success(f"Uploaded to slot {args.slot}")
         except EP133Error as e:
-            print(f"  ❌ Error: {e}")
+            view.error(f"Error: {e}")
             return 1
         except ValueError as e:
-            print(f"  ❌ Invalid file: {e}")
+            view.error(f"Invalid file: {e}")
             return 1
 
     return 0
@@ -1173,7 +1001,7 @@ def _download_to_path(client: EP133Client, slot: int, path: Path) -> None:
     client.get(slot, path)
 
 
-def cmd_move(args):
+def cmd_move(args, view: View):
     """Move sample between slots (swap if destination occupied)."""
     src = int(args.src)
     dst = int(args.dst)
@@ -1181,14 +1009,14 @@ def cmd_move(args):
     assume_yes = bool(args.yes)
 
     if src == dst:
-        print("  No-op: source and destination are the same")
+        view.info("No-op: source and destination are the same")
         return 0
 
     with EP133Client(args.device) as client:
         sounds = client.list_sounds()
         src_entry = sounds.get(src)
         if not src_entry:
-            print(f"  ❌ Slot {src:03d} is empty")
+            view.error(f"Slot {src:03d} is empty")
             return 1
         dst_entry = sounds.get(dst)
 
@@ -1203,7 +1031,7 @@ def cmd_move(args):
             prompt = f"Move slot {src:03d} ({src_name}) → {dst:03d}?"
 
         if not _confirm(prompt, assume_yes):
-            print("  Cancelled")
+            view.step("Cancelled")
             return 0
 
         with tempfile.TemporaryDirectory(prefix="ko2-move-") as td:
@@ -1224,15 +1052,11 @@ def cmd_move(args):
                     client.delete(dst)
                     client.put(src_path, dst, name=src_name, progress=False)
                     client.put(dst_path, src, name=dst_name, progress=False)
-                    print(
-                        f"  {Colors.FG_GREEN}✓{Colors.RESET} Swapped {src:03d} ↔ {dst:03d}"
-                    )
+                    view.success(f"Swapped {src:03d} ↔ {dst:03d}")
                 else:
                     client.put(src_path, dst, name=src_name, progress=False)
                     client.delete(src)
-                    print(
-                        f"  {Colors.FG_GREEN}✓{Colors.RESET} Moved {src:03d} → {dst:03d}"
-                    )
+                    view.success(f"Moved {src:03d} → {dst:03d}")
             except EP133Error as e:
                 if dst_entry:
                     try:
@@ -1243,13 +1067,13 @@ def cmd_move(args):
                         client.put(dst_path, dst, name=dst_name, progress=False)
                     except Exception:
                         pass
-                print(f"  ❌ Move failed: {e}")
+                view.error(f"Move failed: {e}")
                 return 1
 
     return 0
 
 
-def cmd_copy(args):
+def cmd_copy(args, view: View):
     """Copy sample between slots."""
     src = int(args.src)
     dst = int(args.dst)
@@ -1257,14 +1081,14 @@ def cmd_copy(args):
     assume_yes = bool(args.yes)
 
     if src == dst:
-        print("  No-op: source and destination are the same")
+        view.info("No-op: source and destination are the same")
         return 0
 
     with EP133Client(args.device) as client:
         sounds = client.list_sounds()
         src_entry = sounds.get(src)
         if not src_entry:
-            print(f"  ❌ Slot {src:03d} is empty")
+            view.error(f"Slot {src:03d} is empty")
             return 1
         dst_entry = sounds.get(dst)
 
@@ -1279,7 +1103,7 @@ def cmd_copy(args):
             prompt = f"Copy slot {src:03d} ({src_name}) → {dst:03d}?"
 
         if not _confirm(prompt, assume_yes):
-            print("  Cancelled")
+            view.step("Cancelled")
             return 0
 
         with tempfile.TemporaryDirectory(prefix="ko2-copy-") as td:
@@ -1297,41 +1121,39 @@ def cmd_copy(args):
                     client.delete(dst)
 
                 client.put(src_path, dst, name=src_name, progress=False)
-                print(
-                    f"  {Colors.FG_GREEN}✓{Colors.RESET} Copied {src:03d} → {dst:03d}"
-                )
+                view.success(f"Copied {src:03d} → {dst:03d}")
             except EP133Error as e:
                 if dst_entry:
                     try:
                         client.put(dst_path, dst, name=dst_name, progress=False)
                     except Exception:
                         pass
-                print(f"  ❌ Copy failed: {e}")
+                view.error(f"Copy failed: {e}")
                 return 1
 
     return 0
 
 
-def cmd_delete(args):
+def cmd_delete(args, view: View):
     """Delete sample from slot."""
     with EP133Client(args.device) as client:
         try:
             info = client.info(args.slot)
             prompt = f"Delete slot {args.slot:03d} ({info.name})?"
             if not _confirm(prompt, bool(args.yes)):
-                print("  Cancelled")
+                view.step("Cancelled")
                 return 0
-            print(f"  Deleting: {info.name} from slot {args.slot}")
+            view.step(f"Deleting {info.name} from slot {args.slot}")
             client.delete(args.slot)
-            print(f"  {Colors.FG_GREEN}✓{Colors.RESET} Deleted slot {args.slot}")
+            view.success(f"Deleted slot {args.slot}")
         except SlotEmptyError:
-            print(f"  Slot {args.slot} is already empty")
+            view.info(f"Slot {args.slot} is already empty")
             return 1
 
     return 0
 
 
-def cmd_group(args):
+def cmd_group(args, view: View):
     """Compact samples in range toward one end."""
     start, end = parse_range(args.range)
     if start > end:
@@ -1343,26 +1165,26 @@ def cmd_group(args):
         mapping = client.group(start, end, direction)
 
         if not mapping:
-            print(f"  No samples found in range {start:03d}-{end:03d}")
+            view.info(f"No samples found in range {start:03d}-{end:03d}")
             return 0
 
-        print(f"  Grouping {direction}:")
+        view.info(f"Grouping {direction}:")
         for old_slot, new_slot in mapping.items():
             print(f"    {old_slot:03d} → {new_slot:03d}")
 
-        print(f"\n  {Colors.FG_YELLOW}⚠ Preview only{Colors.RESET}")
+        view.warn("Preview only")
         print(f"  (requires download/re-upload to execute)")
 
     return 0
 
 
-def cmd_squash(args):
+def cmd_squash(args, view: View):
     """Squash samples in page/group to fill slots sequentially."""
     # Determine range
     if args.page:
         page_range = parse_page(args.page)
         if page_range is None:
-            print("  ❌ Page must be 1-10")
+            view.error("Page must be 1-10")
             return 1
         start, end = page_range
     elif args.range:
@@ -1381,18 +1203,16 @@ def cmd_squash(args):
     raw = bool(args.raw)
     assume_yes = bool(args.yes)
 
-    print(f"{Colors.CYAN}Squashing slots {start:03d}-{end:03d}...{Colors.RESET}")
+    view.section(f"Squashing slots {start:03d}-{end:03d}...")
     if dry_run:
-        print(
-            f"  {Colors.FG_YELLOW}DRY RUN MODE{Colors.RESET} (use --execute to apply)"
-        )
+        view.warn("DRY RUN MODE (use --execute to apply)")
 
     with EP133Client(args.device) as client:
         sounds = client.list_sounds()
         used_slots = [s for s in sorted(sounds.keys()) if start <= s <= end]
 
         if not used_slots:
-            print(f"  {Colors.FG_DIM}No samples found{Colors.RESET}")
+            view.step("No samples found")
             return 0
 
         # Calculate squash mapping
@@ -1405,11 +1225,12 @@ def cmd_squash(args):
             target_slot += 1
 
         if not mapping:
-            print(f"  {Colors.FG_GREEN}✓ Already compacted{Colors.RESET}")
+            view.success("Already compacted")
             return 0
 
         # Show mapping
-        print(f"  Will move {len(mapping)} samples:\n")
+        view.info(f"Will move {len(mapping)} samples:")
+        print()
         for old_slot, new_slot in mapping.items():
             entry = sounds.get(old_slot)
             name = _resolve_transfer_name(client, old_slot, entry, raw)
@@ -1431,26 +1252,23 @@ def cmd_squash(args):
         #     upload_project_patterns(project, patterns)
 
         if dry_run:
-            print(f"\n  {Colors.FG_YELLOW}⚠ Preview mode{Colors.RESET}")
+            print()
+            view.warn("Preview mode")
             print(f"  Run with --execute to apply changes")
-            print(
-                f"\n  {Colors.FG_DIM}NOTE: Project pad references are NOT updated.{Colors.RESET}"
-            )
-            print(
-                f"  {Colors.FG_DIM}      (project update protocol not yet available){Colors.RESET}"
-            )
+            print(f"  NOTE: Project pad references are NOT updated.")
+            print(f"        (project update protocol not yet available)")
             return 0
 
         if not _confirm(f"Execute squash for {len(mapping)} moves?", assume_yes):
-            print("  Cancelled")
+            view.step("Cancelled")
             return 0
 
         # Execute squash
-        print(f"\n  {Colors.CYAN}Executing...{Colors.RESET}\n")
+        print()
+        view.section("Executing...")
+        print()
 
         for old_slot, new_slot in mapping.items():
-            # Download from old slot
-            print(f"  [{old_slot:03d} → {new_slot:03d}] ", end="", flush=True)
             try:
                 entry = sounds.get(old_slot)
                 name = _resolve_transfer_name(client, old_slot, entry, raw)
@@ -1475,23 +1293,21 @@ def cmd_squash(args):
                                 client.put(
                                     temp_path, old_slot, name=name, progress=False
                                 )
-                                print(
-                                    f"\n  {Colors.FG_YELLOW}⚠ Restored slot {old_slot:03d} after failure{Colors.RESET}"
-                                )
+                                view.warn(f"Restored slot {old_slot:03d} after failure")
                             except Exception:
                                 pass
                         raise
-                print(f"{Colors.FG_GREEN}✓{Colors.RESET}")
+                view.step(f"[{old_slot:03d} → {new_slot:03d}] ✓")
             except EP133Error as e:
-                print(f"{Colors.FG_RED}✗ {e}{Colors.RESET}")
+                view.error(f"[{old_slot:03d} → {new_slot:03d}]: {e}")
 
-        print(f"\n  {Colors.FG_GREEN}✓ Squash complete{Colors.RESET}")
-        print(f"  {Colors.FG_DIM}Freed {len(mapping)} slots{Colors.RESET}")
+        view.success("Squash complete")
+        view.step(f"Freed {len(mapping)} slots")
 
     return 0
 
 
-def cmd_fs_ls(args):
+def cmd_fs_ls(args, view: View):
     """Debug: list filesystem entries (FILE LIST) for a node (default: /sounds)."""
     node_id = int(args.node)
     slot_spec = parse_range(args.range) if args.range else None
@@ -1538,7 +1354,7 @@ def cmd_fs_ls(args):
                     continue
                 slot_str = f"{slot_display:03d}" if not is_dir and slot_display else "DIR"
                 print(
-                    f"  {hi:02X}  {lo:02X}  {n14:>5}  {n16:>5}  {dec:>5}  {slot_str:>4}  0x{flags:02X}  {format_size(size):>7}  {name}"
+                    f"  {hi:02X}  {lo:02X}  {n14:>5}  {n16:>5}  {dec:>5}  {slot_str:>4}  0x{flags:02X}  {SampleFormat.size(size):>7}  {name}"
                 )
         else:
             entries = client.list_directory(node_id=node_id)
@@ -1561,13 +1377,13 @@ def cmd_fs_ls(args):
                     continue
                 slot_str = f"{slot:03d}" if not is_dir and slot else "DIR"
                 print(
-                    f"  {slot_str:>4}  {nid:>4}  0x{flags:02X}  {format_size(size):>7}  {name}"
+                    f"  {slot_str:>4}  {nid:>4}  0x{flags:02X}  {SampleFormat.size(size):>7}  {name}"
                 )
 
     return 0
 
 
-def cmd_rename(args):
+def cmd_rename(args, view: View):
     """Rename a sample slot via filesystem metadata (backs up audio first)."""
     slot = int(args.slot)
     new_name = str(args.name)
@@ -1576,19 +1392,17 @@ def cmd_rename(args):
         try:
             info = client.info(slot, include_size=False)
         except SlotEmptyError:
-            print(f"  ❌ Slot {slot:03d} is empty")
+            view.error(f"Slot {slot:03d} is empty")
             return 1
 
         with tempfile.TemporaryDirectory(prefix=f"ko2-rename{slot:03d}-") as td:
             temp_path = Path(td) / f"slot{slot:03d}.wav"
             client.get(slot, temp_path)
             backup_path = backup_copy(temp_path, slot=slot, name_hint=info.name)
-            print(f"  {Colors.FG_DIM}Backup:{Colors.RESET} {backup_path}")
+            view.kv("Backup:", str(backup_path))
 
         client.rename(slot, new_name)
-        print(
-            f"  {Colors.FG_GREEN}✓{Colors.RESET} Renamed slot {slot:03d} → {new_name}"
-        )
+        view.success(f"Renamed slot {slot:03d} → {new_name}")
 
     return 0
 
@@ -1624,6 +1438,12 @@ def main():
     parser = argparse.ArgumentParser(
         description="KO2 - EP-133 KO-II Command Line Tool",
         formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    parser.add_argument(
+        "--json", action="store_true", help="Machine-readable JSON output"
+    )
+    parser.add_argument(
+        "--quiet", action="store_true", help="Suppress non-essential output"
     )
 
     subparsers = parser.add_subparsers(dest="command", help="Available commands")
@@ -1954,10 +1774,14 @@ def main():
         parser.print_help()
         return 1
 
+    view: View = (
+        JsonView() if args.json else SilentView() if args.quiet else TerminalView()
+    )
+
     # Auto-select device. TUI handles a missing device gracefully; other commands fail fast.
     device = find_device()
     if not device and args.command != "tui":
-        print("  ❌ EP-133 not found. Connect via USB.")
+        view.error("EP-133 not found. Connect via USB.")
         return 1
     args.device = device  # None for TUI when device not yet connected
 
@@ -1987,7 +1811,7 @@ def main():
 
     handler = commands.get(args.command)
     if handler:
-        return handler(args)
+        return handler(args, view)
 
     return 0
 

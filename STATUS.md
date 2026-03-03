@@ -18,6 +18,25 @@
 
 ## 🏛 Architectural Decisions
 
+### 2026-03-02: View-oriented CLI output architecture
+**Context**:
+`ko2.py` had ~80 bare `print()+Colors.*` calls inline in command functions, making them untestable and coupling business logic to terminal formatting. The `RendererProtocol` name was also misleading ("renderer" implies transform-and-return, not fire-and-forget I/O).
+
+**Decision**:
+Introduced `View` protocol in `ko2_display.py` with 10 domain-semantic methods (`section`, `step`, `success`, `error`, `warn`, `info`, `kv`, `progress`, `render_samples`, `sample_detail`). Three implementations:
+- **`TerminalView`**: colored ANSI output (default)
+- **`SilentView`**: all no-ops — `--quiet` backend and test double
+- **`JsonView`**: structured JSON output — `--json` backend
+
+All 16 `cmd_*` functions receive `view: View` as an injected parameter. `main()` constructs the view from `--json`/`--quiet` flags. Layout helpers (`_row`, `_table_header`, etc.) are private to `TerminalView`.
+
+**Consequences**:
+- Every `cmd_*` function is unit-testable via `Mock(spec=View)` — no stdout patching needed.
+- `--json` and `--quiet` output modes added at zero cost to command logic.
+- `Colors.*` fully removed from `ko2.py`; `ko2_utils.py` deleted (utilities consolidated into `ko2_display.SampleFormat`).
+
+---
+
 ### 2026-02-24: "Golden Standard" Descriptor DSL Architecture
 **Context**: 
 The procedural approach (manually shifting bits) was replaced by a `dataclass`-based layer. However, that layer still suffered from asymmetry (manual unpacking on receive) and anti-patterns (overriding pack methods for variable-length strings).
