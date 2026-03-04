@@ -758,8 +758,10 @@ class KO2TUIApp(App[None]):
             )
             return
 
-        cols = max(24, min(120, int(widget.size.width or 0) - 4 if int(widget.size.width or 0) > 0 else 72))
-        rows = max(6, min(16, int(widget.size.height or 0) - 3 if int(widget.size.height or 0) > 0 else 10))
+        w = int(widget.size.width or 0)
+        h = int(widget.size.height or 0)
+        cols = max(24, w - 4) if w > 0 else 72
+        rows = max(4, h - 4) if h > 0 else 10
         art = _render_waveform_braille(
             cast(list[int], bins.get("mins", [])),
             cast(list[int], bins.get("maxs", [])),
