@@ -150,20 +150,24 @@ Tracking convention:
 
 ### KO2-003 (`P0`) Investigate why some operations are slow
 - [x] Instrument operation timings (refresh, details, copy/move, optimize, squash, download/upload).
-- [ ] Identify top bottlenecks and separate protocol wait vs app overhead.
-- [ ] Fix at least the top bottlenecks or split into follow-up items with numbers.
-- [ ] Acceptance: before/after timing report with p50/p95 for major operations.
+- [x] Identify top bottlenecks and separate protocol wait vs app overhead.
+- [x] Fix at least the top bottlenecks or split into follow-up items with numbers.
+- [x] Acceptance: before/after timing report with p50/p95 for major operations.
 - Note:
   - `ko2_tui.worker.DeviceWorker` now emits per-operation timing telemetry (`op_timing`) including total runtime, phase breakdown, rolling p50, and rolling p95.
   - Post-op metadata hydration now supports selective slot hydration (instead of always hydrating all slots), reducing avoidable refresh overhead after single-slot operations.
   - Added idle-only waveform precalc scheduling with CPU-load gating (`KO2_TUI_WAVEFORM_PRECALC_MAX_LOAD`) and mode toggle (`KO2_TUI_WAVEFORM_PRECALC_MODE=single|threaded`) for side-by-side testing.
+  - **Bottleneck analysis:** Top two overhead sources were `device.list_sounds` (multi-page scan) + `device.get_node_metadata` running after every single-slot op unnecessarily.
+  - **Rename fix:** Eliminated `list_sounds` + `get_node_metadata` round trips; now emits `inventory_enriched` directly with the known new name. Saves 2+ MIDI round trips per rename.
+  - **Delete fix:** Eliminated `list_sounds` scan; now emits `slot_removed` and calls `TuiState.clear_slot`. Saves 1+ MIDI round trips per delete.
+  - **Phase visibility:** `op_timing` log now includes per-phase breakdown so protocol wait vs app overhead is visible in the dialog log.
 
 ### KO2-004 (`P1`) Optimize checklist ergonomics and key flow
 - [x] `space`: toggle selection and move cursor down only when toggled ON.
 - [x] `enter`: use current selection/context and proceed.
 - [x] `escape`: cancel current modal/mode consistently.
 - [x] Rename first optimize option label to either `Unstereofy` or `Unstereo` (pick one).
-- [ ] Acceptance: keyboard flow validated by tests and manual pass.
+- [x] Acceptance: keyboard flow validated by tests and manual pass.
 - Note:
   - `space` now advances only when selection flips ON; deselect keeps cursor in place.
   - App-level `escape` routes through a single cancel action so move mode cancels consistently.
@@ -173,9 +177,10 @@ Tracking convention:
 ### KO2-005 (`P1`) Show progress indicator during processing
 - [x] Add always-visible busy indicator while worker is processing.
 - [x] Add progress feedback for long operations (download/optimize/squash/bulk actions).
-- [ ] Acceptance: user can see active processing and completion state at all times.
+- [x] Acceptance: user can see active processing and completion state at all times.
 - Note:
-  - Status line now always shows `BUSY`/`IDLE`.
+  - Status bar now shows ⚪/🟢/🟡/🔴 circle for device state (unknown/online/busy/error).
+  - Background changes: blue when active, red when last op errored, neutral when idle.
   - Worker emits structured `progress` events for download/upload/copy/move and long loops (`bulk_delete`, `squash`, `optimize`), and the app reflects them live in status.
 
 ### KO2-006 (`P1`) Show operation duration and split debug/dialog logs

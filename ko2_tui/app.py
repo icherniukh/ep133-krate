@@ -144,6 +144,7 @@ class KO2TUIApp(App[None]):
         self._waveform_by_slot: dict[int, dict[str, Any]] = {}
         self._waveform_pending: set[int] = set()
         self._waveform_store = WaveformStore()
+        self._waveform_precalc_active: bool = False
         self._logs_visible: bool = True
 
     def compose(self) -> ComposeResult:
@@ -180,7 +181,7 @@ class KO2TUIApp(App[None]):
 
         self.set_interval(0.05, self._drain_worker_events)
 
-        self._update_status("Ready")
+        self._update_status("IDLE")
         if self._debug_logger and self._debug_logger.path:
             self._log(f"Debug capture: {self._debug_logger.path}")
         if self._dialog_logger and self._dialog_logger.path:
@@ -340,6 +341,8 @@ class KO2TUIApp(App[None]):
 
         if kind == "busy":
             if str(payload.get("op", "")) == "waveform":
+                self._waveform_precalc_active = True
+                self._update_status(self.state.status)
                 return
             op = self._human_op_label(str(payload.get("op", "operation")))
             self.state.set_busy(True, f"Running {op}...")
@@ -348,9 +351,11 @@ class KO2TUIApp(App[None]):
 
         if kind == "idle":
             if str(payload.get("op", "")) == "waveform":
+                self._waveform_precalc_active = False
+                self._update_status(self.state.status)
                 return
-            self.state.set_busy(False, "Ready")
-            self._update_status("Ready")
+            self.state.set_busy(False, "IDLE")
+            self._update_status("IDLE")
             return
 
         if kind == "inventory":
@@ -548,12 +553,15 @@ class KO2TUIApp(App[None]):
         sel_suffix = f"  {n_sel} selected" if n_sel else ""
         logs_suffix = "" if self._logs_visible else "  logs:hidden"
         total_bytes = sum(row.size_bytes for row in self.state.slots.values() if row.exists)
-        mem_suffix = f"  Mem: {SampleFormat.size(total_bytes)}/64.00M"
+        max_bytes = 64 * 1024 * 1024
+        used_pct = int(100 * total_bytes / max_bytes) if max_bytes else 0
+        mem_suffix = f"  {SampleFormat.size(total_bytes)}/64.00M ({used_pct}%)"
+        wf_suffix = "  ⟳ waveforms" if self._waveform_precalc_active and not is_active else ""
         debug_suffix = ""
         if self._debug_logger and self._debug_logger.path:
             debug_suffix = f"  debug={self._debug_logger.path.name}"
 
-        left = f"{state_text}{sel_suffix}{mem_suffix}{logs_suffix}{debug_suffix}"
+        left = f"{state_text}{sel_suffix}{mem_suffix}{logs_suffix}{debug_suffix}{wf_suffix}"
         right = f"{self.device_name or 'EP-133'} {circle}"
 
         self.query_one("#status_left", Static).update(left)
@@ -731,7 +739,7 @@ class KO2TUIApp(App[None]):
         if slot in self._waveform_pending:
             widget.update(
                 Panel(
-                    Text("Rendering waveform...", style="italic #f59e0b"),
+                    Text("Computing waveform...", style="italic #f59e0b"),
                     title=f"Waveform {slot:03d}",
                     subtitle="background job",
                     border_style="#f59e0b",

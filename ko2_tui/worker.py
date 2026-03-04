@@ -541,7 +541,11 @@ class DeviceWorker(threading.Thread):
 
         slot = int(self._waveform_precalc_slots.pop(0))
         phases: dict[str, float] = {}
-        wav_bytes = self._download_slot_wav_bytes(client, slot=slot, phases=phases)
+        self._emit("busy", op="waveform")
+        try:
+            wav_bytes = self._download_slot_wav_bytes(client, slot=slot, phases=phases)
+        finally:
+            self._emit("idle", op="waveform")
         if not wav_bytes:
             return
 
