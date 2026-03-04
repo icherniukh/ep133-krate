@@ -25,15 +25,36 @@ from .worker import DeviceWorker, WorkerEvent
 
 class KO2TUIApp(App[None]):
     CSS = """
-    #status {
-        height: 1;
-        padding: 0 1;
-    }
     #main {
         height: 1fr;
     }
-    #slots {
+    #slots_pane {
         width: 2fr;
+    }
+    #slots_pane DataTable {
+        height: 1fr;
+    }
+    #status {
+        height: 1;
+        background: #16202e;
+    }
+    #status.active {
+        background: #0d3251;
+    }
+    #status.error {
+        background: #3d1515;
+    }
+    #status_left {
+        width: 1fr;
+        height: 1;
+        padding: 0 1;
+        background: transparent;
+    }
+    #status_right {
+        width: auto;
+        height: 1;
+        padding: 0 1;
+        background: transparent;
     }
     #inspector {
         width: 1fr;
@@ -119,15 +140,19 @@ class KO2TUIApp(App[None]):
         self._dialog_logger: DialogLogger | None = None
         self._col_keys: list = []
         self.moving_src: int | None = None
+        self._device_online: bool | None = None  # None=unknown, True=online, False=error
         self._waveform_by_slot: dict[int, dict[str, Any]] = {}
         self._waveform_pending: set[int] = set()
         self._waveform_store = WaveformStore()
         self._logs_visible: bool = True
 
     def compose(self) -> ComposeResult:
-        yield Static(id="status")
         with Horizontal(id="main"):
-            yield DataTable(id="slots")
+            with Vertical(id="slots_pane"):
+                yield DataTable(id="slots")
+                with Horizontal(id="status"):
+                    yield Static("", id="status_left")
+                    yield Static("", id="status_right")
             with Vertical(id="inspector"):
                 yield Static("No slot selected", id="details")
                 yield Static("Waveform unavailable", id="waveform")
@@ -329,6 +354,7 @@ class KO2TUIApp(App[None]):
             return
 
         if kind == "inventory":
+            self._device_online = True
             sounds = cast(dict[int, dict], payload.get("sounds", {}))
             self._waveform_by_slot.clear()
             self._waveform_pending.clear()
@@ -377,6 +403,7 @@ class KO2TUIApp(App[None]):
             return
 
         if kind == "slot_refresh":
+            self._device_online = True
             slot = int(payload.get("slot") or self.state.selected_slot)
             details = cast(dict, payload.get("details", {}))
             self.state.apply_slot_details(slot, details)
@@ -387,6 +414,7 @@ class KO2TUIApp(App[None]):
             return
 
         if kind == "waveform":
+            self._device_online = True
             slot = int(payload.get("slot") or self.state.selected_slot)
             self._waveform_pending.discard(slot)
             bins = payload.get("bins")
@@ -414,10 +442,13 @@ class KO2TUIApp(App[None]):
             return
 
         if kind == "success":
+            self._device_online = True
             self._log(f"OK: {payload.get('message', '')}")
             return
 
         if kind == "error":
+            self._device_online = False
+            self.state.set_busy(False, "Error")
             msg = str(payload.get("message", "Unknown error"))
             self.state.last_error = msg
             self._update_status(f"Error: {msg}")
@@ -502,19 +533,38 @@ class KO2TUIApp(App[None]):
         self._render_waveform(slot)
 
     def _update_status(self, state_text: str) -> None:
+        is_active = self.state.busy or self.moving_src is not None
+
+        if self.state.busy:
+            circle = "🟡"
+        elif self._device_online is True:
+            circle = "🟢"
+        elif self._device_online is False:
+            circle = "🔴"
+        else:
+            circle = "⚪"
+
+        n_sel = len(self.state.selected_slots)
+        sel_suffix = f"  {n_sel} selected" if n_sel else ""
+        logs_suffix = "" if self._logs_visible else "  logs:hidden"
+        total_bytes = sum(row.size_bytes for row in self.state.slots.values() if row.exists)
+        mem_suffix = f"  Mem: {SampleFormat.size(total_bytes)}/64.00M"
         debug_suffix = ""
         if self._debug_logger and self._debug_logger.path:
-            debug_suffix = f" | debug={self._debug_logger.path.name}"
-        n_sel = len(self.state.selected_slots)
-        sel_suffix = f" | {n_sel} selected" if n_sel else ""
-        logs_suffix = "" if self._logs_visible else " | logs:hidden"
-        busy_suffix = " | BUSY" if self.state.busy else " | IDLE"
-        
-        total_bytes = sum(row.size_bytes for row in self.state.slots.values() if row.exists)
-        mem_suffix = f" | Mem: {SampleFormat.size(total_bytes)}/64.00M"
+            debug_suffix = f"  debug={self._debug_logger.path.name}"
 
-        status = f"Device: {self.device_name or 'EP-133'}{busy_suffix} | {state_text}{sel_suffix}{mem_suffix}{logs_suffix}{debug_suffix}"
-        self.query_one("#status", Static).update(status)
+        left = f"{state_text}{sel_suffix}{mem_suffix}{logs_suffix}{debug_suffix}"
+        right = f"{self.device_name or 'EP-133'} {circle}"
+
+        self.query_one("#status_left", Static).update(left)
+        self.query_one("#status_right", Static).update(right)
+
+        status_bar = self.query_one("#status")
+        status_bar.remove_class("active", "error")
+        if is_active:
+            status_bar.add_class("active")
+        elif self._device_online is False:
+            status_bar.add_class("error")
 
     def _log(self, line: str) -> None:
         self.query_one("#logs", RichLog).write(line)

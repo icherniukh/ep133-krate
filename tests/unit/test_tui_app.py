@@ -737,14 +737,31 @@ def test_status_shows_busy_and_idle_marker(monkeypatch):
     monkeypatch.setattr("ko2_tui.app.DeviceWorker", StubWorker)
 
     async def _run():
-            app = KO2TUIApp(device_name="EP-133", debug=False)
-            async with app.run_test() as _pilot:
-                _make_ready(app)
-                status_widget = app.query_one("#status", Static)
-                assert "IDLE" in str(status_widget.render())
+        app = KO2TUIApp(device_name="EP-133", debug=False)
+        async with app.run_test() as _pilot:
+            # Before any device contact: unknown state, no active class.
+            app._handle_event(WorkerEvent(kind="idle", payload={"op": "refresh_inventory"}))
+            status_bar = app.query_one("#status")
+            left = app.query_one("#status_left", Static)
+            right = app.query_one("#status_right", Static)
+            assert not status_bar.has_class("active")
+            assert "⚪" in str(right.render())
 
-                app._handle_event(WorkerEvent(kind="busy", payload={"op": "download"}))
-                assert "BUSY" in str(status_widget.render())
+            # After inventory: device_online=True → green circle, no active class.
+            app._handle_event(WorkerEvent(kind="inventory", payload={"sounds": {}}))
+            assert not status_bar.has_class("active")
+            assert "🟢" in str(right.render())
+
+            # Busy op: yellow circle and active class.
+            app._handle_event(WorkerEvent(kind="busy", payload={"op": "download"}))
+            assert status_bar.has_class("active")
+            assert "🟡" in str(right.render())
+
+            # Error: red circle and error class.
+            app._handle_event(WorkerEvent(kind="error", payload={"message": "fail"}))
+            assert not status_bar.has_class("active")
+            assert status_bar.has_class("error")
+            assert "🔴" in str(right.render())
 
     asyncio.run(_run())
 
@@ -762,10 +779,11 @@ def test_progress_event_updates_status(monkeypatch):
                     payload={"op": "optimize", "message": "Optimizing slot 003", "current": 2, "total": 5},
                 )
             )
-            status_widget = app.query_one("#status", Static)
-            rendered = str(status_widget.render())
+            left = app.query_one("#status_left", Static)
+            rendered = str(left.render())
             assert "Optimizing slot 003 (2/5)" in rendered
-            assert "BUSY" in rendered
+            status_bar = app.query_one("#status")
+            assert status_bar.has_class("active")
 
     asyncio.run(_run())
 
