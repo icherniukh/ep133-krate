@@ -115,7 +115,8 @@ class _InMemoryMidiBackend:
 @pytest.fixture(scope="session")
 def emulator_device(pytestconfig):
     if not pytestconfig.getoption("--emulator"):
-        return None
+        yield None
+        return
     import mido
     backend = _InMemoryMidiBackend()
     orig_open_input = mido.open_input
