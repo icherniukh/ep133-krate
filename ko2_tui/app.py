@@ -286,6 +286,10 @@ class KO2TUIApp(App[None]):
 
         self._render_details(self.state.selected_slot)
 
+    def on_resize(self) -> None:
+        slot = self.state.selected_slot
+        self.call_after_refresh(lambda: self._render_waveform(slot))
+
     def on_key(self, event: events.Key) -> None:
         if event.key not in {"up", "down", "enter"}:
             return
@@ -760,8 +764,11 @@ class KO2TUIApp(App[None]):
 
         w = int(widget.size.width or 0)
         h = int(widget.size.height or 0)
+        # widget.size is padding-box (inside CSS border, including padding).
+        # Width: -2 for CSS padding(0 1), -2 for Panel border = -4.
+        # Height: no vertical CSS padding, -2 for Panel border = -2.
         cols = max(24, w - 4) if w > 0 else 72
-        rows = max(4, h - 4) if h > 0 else 10
+        rows = max(4, h - 2) if h > 0 else 10
         art = _render_waveform_braille(
             cast(list[int], bins.get("mins", [])),
             cast(list[int], bins.get("maxs", [])),
@@ -769,12 +776,13 @@ class KO2TUIApp(App[None]):
             height_chars=rows,
         )
         text = Text()
-        n = max(1, len(art) - 1)
+        center = (len(art) - 1) / 2.0
         for idx, line in enumerate(art):
-            # Teal-forward gradient with a warm accent near center.
-            t = idx / n
-            color = "#22d3ee" if t < 0.45 else "#2dd4bf" if t < 0.8 else "#f59e0b"
-            text.append(line + ("\n" if idx < len(art) - 1 else ""), style=f"bold {color}")
+            dist = abs(idx - center) / center if center > 0 else 0.0
+            color = "#f59e0b" if dist > 0.75 else "#2dd4bf" if dist > 0.4 else "#22d3ee"
+            text.append(line, style=f"bold {color}")
+            if idx < len(art) - 1:
+                text.append("\n")
 
         widget.update(
             Panel(
@@ -1104,37 +1112,40 @@ class KO2TUIApp(App[None]):
         self.exit()
 
 
-def _render_waveform_braille(mins_q: list[int], maxs_q: list[int], *, width_chars: int, height_chars: int) -> list[str]:
+def _render_waveform_braille(
+    mins_q: list[int], maxs_q: list[int], *, width_chars: int, height_chars: int
+) -> list[str]:
     if not mins_q or not maxs_q or len(mins_q) != len(maxs_q):
         return [" " * max(1, width_chars) for _ in range(max(1, height_chars))]
 
     width_chars = max(8, int(width_chars))
     height_chars = max(3, int(height_chars))
-    px_w = width_chars * 2
     px_h = height_chars * 4
+    n = len(mins_q)
 
-    mins = _resample_series([max(-127, min(127, int(v))) / 127.0 for v in mins_q], px_w)
-    maxs = _resample_series([max(-127, min(127, int(v))) / 127.0 for v in maxs_q], px_w)
+    mins_f = [max(-127, min(127, int(v))) / 127.0 for v in mins_q]
+    maxs_f = [max(-127, min(127, int(v))) / 127.0 for v in maxs_q]
 
     cells = [[0 for _ in range(width_chars)] for _ in range(height_chars)]
-    for x in range(px_w):
-        lo = mins[x]
-        hi = maxs[x]
-        if lo > hi:
-            lo, hi = hi, lo
-        y_top = int(round((1.0 - hi) * 0.5 * (px_h - 1)))
-        y_bottom = int(round((1.0 - lo) * 0.5 * (px_h - 1)))
+    for cx in range(width_chars):
+        # Chunk min/max: take the true peak over the input bins mapped to this column.
+        lo_idx = int(cx * n / width_chars)
+        hi_idx = min(max(lo_idx + 1, int((cx + 1) * n / width_chars)), n)
+        lo = min(mins_f[lo_idx:hi_idx])
+        hi = max(maxs_f[lo_idx:hi_idx])
+
+        # Envelope: symmetric bar around center so zero-crossings don't create gaps.
+        amp = max(abs(lo), abs(hi))
+        y_top = int(round((1.0 - amp) * 0.5 * (px_h - 1)))
+        y_bottom = int(round((1.0 + amp) * 0.5 * (px_h - 1)))
         y_top = max(0, min(px_h - 1, y_top))
         y_bottom = max(0, min(px_h - 1, y_bottom))
-        if y_top > y_bottom:
-            y_top, y_bottom = y_bottom, y_top
 
         for y in range(y_top, y_bottom + 1):
-            cx = x // 2
             cy = y // 4
-            lx = x % 2
             ly = y % 4
-            cells[cy][cx] |= _braille_bit(lx, ly)
+            cells[cy][cx] |= _braille_bit(0, ly)
+            cells[cy][cx] |= _braille_bit(1, ly)
 
     lines: list[str] = []
     for row in cells:
