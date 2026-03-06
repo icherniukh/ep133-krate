@@ -26,7 +26,7 @@ def _write_known_wav(path: Path) -> bytes:
 
 
 class _FakeClient:
-    """Captures chunk data sent via _send_and_wait_msg."""
+    """Captures chunk data sent via _send_msg."""
 
     def __init__(self):
         self.calls = []
@@ -37,10 +37,17 @@ class _FakeClient:
         self._seq = (self._seq + 1) & 0x7F
         return s
 
-    def _send_and_wait_msg(self, msg, timeout=2.0):
+    def _send_msg(self, msg, seq=None):
+        self.calls.append(msg)
+        return self._next_seq()
+
+    def _send_and_wait_msg(self, msg, timeout=2.0, expect_resp_cmd=None, seq=None):
         self.calls.append(msg)
         from types import SimpleNamespace
         return SimpleNamespace(status=0)
+
+    def _drain_pending(self):
+        pass
 
     def _initialize(self):
         pass

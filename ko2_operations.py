@@ -4,11 +4,10 @@ EP-133 Protocol Transactions
 Encapsulates multi-step stateful operations (like file transfers) to keep the client thin.
 """
 
-import time
 from pathlib import Path
 from typing import Optional, Callable
 from ko2_models import (
-    UPLOAD_CHUNK_SIZE, UPLOAD_DELAY,
+    UPLOAD_CHUNK_SIZE,
     UploadInitRequest, UploadChunkRequest, UploadEndRequest,
     UploadVerifyRequest, MetadataSetRequest
 )
@@ -67,23 +66,25 @@ class UploadTransaction(Transaction):
         if not resp:
             raise Exception("Upload init failed: No response")
 
-        # 3. Data Chunks
+        # 3. Data Chunks — pipelined (matches official TE app behavior).
+        # The device ACKs each chunk with ~6ms lag, which equals the MIDI transmission
+        # time for a 510-byte SysEx frame. Waiting for each ACK before sending the next
+        # (stop-and-wait) plus an extra 20ms sleep made upload ~5-6x slower than download.
+        # Instead: fire all chunks without waiting for individual ACKs, then drain them all.
         chunk_index = 0
         offset = 0
         while offset < data_size:
             chunk_data = bytes(audio_data[offset : offset + UPLOAD_CHUNK_SIZE])
             chunk_req = UploadChunkRequest(chunk_index=chunk_index, data=chunk_data)
-            
-            resp = self.client._send_and_wait_msg(chunk_req, timeout=2.0)
-            if not resp or resp.status != 0:
-                raise Exception(f"Chunk {chunk_index} failed")
-
-            time.sleep(UPLOAD_DELAY)
+            self.client._send_msg(chunk_req)
             offset += UPLOAD_CHUNK_SIZE
             chunk_index += 1
-            
+
             if self.progress_callback:
                 self.progress_callback(min(offset, data_size), data_size)
+
+        # Drain all pending chunk ACKs before proceeding to the end sentinel.
+        self.client._drain_pending()
 
         # 4. End Marker (empty PUT_DATA sentinel — triggers device ACK)
         end_req = UploadEndRequest(chunk_index=chunk_index)
