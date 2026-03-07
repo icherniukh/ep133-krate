@@ -22,6 +22,16 @@ class WaveformStore:
         self._loaded = False
         self._data: dict[str, Any] = {"version": 3, "slots": {}, "fingerprints": {}}
 
+    @staticmethod
+    def is_valid_bins(bins: dict[str, Any]) -> bool:
+        mins = bins.get("mins")
+        maxs = bins.get("maxs")
+        if not isinstance(mins, list) or not isinstance(maxs, list):
+            return False
+        if not mins or len(mins) != len(maxs):
+            return False
+        return True
+
     def get_for_slot(self, slot: int, signature: dict[str, Any]) -> dict[str, Any] | None:
         self._ensure_loaded()
         with self._lock:

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 
-from ko2_tui.app import KO2TUIApp
+from ko2_tui.app import KO2TUIApp, _waveform_signature
 from ko2_tui.ui import ConfirmModal, OptimizeModal, TextInputModal, UploadModal
 from ko2_tui.worker import WorkerEvent
 from textual.widgets import Checkbox, DataTable, RichLog, Static
@@ -474,6 +474,10 @@ def test_details_event_queues_waveform_request(monkeypatch):
         def __init__(self, *args, **kwargs):
             pass
 
+        @staticmethod
+        def is_valid_bins(bins):
+            return isinstance(bins, dict) and isinstance(bins.get("mins"), list) and isinstance(bins.get("maxs"), list)
+
         def get_for_slot(self, slot, sig):
             return None
 
@@ -833,6 +837,10 @@ def test_waveform_cache_hit_skips_worker_request(monkeypatch):
             self._d = {}
             self._f = {}
 
+        @staticmethod
+        def is_valid_bins(bins):
+            return isinstance(bins, dict) and isinstance(bins.get("mins"), list) and isinstance(bins.get("maxs"), list)
+
         def get_for_slot(self, slot, sig):
             row = self._d.get(int(slot))
             if not row:
@@ -872,7 +880,7 @@ def test_waveform_cache_hit_skips_worker_request(monkeypatch):
             app._waveform_by_slot.clear()
             app._waveform_pending.clear()
 
-            sig = app._waveform_signature(1)
+            sig = _waveform_signature(1, app.state.slots)
             assert sig is not None
             bins = {"mins": [-5, -3, 0], "maxs": [4, 7, 2], "width": 3}
             app._waveform_store.set_for_slot(1, sig, bins)  # type: ignore[attr-defined]
@@ -893,6 +901,10 @@ def test_waveform_event_persists_fingerprint_index(monkeypatch):
         def __init__(self, *args, **kwargs):
             self._d = {}
             self._f = {}
+
+        @staticmethod
+        def is_valid_bins(bins):
+            return isinstance(bins, dict) and isinstance(bins.get("mins"), list) and isinstance(bins.get("maxs"), list)
 
         def get_for_slot(self, slot, sig):
             row = self._d.get(int(slot))

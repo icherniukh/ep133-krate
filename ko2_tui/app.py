@@ -4,8 +4,6 @@ import re
 from queue import Empty, Queue
 from typing import Any, Iterable, cast
 
-from rich.panel import Panel
-from rich.text import Text
 from textual import events
 from textual.app import App, ComposeResult
 from textual.binding import Binding
@@ -16,10 +14,11 @@ from . import actions
 from .debug_log import DebugLogger
 from .dialog_log import DialogLogger
 from .waveform_store import WaveformStore
+from .waveform_widget import WaveformWidget
 from ko2_display import SampleFormat
 from .selectors import parse_selector
-from .state import TuiState
-from .ui import ConfirmModal, OptimizeModal, TextInputModal, UploadModal, table_row_values
+from .state import SlotRow, TuiState
+from .ui import ConfirmModal, DetailsWidget, OptimizeModal, TextInputModal, UploadModal, table_row_values
 from .worker import DeviceWorker, WorkerEvent
 
 
@@ -155,8 +154,8 @@ class KO2TUIApp(App[None]):
                     yield Static("", id="status_left")
                     yield Static("", id="status_right")
             with Vertical(id="inspector"):
-                yield Static("No slot selected", id="details")
-                yield Static("Waveform unavailable", id="waveform")
+                yield DetailsWidget(id="details")
+                yield WaveformWidget(id="waveform")
         yield RichLog(id="logs", wrap=True, markup=False)
         yield Footer()
 
@@ -284,11 +283,11 @@ class KO2TUIApp(App[None]):
             self._update_table_rows([self.moving_src, old_slot, self.state.selected_slot])
             self._update_status("Move mode (Esc to cancel, Enter to drop)")
 
-        self._render_details(self.state.selected_slot)
+        self._update_details(self.state.selected_slot)
+        self._update_waveform(self.state.selected_slot)
 
     def on_resize(self) -> None:
-        slot = self.state.selected_slot
-        self.call_after_refresh(lambda: self._render_waveform(slot))
+        self.query_one("#waveform", WaveformWidget).refresh()
 
     def on_key(self, event: events.Key) -> None:
         if event.key not in {"up", "down", "enter"}:
@@ -371,8 +370,8 @@ class KO2TUIApp(App[None]):
             self._update_table_rows(self.state.slots.keys())
             used = len(sounds)
             self._log(f"Inventory refreshed: {used} used slots")
-            self._render_details(self.state.selected_slot)
-            self._render_waveform(self.state.selected_slot)
+            self._update_details(self.state.selected_slot)
+            self._update_waveform(self.state.selected_slot)
             self._update_status(self.state.status)
             return
 
@@ -381,7 +380,8 @@ class KO2TUIApp(App[None]):
             if updates:
                 self.state.apply_inventory_updates(updates)
                 self._update_table_rows(updates.keys())
-                self._render_details(self.state.selected_slot)
+                self._update_details(self.state.selected_slot)
+                self._update_waveform(self.state.selected_slot)
             return
 
         if kind == "slot_removed":
@@ -391,7 +391,8 @@ class KO2TUIApp(App[None]):
                 self.state.clear_slot(slot)
                 self._update_table_rows([slot])
                 if slot == self.state.selected_slot:
-                    self._render_details(slot)
+                    self._update_details(slot)
+                    self._update_waveform(slot)
             return
 
         if kind == "details":
@@ -402,11 +403,12 @@ class KO2TUIApp(App[None]):
             if preload:
                 self._load_cached_waveform(slot)
                 if slot == self.state.selected_slot:
-                    self._render_details(slot)
+                    self._update_details(slot)
+                    self._update_waveform(slot)
                 return
             self._invalidate_waveform(slot)
             self._update_table_rows([slot])
-            self._render_details(slot)
+            self._update_details(slot)
             self._ensure_waveform(slot)
             self._log(f"Loaded details for slot {slot:03d}")
             return
@@ -419,7 +421,8 @@ class KO2TUIApp(App[None]):
             self._invalidate_waveform(slot)
             self._update_table_rows([slot])
             if slot == self.state.selected_slot:
-                self._render_details(slot)
+                self._update_details(slot)
+                self._update_waveform(slot)
             return
 
         if kind == "waveform":
@@ -428,9 +431,9 @@ class KO2TUIApp(App[None]):
             self._waveform_pending.discard(slot)
             bins = payload.get("bins")
             fp = payload.get("fp") if isinstance(payload.get("fp"), dict) else None
-            if isinstance(bins, dict) and self._valid_waveform_bins(bins):
+            if isinstance(bins, dict) and WaveformStore.is_valid_bins(bins):
                 self._waveform_by_slot[slot] = bins
-                sig = self._waveform_signature(slot)
+                sig = _waveform_signature(slot, self.state.slots)
                 if sig is not None:
                     self._waveform_store.set_for_slot(slot, sig, bins, fingerprint=fp)
                     if fp and isinstance(fp.get("sha256"), str):
@@ -447,7 +450,7 @@ class KO2TUIApp(App[None]):
             else:
                 self._waveform_by_slot.pop(slot, None)
             if slot == self.state.selected_slot:
-                self._render_waveform(slot)
+                self._update_waveform(slot)
             return
 
         if kind == "success":
@@ -512,34 +515,12 @@ class KO2TUIApp(App[None]):
     def action_cancel(self) -> None:
         self.action_cancel_move()
 
-    def _render_details(self, slot: int) -> None:
+    def _update_details(self, slot: int) -> None:
         slot = max(1, min(slot, len(self.state.slots)))
         self.state.selected_slot = slot
         row = self.state.slots[slot]
         details = self.state.details_by_slot.get(slot)
-        if not row.exists:
-            text = f"Slot {slot:03d}\n\n(empty)"
-        else:
-            channels = row.channels if row.channels else "-"
-            rate = row.samplerate if row.samplerate else "-"
-            size = row.size_bytes
-            lines = [
-                f"Slot: {slot:03d}",
-                f"Name: {row.name}",
-                f"Size: {size} bytes",
-                f"Channels: {channels}",
-                f"Rate: {rate}",
-            ]
-            if details:
-                sym = details.get("sym")
-                fmt = details.get("format")
-                if sym:
-                    lines.append(f"Symbol: {sym}")
-                if fmt:
-                    lines.append(f"Format: {fmt}")
-            text = "\n".join(lines)
-        self.query_one("#details", Static).update(text)
-        self._render_waveform(slot)
+        self.query_one("#details", DetailsWidget).set_slot(slot, row, details)
 
     def _update_status(self, state_text: str) -> None:
         is_active = self.state.busy or self.moving_src is not None
@@ -683,11 +664,11 @@ class KO2TUIApp(App[None]):
         slot = int(slot)
         if slot in self._waveform_by_slot:
             return True
-        sig = self._waveform_signature(slot)
+        sig = _waveform_signature(slot, self.state.slots)
         if sig is None:
             return False
         cached = self._waveform_store.get_for_slot(slot, sig)
-        if isinstance(cached, dict) and self._valid_waveform_bins(cached):
+        if isinstance(cached, dict) and WaveformStore.is_valid_bins(cached):
             self._waveform_by_slot[slot] = cached
             return True
         return False
@@ -699,99 +680,31 @@ class KO2TUIApp(App[None]):
             return
         if slot in self._waveform_by_slot or slot in self._waveform_pending:
             if slot == self.state.selected_slot:
-                self._render_waveform(slot)
+                self._update_waveform(slot)
             return
 
         if self._load_cached_waveform(slot):
             if slot == self.state.selected_slot:
-                self._render_waveform(slot)
+                self._update_waveform(slot)
             return
 
         self._waveform_pending.add(slot)
         if self._worker:
             self._worker.submit(actions.waveform(slot, width=320, height=24))
         if slot == self.state.selected_slot:
-            self._render_waveform(slot)
+            self._update_waveform(slot)
 
-    def _valid_waveform_bins(self, bins: dict[str, Any]) -> bool:
-        mins = bins.get("mins")
-        maxs = bins.get("maxs")
-        if not isinstance(mins, list) or not isinstance(maxs, list):
-            return False
-        if not mins or len(mins) != len(maxs):
-            return False
-        return True
-
-    def _waveform_signature(self, slot: int) -> dict[str, Any] | None:
-        row = self.state.slots.get(int(slot))
-        if not row or not row.exists or row.size_bytes <= 0:
-            return None
-        return {
-            "name": str(row.name or ""),
-            "size_bytes": int(row.size_bytes),
-            "channels": int(row.channels or 0),
-            "samplerate": int(row.samplerate or 0),
-        }
-
-    def _render_waveform(self, slot: int) -> None:
-        widget = self.query_one("#waveform", Static)
+    def _update_waveform(self, slot: int) -> None:
+        widget = self.query_one("#waveform", WaveformWidget)
         row = self.state.slots.get(slot)
         if not row or not row.exists:
-            widget.update(Panel(Text("No sample in this slot", style="dim"), title="Waveform", border_style="grey37"))
-            return
-
-        if slot in self._waveform_pending:
-            widget.update(
-                Panel(
-                    Text("Computing waveform...", style="italic #f59e0b"),
-                    title=f"Waveform {slot:03d}",
-                    subtitle="background job",
-                    border_style="#f59e0b",
-                )
-            )
-            return
-
-        bins = self._waveform_by_slot.get(slot)
-        if not bins:
-            widget.update(
-                Panel(
-                    Text("Press Enter to load waveform", style="dim"),
-                    title=f"Waveform {slot:03d}",
-                    border_style="grey50",
-                )
-            )
-            return
-
-        w = int(widget.size.width or 0)
-        h = int(widget.size.height or 0)
-        # widget.size is padding-box (inside CSS border, including padding).
-        # Width: -2 for CSS padding(0 1), -2 for Panel border = -4.
-        # Height: no vertical CSS padding, -2 for Panel border = -2.
-        cols = max(24, w - 4) if w > 0 else 72
-        rows = max(4, h - 2) if h > 0 else 10
-        art = _render_waveform_braille(
-            cast(list[int], bins.get("mins", [])),
-            cast(list[int], bins.get("maxs", [])),
-            width_chars=cols,
-            height_chars=rows,
-        )
-        text = Text()
-        center = (len(art) - 1) / 2.0
-        for idx, line in enumerate(art):
-            dist = abs(idx - center) / center if center > 0 else 0.0
-            color = "#f59e0b" if dist > 0.75 else "#2dd4bf" if dist > 0.4 else "#22d3ee"
-            text.append(line, style=f"bold {color}")
-            if idx < len(art) - 1:
-                text.append("\n")
-
-        widget.update(
-            Panel(
-                text,
-                title=f"Waveform {slot:03d}",
-                subtitle="cached",
-                border_style="#0ea5e9",
-            )
-        )
+            widget.set_empty()
+        elif slot in self._waveform_pending:
+            widget.set_pending(slot)
+        elif slot in self._waveform_by_slot:
+            widget.set_bins(slot, self._waveform_by_slot[slot])
+        else:
+            widget.set_not_loaded(slot)
 
     def _with_friendly_trace_name(self, line: str, trace: dict) -> str:
         slot = trace.get("slot")
@@ -832,7 +745,7 @@ class KO2TUIApp(App[None]):
 
         slot = self._current_slot()
         if slot in self.state.details_by_slot:
-            self._render_details(slot)
+            self._update_details(slot)
             self._ensure_waveform(slot)
         else:
             self._queue_request(actions.fetch_details(slot))
@@ -1112,79 +1025,13 @@ class KO2TUIApp(App[None]):
         self.exit()
 
 
-def _render_waveform_braille(
-    mins_q: list[int], maxs_q: list[int], *, width_chars: int, height_chars: int
-) -> list[str]:
-    if not mins_q or not maxs_q or len(mins_q) != len(maxs_q):
-        return [" " * max(1, width_chars) for _ in range(max(1, height_chars))]
-
-    width_chars = max(8, int(width_chars))
-    height_chars = max(3, int(height_chars))
-    px_h = height_chars * 4
-    n = len(mins_q)
-
-    mins_f = [max(-127, min(127, int(v))) / 127.0 for v in mins_q]
-    maxs_f = [max(-127, min(127, int(v))) / 127.0 for v in maxs_q]
-
-    cells = [[0 for _ in range(width_chars)] for _ in range(height_chars)]
-    for cx in range(width_chars):
-        # Chunk min/max: take the true peak over the input bins mapped to this column.
-        lo_idx = int(cx * n / width_chars)
-        hi_idx = min(max(lo_idx + 1, int((cx + 1) * n / width_chars)), n)
-        lo = min(mins_f[lo_idx:hi_idx])
-        hi = max(maxs_f[lo_idx:hi_idx])
-
-        # Envelope: symmetric bar around center so zero-crossings don't create gaps.
-        amp = max(abs(lo), abs(hi))
-        y_top = int(round((1.0 - amp) * 0.5 * (px_h - 1)))
-        y_bottom = int(round((1.0 + amp) * 0.5 * (px_h - 1)))
-        y_top = max(0, min(px_h - 1, y_top))
-        y_bottom = max(0, min(px_h - 1, y_bottom))
-
-        for y in range(y_top, y_bottom + 1):
-            cy = y // 4
-            ly = y % 4
-            cells[cy][cx] |= _braille_bit(0, ly)
-            cells[cy][cx] |= _braille_bit(1, ly)
-
-    lines: list[str] = []
-    for row in cells:
-        line = "".join(chr(0x2800 + bits) if bits else " " for bits in row).rstrip()
-        lines.append(line if line else " ")
-    return lines
-
-
-def _resample_series(values: list[float], target: int) -> list[float]:
-    if not values:
-        return [0.0] * max(1, target)
-    if target <= 1:
-        return [float(values[0])]
-    if len(values) == target:
-        return [float(v) for v in values]
-    out: list[float] = []
-    last = len(values) - 1
-    for i in range(target):
-        pos = (i * last) / (target - 1)
-        lo = int(pos)
-        hi = min(lo + 1, last)
-        frac = pos - lo
-        out.append((values[lo] * (1.0 - frac)) + (values[hi] * frac))
-    return out
-
-
-def _braille_bit(x: int, y: int) -> int:
-    if x == 0:
-        if y == 0:
-            return 1 << 0
-        if y == 1:
-            return 1 << 1
-        if y == 2:
-            return 1 << 2
-        return 1 << 6
-    if y == 0:
-        return 1 << 3
-    if y == 1:
-        return 1 << 4
-    if y == 2:
-        return 1 << 5
-    return 1 << 7
+def _waveform_signature(slot: int, slots: dict[int, SlotRow]) -> dict[str, Any] | None:
+    row = slots.get(int(slot))
+    if not row or not row.exists or row.size_bytes <= 0:
+        return None
+    return {
+        "name": str(row.name or ""),
+        "size_bytes": int(row.size_bytes),
+        "channels": int(row.channels or 0),
+        "samplerate": int(row.samplerate or 0),
+    }

@@ -112,65 +112,9 @@ class DeviceWorker(threading.Thread):
                 # Slot still exists — skip list_sounds + get_node_metadata; patch directly.
                 self._emit("inventory_enriched", updates={slot: {"name": new_name}})
             elif req.op == "copy":
-                src = int(req.payload["src"])
-                dst = int(req.payload["dst"])
-                self._emit_progress(req.op, 1, 3, f"Copying {src:03d} -> {dst:03d}")
-                info = self._timed("device.info", phases, client.info, src, include_size=False)
-                name = info.name
-
-                with tempfile.TemporaryDirectory() as td:
-                    temp_path = Path(td) / f"slot{src:03d}.wav"
-                    self._emit("busy", op=f"Copying {src:03d} -> {dst:03d}")
-                    self._timed("device.get", phases, client.get, src, temp_path)
-
-                    dst_info = None
-                    try:
-                        dst_info = self._timed("device.info", phases, client.info, dst, include_size=False)
-                    except SlotEmptyError:
-                        pass
-
-                    if dst_info:
-                        self._timed("device.delete", phases, client.delete, dst)
-
-                    self._timed("device.put", phases, client.put, temp_path, dst, name=name, progress=False)
-
-                self._emit_success(f"Copied slot {src:03d} to {dst:03d}", started_at=t_start)
-                self._emit_inventory(client, hydrate_slots={src, dst}, phases=phases)
+                self._handle_copy(req, client, phases, t_start)
             elif req.op == "move":
-                src = int(req.payload["src"])
-                dst = int(req.payload["dst"])
-                if src == dst:
-                    self._emit_success("Move skipped (same slot)", started_at=t_start)
-                    return
-
-                self._emit_progress(req.op, 1, 3, f"Moving {src:03d} -> {dst:03d}")
-                src_info = self._timed("device.info", phases, client.info, src, include_size=False)
-                src_name = src_info.name
-
-                dst_info = None
-                try:
-                    dst_info = self._timed("device.info", phases, client.info, dst, include_size=False)
-                except SlotEmptyError:
-                    pass
-
-                with tempfile.TemporaryDirectory() as td:
-                    temp_path = Path(td)
-                    src_wav = temp_path / f"slot{src:03d}.wav"
-                    self._emit("busy", op=f"Moving {src:03d} -> {dst:03d}")
-                    self._timed("device.get", phases, client.get, src, src_wav)
-
-                    if dst_info:
-                        dst_wav = temp_path / f"slot{dst:03d}.wav"
-                        self._timed("device.get", phases, client.get, dst, dst_wav)
-                        self._timed("device.put", phases, client.put, src_wav, dst, name=src_name, progress=False)
-                        self._timed("device.put", phases, client.put, dst_wav, src, name=dst_info.name, progress=False)
-                        self._emit_success(f"Swapped {src:03d} ↔ {dst:03d}", started_at=t_start)
-                    else:
-                        self._timed("device.put", phases, client.put, src_wav, dst, name=src_name, progress=False)
-                        self._timed("device.delete", phases, client.delete, src)
-                        self._emit_success(f"Moved {src:03d} → {dst:03d}", started_at=t_start)
-                
-                self._emit_inventory(client, hydrate_slots={src, dst}, phases=phases)
+                self._handle_move(req, client, phases, t_start)
             elif req.op == "delete":
                 slot = int(req.payload["slot"])
                 self._timed("device.delete", phases, client.delete, slot)
@@ -186,129 +130,9 @@ class DeviceWorker(threading.Thread):
                 self._emit_success(f"Deleted {n} slot{'s' if n != 1 else ''}", started_at=t_start)
                 self._emit_inventory(client, hydrate_slots=set(slots), phases=phases)
             elif req.op == "squash":
-                start = int(req.payload.get("start", 1))
-                end = int(req.payload.get("end", 999))
-                sounds = self._timed("device.list_sounds", phases, client.list_sounds)
-                used_slots = [s for s in sorted(sounds.keys()) if start <= s <= end]
-
-                mapping = {}
-                target_slot = start
-                for slot in used_slots:
-                    if slot != target_slot:
-                        mapping[slot] = target_slot
-                    target_slot += 1
-
-                if not mapping:
-                    self._emit_success("Already compacted", started_at=t_start)
-                    return
-
-                total = len(mapping)
-                done = 0
-                for old_slot, new_slot in mapping.items():
-                    self._emit_progress(req.op, done + 1, total, f"Squashing {old_slot:03d} -> {new_slot:03d}")
-                    info = self._timed("device.info", phases, client.info, old_slot, include_size=False)
-                    name = info.name
-
-                    with tempfile.TemporaryDirectory() as td:
-                        temp_path = Path(td) / f"slot{old_slot:03d}.wav"
-                        self._emit("busy", op=f"Squashing ({done}/{total}): {old_slot:03d} -> {new_slot:03d}")
-                        self._timed("device.get", phases, client.get, old_slot, temp_path)
-
-                        deleted = False
-                        try:
-                            self._timed("device.delete", phases, client.delete, old_slot)
-                            deleted = True
-                            self._timed("device.put", phases, client.put, temp_path, new_slot, name=name, progress=False)
-                        except Exception:
-                            if deleted:
-                                try:
-                                    self._timed("device.put", phases, client.put, temp_path, old_slot, name=name, progress=False)
-                                except Exception as rollback_exc:
-                                    self._emit("error", op=req.op, message=f"Rollback failed for slot {old_slot:03d}: {rollback_exc}")
-                            raise
-                    done += 1
-
-                self._emit_success(f"Squashed {total} slots", started_at=t_start)
-                changed = set(mapping.keys()) | set(mapping.values())
-                self._emit_inventory(client, hydrate_slots=changed, phases=phases)
+                self._handle_squash(req, client, phases, t_start)
             elif req.op == "optimize":
-                slots = req.payload["slots"]
-                rate = req.payload.get("rate")
-                speed = req.payload.get("speed")
-                pitch = req.payload.get("pitch", 0.0)
-
-                from ko2 import backup_copy, optimize_sample
-                
-                total = len(slots)
-                done = 0
-                optimized_count = 0
-                for slot in slots:
-                    self._emit_progress(req.op, done + 1, total, f"Optimizing slot {slot:03d}")
-                    try:
-                        info = self._timed("device.info", phases, client.info, slot, include_size=False)
-                    except SlotEmptyError:
-                        done += 1
-                        continue
-                    except Exception as exc:
-                        self._emit("error", op=req.op, message=f"Skipping slot {slot:03d}: {exc}")
-                        done += 1
-                        continue
-                    name = info.name
-
-                    with tempfile.TemporaryDirectory() as td:
-                        temp_path = Path(td) / f"slot{slot:03d}.wav"
-                        self._emit("busy", op=f"Optimizing ({done+1}/{total}): {slot:03d}")
-                        
-                        try:
-                            self._timed("device.get", phases, client.get, slot, temp_path)
-                            
-                            opt_path = temp_path.with_suffix(".opt.wav")
-                            success, msg, orig_size, opt_size = self._timed(
-                                "local.optimize_sample",
-                                phases,
-                                optimize_sample,
-                                temp_path,
-                                output_path=opt_path,
-                                downsample_rate=rate,
-                                speed=speed,
-                            )
-                            
-                            if not success:
-                                self._emit("error", op=req.op, message=f"Failed to optimize slot {slot:03d}: {msg}")
-                                done += 1
-                                continue
-                            
-                            upload_path = opt_path if opt_path.exists() else temp_path
-                            savings = orig_size - opt_size
-                            
-                            # If no size savings and no speed/rate parameter was explicitly provided, 
-                            # and pitch is 0, we can skip
-                            if savings < 5 * 1024 and speed is None and rate is None and pitch == 0.0:
-                                done += 1
-                                continue
-
-                            # Backup
-                            self._timed("local.backup_copy", phases, backup_copy, temp_path, slot=slot, name_hint=name)
-                            
-                            self._timed(
-                                "device.put",
-                                phases,
-                                client.put,
-                                upload_path,
-                                slot,
-                                name=name,
-                                progress=False,
-                                pitch=pitch,
-                            )
-                            optimized_count += 1
-                        except Exception as e:
-                            self._emit("error", op=req.op, message=f"Error on slot {slot:03d}: {e}")
-                        finally:
-                            self._emit_slot_refresh(client, slot, phases=phases)
-                    done += 1
-
-                self._emit_success(f"Optimized {optimized_count} of {total} slots", started_at=t_start)
-                self._emit_inventory(client, hydrate_slots=set(slots), phases=phases)
+                self._handle_optimize(req, client, phases, t_start)
             elif req.op == "waveform":
                 slot = int(req.payload["slot"])
                 width = int(req.payload.get("width") or 60)
@@ -337,6 +161,194 @@ class DeviceWorker(threading.Thread):
                 p95_s=stats["p95_s"],
             )
             self._emit("idle", op=req.op)
+
+    def _handle_copy(self, req: WorkerRequest, client: EP133Client, phases: dict[str, float], t_start: float) -> None:
+        src = int(req.payload["src"])
+        dst = int(req.payload["dst"])
+        self._emit_progress(req.op, 1, 3, f"Copying {src:03d} -> {dst:03d}")
+        info = self._timed("device.info", phases, client.info, src, include_size=False)
+        name = info.name
+
+        with tempfile.TemporaryDirectory() as td:
+            temp_path = Path(td) / f"slot{src:03d}.wav"
+            self._emit("busy", op=f"Copying {src:03d} -> {dst:03d}")
+            self._timed("device.get", phases, client.get, src, temp_path)
+
+            dst_info = None
+            try:
+                dst_info = self._timed("device.info", phases, client.info, dst, include_size=False)
+            except SlotEmptyError:
+                pass
+
+            if dst_info:
+                self._timed("device.delete", phases, client.delete, dst)
+
+            self._timed("device.put", phases, client.put, temp_path, dst, name=name, progress=False)
+
+        self._emit_success(f"Copied slot {src:03d} to {dst:03d}", started_at=t_start)
+        self._emit_inventory(client, hydrate_slots={src, dst}, phases=phases)
+
+    def _handle_move(self, req: WorkerRequest, client: EP133Client, phases: dict[str, float], t_start: float) -> None:
+        src = int(req.payload["src"])
+        dst = int(req.payload["dst"])
+        if src == dst:
+            self._emit_success("Move skipped (same slot)", started_at=t_start)
+            return
+
+        self._emit_progress(req.op, 1, 3, f"Moving {src:03d} -> {dst:03d}")
+        src_info = self._timed("device.info", phases, client.info, src, include_size=False)
+        src_name = src_info.name
+
+        dst_info = None
+        try:
+            dst_info = self._timed("device.info", phases, client.info, dst, include_size=False)
+        except SlotEmptyError:
+            pass
+
+        with tempfile.TemporaryDirectory() as td:
+            temp_path = Path(td)
+            src_wav = temp_path / f"slot{src:03d}.wav"
+            self._emit("busy", op=f"Moving {src:03d} -> {dst:03d}")
+            self._timed("device.get", phases, client.get, src, src_wav)
+
+            if dst_info:
+                dst_wav = temp_path / f"slot{dst:03d}.wav"
+                self._timed("device.get", phases, client.get, dst, dst_wav)
+                self._timed("device.put", phases, client.put, src_wav, dst, name=src_name, progress=False)
+                self._timed("device.put", phases, client.put, dst_wav, src, name=dst_info.name, progress=False)
+                self._emit_success(f"Swapped {src:03d} ↔ {dst:03d}", started_at=t_start)
+            else:
+                self._timed("device.put", phases, client.put, src_wav, dst, name=src_name, progress=False)
+                self._timed("device.delete", phases, client.delete, src)
+                self._emit_success(f"Moved {src:03d} → {dst:03d}", started_at=t_start)
+
+        self._emit_inventory(client, hydrate_slots={src, dst}, phases=phases)
+
+    def _handle_squash(self, req: WorkerRequest, client: EP133Client, phases: dict[str, float], t_start: float) -> None:
+        start = int(req.payload.get("start", 1))
+        end = int(req.payload.get("end", 999))
+        sounds = self._timed("device.list_sounds", phases, client.list_sounds)
+        used_slots = [s for s in sorted(sounds.keys()) if start <= s <= end]
+
+        mapping = {}
+        target_slot = start
+        for slot in used_slots:
+            if slot != target_slot:
+                mapping[slot] = target_slot
+            target_slot += 1
+
+        if not mapping:
+            self._emit_success("Already compacted", started_at=t_start)
+            return
+
+        total = len(mapping)
+        done = 0
+        for old_slot, new_slot in mapping.items():
+            self._emit_progress(req.op, done + 1, total, f"Squashing {old_slot:03d} -> {new_slot:03d}")
+            info = self._timed("device.info", phases, client.info, old_slot, include_size=False)
+            name = info.name
+
+            with tempfile.TemporaryDirectory() as td:
+                temp_path = Path(td) / f"slot{old_slot:03d}.wav"
+                self._emit("busy", op=f"Squashing ({done}/{total}): {old_slot:03d} -> {new_slot:03d}")
+                self._timed("device.get", phases, client.get, old_slot, temp_path)
+
+                deleted = False
+                try:
+                    self._timed("device.delete", phases, client.delete, old_slot)
+                    deleted = True
+                    self._timed("device.put", phases, client.put, temp_path, new_slot, name=name, progress=False)
+                except Exception:
+                    if deleted:
+                        try:
+                            self._timed("device.put", phases, client.put, temp_path, old_slot, name=name, progress=False)
+                        except Exception as rollback_exc:
+                            self._emit("error", op=req.op, message=f"Rollback failed for slot {old_slot:03d}: {rollback_exc}")
+                    raise
+            done += 1
+
+        self._emit_success(f"Squashed {total} slots", started_at=t_start)
+        changed = set(mapping.keys()) | set(mapping.values())
+        self._emit_inventory(client, hydrate_slots=changed, phases=phases)
+
+    def _handle_optimize(self, req: WorkerRequest, client: EP133Client, phases: dict[str, float], t_start: float) -> None:
+        slots = req.payload["slots"]
+        rate = req.payload.get("rate")
+        speed = req.payload.get("speed")
+        pitch = req.payload.get("pitch", 0.0)
+
+        from ko2 import backup_copy, optimize_sample
+
+        total = len(slots)
+        done = 0
+        optimized_count = 0
+        for slot in slots:
+            self._emit_progress(req.op, done + 1, total, f"Optimizing slot {slot:03d}")
+            try:
+                info = self._timed("device.info", phases, client.info, slot, include_size=False)
+            except SlotEmptyError:
+                done += 1
+                continue
+            except Exception as exc:
+                self._emit("error", op=req.op, message=f"Skipping slot {slot:03d}: {exc}")
+                done += 1
+                continue
+            name = info.name
+
+            with tempfile.TemporaryDirectory() as td:
+                temp_path = Path(td) / f"slot{slot:03d}.wav"
+                self._emit("busy", op=f"Optimizing ({done+1}/{total}): {slot:03d}")
+
+                try:
+                    self._timed("device.get", phases, client.get, slot, temp_path)
+
+                    opt_path = temp_path.with_suffix(".opt.wav")
+                    success, msg, orig_size, opt_size = self._timed(
+                        "local.optimize_sample",
+                        phases,
+                        optimize_sample,
+                        temp_path,
+                        output_path=opt_path,
+                        downsample_rate=rate,
+                        speed=speed,
+                    )
+
+                    if not success:
+                        self._emit("error", op=req.op, message=f"Failed to optimize slot {slot:03d}: {msg}")
+                        done += 1
+                        continue
+
+                    upload_path = opt_path if opt_path.exists() else temp_path
+                    savings = orig_size - opt_size
+
+                    # If no size savings and no speed/rate parameter was explicitly provided,
+                    # and pitch is 0, we can skip
+                    if savings < 5 * 1024 and speed is None and rate is None and pitch == 0.0:
+                        done += 1
+                        continue
+
+                    # Backup
+                    self._timed("local.backup_copy", phases, backup_copy, temp_path, slot=slot, name_hint=name)
+
+                    self._timed(
+                        "device.put",
+                        phases,
+                        client.put,
+                        upload_path,
+                        slot,
+                        name=name,
+                        progress=False,
+                        pitch=pitch,
+                    )
+                    optimized_count += 1
+                except Exception as e:
+                    self._emit("error", op=req.op, message=f"Error on slot {slot:03d}: {e}")
+                finally:
+                    self._emit_slot_refresh(client, slot, phases=phases)
+            done += 1
+
+        self._emit_success(f"Optimized {optimized_count} of {total} slots", started_at=t_start)
+        self._emit_inventory(client, hydrate_slots=set(slots), phases=phases)
 
     def _ensure_client(self) -> EP133Client:
         if self._client is not None:

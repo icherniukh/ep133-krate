@@ -1,21 +1,18 @@
 from __future__ import annotations
 
+from typing import Any
+
+from rich.console import RenderableType
+from rich.text import Text
 from textual import on
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
 from textual.screen import ModalScreen
-from textual.widgets import Button, Input, Label, Checkbox
+from textual.widgets import Button, Input, Label, Checkbox, Static
 
 from .state import SlotRow
 from ko2_display import SampleFormat
-
-
-import typing
-if typing.TYPE_CHECKING:
-    from typing import Any
-
-from rich.text import Text
 
 # Rich hex colour palette per size band — parallel to TerminalRenderer._ANSI_PALETTE
 _RICH_PALETTE: list[list[str]] = [
@@ -70,6 +67,43 @@ def table_row_values(row: SlotRow, selected: bool = False) -> tuple[Any, ...]:
     dur_txt = Text(dur_str, justify="right")
 
     return (marker, slot_txt, name_txt, size_txt, channels_txt, rate_txt, dur_txt)
+
+
+class DetailsWidget(Static):
+    def __init__(self, **kwargs: Any) -> None:
+        super().__init__("", **kwargs)
+        self._slot: int = 1
+        self._row: SlotRow | None = None
+        self._details: dict[str, Any] | None = None
+
+    def set_slot(self, slot: int, row: SlotRow | None, details: dict[str, Any] | None) -> None:
+        self._slot = slot
+        self._row = row
+        self._details = details
+        self.refresh()
+
+    def render(self) -> RenderableType:
+        slot = self._slot
+        row = self._row
+        if row is None or not row.exists:
+            return f"Slot {slot:03d}\n\n(empty)"
+        channels = row.channels if row.channels else "-"
+        rate = row.samplerate if row.samplerate else "-"
+        lines = [
+            f"Slot: {slot:03d}",
+            f"Name: {row.name}",
+            f"Size: {row.size_bytes} bytes",
+            f"Channels: {channels}",
+            f"Rate: {rate}",
+        ]
+        if self._details:
+            sym = self._details.get("sym")
+            fmt = self._details.get("format")
+            if sym:
+                lines.append(f"Symbol: {sym}")
+            if fmt:
+                lines.append(f"Format: {fmt}")
+        return "\n".join(lines)
 
 
 class TextInputModal(ModalScreen[str | None]):
