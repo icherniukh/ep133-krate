@@ -103,6 +103,27 @@ Hunter summary after opening the official sample tool (no user actions):
 1. **INIT (0x6C/0x7E family)**: slot, parent node (1000), size BE, name, JSON metadata.
 2. **CHUNKS (0x6C)**: 433-byte data chunks, wait for ACK response (0x2C), short delay.
 3. **SENTINEL + VERIFY**: empty `PUT_DATA` sentinel chunk, then VERIFY.
+4. **`_initialize()` reset**: client sends the 3-message init sequence after upload completes.
+
+### Device State After Completed Downloads (CONFIRMED 2026-03-06)
+After all download chunks are received, **the device remains in download mode** and silently
+drops the next command rather than processing it. Confirmed from `tui-2026-03-03-042744.jsonl`:
+both `DELETE TX` events in that capture are immediately followed by stale `op=GET` responses
+from the device (it echoes download data) instead of a `DELETE ACK`.
+
+**Consequence:** Any operation sent directly after `_download_data()` completes (delete, put,
+rename) will be silently ignored by the device.
+
+**Fix:** `client.get()` calls `self._initialize()` after saving the WAV file, identical to
+what `put()` already does. Internal helpers `_download_data()` and `probe_channels()` do NOT
+call `_initialize()` — callers are responsible (only `get()` is the public exit point for
+completed downloads).
+
+**Partial downloads** (`probe_channels()`, `_get_file_size()`) leave the device in an
+incomplete download-init state. The device auto-abandons these sessions after a timeout.
+This is safe for current usage (both helpers are only called from read-only paths with no
+immediate stateful follow-up), but if either is ever called before a `delete()` or `put()`,
+the caller must add `_initialize()` explicitly.
 
 ---
 

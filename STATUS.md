@@ -72,7 +72,9 @@ We implemented a true **Descriptor-based Domain Specific Language (DSL)** native
 
 ## 🔍 Technical Gaps & Investigation Priorities
 
-These are the remaining mysteries in the EP-133 protocol that require further reverse-engineering:
+These are the remaining mysteries in the EP-133 protocol that require further reverse-engineering.
+See **`docs/CAPTURE_WISHLIST.md`** for a scenario-by-scenario list of what to sniff and the
+exact `midi_proxy.py` command for each.
 
 1. **Playback/Audition (0x76)** 
    - Protocol unknown. We need to capture the official app triggering an audition to unblock Phase 3.
@@ -206,3 +208,66 @@ Tracking convention:
 - [ ] In sorted mode, block invalid behavior: no move/copy/interact with empty slots.
 - [ ] Allow only in-place-safe operations while sorted.
 - [ ] Acceptance: sorted mode preserves slot integrity and enforces constraints clearly.
+
+### KO2-009 (`P0`) `test_squash_roundtrip` — verify fix on hardware
+- Root cause confirmed: device stays in download mode after `get()`, ignoring the next
+  command (delete). Fix: `client.get()` now calls `_initialize()` after download, same as
+  `put()`. Confirmed from `tui-2026-03-03-042744.jsonl` — both DELETE TX events in that
+  capture received stale GET responses instead of a DELETE ACK.
+- [ ] Run `pytest tests/e2e/test_squash.py -v -m e2e` on hardware to confirm the fix.
+
+### KO2-010 (`P1`) `device_info()` is an unimplemented stub
+- `EP133Client.device_info()` always returns `None` — the response-parsing loop body is
+  `pass`. Both callers (`cmd_status` in `ko2.py` and `test_squash_roundtrip` e2e) already
+  fall back to 64 MB when `None` is returned, so this is not a crash but a silent dead code
+  path. The `INFO (0x77)` response format is partially captured in `sniffer-2026-02-20-*.jsonl`.
+- [ ] Either implement parsing from the `INFO` response, or remove the method and make the
+  64 MB fallback explicit at call sites.
+
+### KO2-011 (`P2`) `probe_channels()` leaves device in partial-download state
+- Sends `DownloadInitRequest` + one chunk and stops; device abandons the session after
+  timeout. Currently safe: only called in read-only audit loops, never before a stateful op.
+- If `probe_channels()` is ever called before `delete()` or `put()`, the timeout window
+  could cause a silent failure. Add `_initialize()` at the end of `probe_channels()` if
+  its usage ever broadens, or add a code comment warning callers.
+- [ ] No action required now; revisit if `probe_channels()` is used in non-audit paths.
+
+### KO2-012 (`P2`) TUI class design refactoring (completed 2026-03-06)
+- [x] `WaveformStore.is_valid_bins()` extracted as a static method.
+- [x] `WaveformWidget(Static)` extracted to `ko2_tui/waveform_widget.py` with 4-state
+  render logic (`set_empty`, `set_pending`, `set_not_loaded`, `set_bins`).
+- [x] `DetailsWidget(Static)` added to `ko2_tui/ui.py` with `set_slot()`/`render()`.
+- [x] `_waveform_signature` moved to module-level function in `ko2_tui/app.py`.
+- [x] `DeviceWorker._process_request` split: `_handle_copy`, `_handle_move`,
+  `_handle_squash`, `_handle_optimize` extracted as named methods.
+- [x] 157/157 unit tests pass. `app.py` reduced from ~1190 to ~1037 lines.
+
+---
+
+## Config Changes Log (2026-03-06)
+
+Changes made from insights report recommendations. Revert instructions included.
+
+### 1. `.claude/CLAUDE.md` (CREATED)
+- **What:** New project-level CLAUDE.md with protocol rules, source-of-truth hierarchy, fabrication policy, architecture map, test command.
+- **Revert:** `rm /Users/ivan/proj/ko2-tools/.claude/CLAUDE.md`
+
+### 2. `~/.claude/commands/onboard.md` (MODIFIED)
+- **What:** Added Step 2b to read PROTOCOL.md / PROTOCOL_EVIDENCE.md / STATUS.md during onboarding.
+- **Revert:** Remove the "Step 2b: Protocol Docs" block from `~/.claude/commands/onboard.md`
+
+### 3. `.claude/skills/review/SKILL.md` (CREATED)
+- **What:** Evidence-based review skill requiring doc-reading, test run, and source citations.
+- **Revert:** `rm -r /Users/ivan/proj/ko2-tools/.claude/skills/review/`
+
+### 4. `.git/hooks/pre-commit` (CREATED)
+- **What:** Runs `python3 -m pytest tests/unit/ -x -q --tb=short` before every commit.
+- **Revert:** `rm /Users/ivan/proj/ko2-tools/.git/hooks/pre-commit`
+
+### 5. `.claude/settings.local.json` (MODIFIED)
+- **What:** Removed 9 cruft entries (comment-as-commands, loop fragments, dotfiles diffs, one-off curl calls).
+- **Revert:** Re-add the removed entries (see original content in git: `git show HEAD:.claude/settings.local.json` — note: this file is gitignored, so backup manually before execution)
+
+### 6. `.claude/settings.json` (MODIFIED)
+- **What:** Added PostToolUse hook for Python syntax checking after edits.
+- **Revert:** Remove the `"hooks"` key from `.claude/settings.json`
