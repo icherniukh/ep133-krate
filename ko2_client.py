@@ -598,6 +598,14 @@ class EP133Client:
             samplerate=int(info.samplerate or SAMPLE_RATE),
         )
 
+        # Reset device state after download so subsequent commands (e.g. delete)
+        # are processed. Without this the device stays in download mode and
+        # silently ignores the next command. Confirmed from TUI capture analysis:
+        # DELETE sent immediately after _download_data receives stale GET responses
+        # instead of a DELETE ACK. put() has always called _initialize() for the
+        # same reason.
+        self._initialize()
+
         return output_path
 
     def _download_data(self, slot: int, debug: bool = False) -> bytes:
