@@ -199,14 +199,49 @@ class EP133Client:
 
     def _initialize(self):
         """Send device initialization sequence."""
-        init_msgs = [
-            bytes([SYSEX_START, 0x7E, 0x7F, 0x06, 0x01, SYSEX_END]),
-            bytes([SYSEX_START, *TE_MFG_ID, *DEVICE_FAMILY, SysExCmd.INIT, 0x17, 0x01, SYSEX_END]),
-            bytes([SYSEX_START, *TE_MFG_ID, *DEVICE_FAMILY, SysExCmd.INIT, 0x18, 0x05, 0x00, 0x01, 0x01, 0x00, 0x40, 0x00, 0x00, SYSEX_END]),
-        ]
-        for msg in init_msgs:
-            self._emit_trace("TX", msg)
-            self._outport.send(mido.Message("sysex", data=msg[1:-1]))
+        self._device_info = None
+        
+        self._drain_pending()
+        
+        # 1. Identity Request
+        msg1 = bytes([SYSEX_START, 0x7E, 0x7F, 0x06, 0x01, SYSEX_END])
+        self._emit_trace("TX", msg1)
+        self._outport.send(mido.Message("sysex", data=msg1[1:-1]))
+        # Read the Identity Response so it doesn't block the next command
+        self._recv_sysex(timeout=0.2)
+        
+        # 2. INIT 1 (Triggers product info response)
+        msg2 = bytes([SYSEX_START, *TE_MFG_ID, *DEVICE_FAMILY, SysExCmd.INIT, 0x17, 0x01, SYSEX_END])
+        self._emit_trace("TX", msg2)
+        self._outport.send(mido.Message("sysex", data=msg2[1:-1]))
+        
+        responses = self._recv_sysex(timeout=0.6)
+        for resp in responses:
+            if len(resp) > 8 and resp[6] == 0x21:
+                chars = []
+                for byte in resp[9:-1]:
+                    if 32 <= byte <= 126:
+                        chars.append(chr(byte))
+                text = "".join(chars)
+                info = {}
+                for pair in text.split(";"):
+                    if ":" in pair:
+                        k, v = pair.split(":", 1)
+                        info[k.strip()] = v.strip()
+                if info and "product" in info:
+                    self._device_info = {
+                        "device_name": info.get("product"),
+                        "device_version": info.get("sw_version") or info.get("os_version"),
+                        "device_sku": info.get("sku"),
+                        "serial": info.get("serial"),
+                        "raw_info": info
+                    }
+                    
+        # 3. INIT 2
+        msg3 = bytes([SYSEX_START, *TE_MFG_ID, *DEVICE_FAMILY, SysExCmd.INIT, 0x18, 0x05, 0x00, 0x01, 0x01, 0x00, 0x40, 0x00, 0x00, SYSEX_END])
+        self._emit_trace("TX", msg3)
+        self._outport.send(mido.Message("sysex", data=msg3[1:-1]))
+        self._recv_sysex(timeout=0.2)
 
     def _emit_trace(self, direction: str, data: bytes) -> None:
         trace_hook = getattr(self, "_trace_hook", None)
@@ -378,13 +413,8 @@ class EP133Client:
         return status, unpacked
 
     def device_info(self) -> dict | None:
-        self._send_msg(InfoRequest())
-        responses = self._recv_sysex(timeout=0.6)
-        for resp in responses:
-            if len(resp) > 7 and resp[6] in (0x37, SysExCmd.INFO):
-                # ... JSON parse logic ...
-                pass
-        return None
+        """Get product information captured during initialization."""
+        return getattr(self, "_device_info", None)
 
     def _get_file_size(self, slot: int) -> int | None:
         resp = self._send_file_request(
