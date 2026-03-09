@@ -192,7 +192,10 @@ class UploadModal(ModalScreen[tuple[str, str | None] | None]):
 
 
 class ConfirmModal(ModalScreen[bool]):
-    BINDINGS = [Binding("escape", "cancel", "Cancel")]
+    BINDINGS = [
+        Binding("escape", "cancel", "Cancel"),
+        Binding("enter", "ok", "Confirm")
+    ]
 
     def __init__(self, message: str):
         super().__init__()
@@ -211,6 +214,9 @@ class ConfirmModal(ModalScreen[bool]):
     def action_cancel(self) -> None:
         self.dismiss(False)
 
+    def action_ok(self) -> None:
+        self._ok()
+
     @on(Button.Pressed, "#cancel")
     def _cancel(self) -> None:
         self.dismiss(False)
@@ -221,7 +227,10 @@ class ConfirmModal(ModalScreen[bool]):
 
 
 class OptimizeModal(ModalScreen[tuple[bool, int | None, float | None, float] | None]):
-    BINDINGS = [Binding("escape", "cancel", "Cancel")]
+    BINDINGS = [
+        Binding("escape", "cancel", "Cancel"),
+        Binding("enter", "ok", "Optimize")
+    ]
 
     def __init__(self, message: str):
         super().__init__()
@@ -246,6 +255,9 @@ class OptimizeModal(ModalScreen[tuple[bool, int | None, float | None, float] | N
 
     def action_cancel(self) -> None:
         self.dismiss(None)
+
+    def action_ok(self) -> None:
+        self._ok()
 
     @on(Button.Pressed, "#cancel")
     def _cancel(self) -> None:
