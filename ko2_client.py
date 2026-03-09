@@ -526,7 +526,6 @@ class EP133Client:
         resp = self._send_file_request(
             DeleteRequest(slot=slot),
             timeout=2.0,
-            expect_resp_cmd=(SysExCmd.LIST_FILES - 0x40),
         )
         if not resp:
             raise EP133Error("Delete failed: no response")
