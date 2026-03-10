@@ -7,7 +7,7 @@ from rich.text import Text
 from textual import on
 from textual.app import ComposeResult
 from textual.binding import Binding
-from textual.containers import Horizontal, Vertical
+from textual.containers import Horizontal, Vertical, ScrollableContainer
 from textual.screen import ModalScreen
 from textual.widgets import Button, Input, Label, Checkbox, Static
 
@@ -280,3 +280,91 @@ class OptimizeModal(ModalScreen[tuple[bool, int | None, float | None, float] | N
         pitch = -12.0 if opt_fast else 0.0
 
         self.dismiss((mono, rate, speed, pitch))
+
+
+# All keybindings shown in the help overlay.  Each entry is (key_display, description).
+HELP_KEYBINDINGS: list[tuple[str, str]] = [
+    # Navigation
+    ("j / ↑", "Cursor up"),
+    ("k / ↓", "Cursor down"),
+    ("Ctrl+U", "Page up"),
+    ("Ctrl+D", "Page down"),
+    # Sample operations
+    ("Enter", "Load details for current slot"),
+    ("d", "Download sample"),
+    ("u", "Upload sample"),
+    ("c", "Copy sample to another slot"),
+    ("m", "Start move (navigate then Enter to drop)"),
+    ("r", "Rename sample"),
+    ("Backspace / Del", "Delete sample (or selected slots)"),
+    ("o", "Optimize sample (mono/downsample/stretch)"),
+    ("s", "Squash: fill all empty slots"),
+    # Selection
+    ("Space", "Toggle slot selection / move cursor down"),
+    ("v", "Select slots by expression (e.g. 1-10, 200)"),
+    # View
+    ("l", "Toggle log pane"),
+    ("Ctrl+R", "Reload inventory from device"),
+    ("?", "Show this help overlay"),
+    ("q", "Quit"),
+    # Move mode (active after pressing m)
+    ("Enter  (move mode)", "Drop / swap with current slot"),
+    ("Escape (move mode)", "Cancel move"),
+]
+
+
+class HelpModal(ModalScreen[None]):
+    """Read-only keybinding reference overlay."""
+
+    DEFAULT_CSS = """
+    HelpModal > Vertical {
+        width: 72;
+        height: auto;
+        max-height: 90vh;
+        padding: 1 2;
+        border: round $accent;
+        background: $panel;
+    }
+    HelpModal #help_title {
+        text-style: bold;
+        margin-bottom: 1;
+    }
+    HelpModal ScrollableContainer {
+        height: auto;
+        max-height: 36;
+    }
+    HelpModal .help_row {
+        height: 1;
+    }
+    HelpModal .help_key {
+        width: 24;
+        color: $text;
+        text-style: bold;
+    }
+    HelpModal .help_desc {
+        width: 1fr;
+        color: $text-muted;
+    }
+    HelpModal #help_footer {
+        margin-top: 1;
+        color: $text-muted;
+    }
+    """
+
+    BINDINGS = [
+        Binding("escape", "dismiss_help", "Close", show=False),
+        Binding("q", "dismiss_help", "Close", show=False),
+    ]
+
+    def compose(self) -> ComposeResult:
+        with Vertical():
+            yield Label("Keyboard shortcuts", id="help_title")
+            with ScrollableContainer():
+                for key, desc in HELP_KEYBINDINGS:
+                    with Horizontal(classes="help_row"):
+                        yield Static(key, classes="help_key")
+                        yield Static(desc, classes="help_desc")
+            yield Static("Press Escape or q to close", id="help_footer")
+
+    def action_dismiss_help(self) -> None:
+        self.dismiss(None)

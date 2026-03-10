@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 
 from ko2_tui.app import KO2TUIApp, _waveform_signature
-from ko2_tui.ui import ConfirmModal, OptimizeModal, TextInputModal, UploadModal
+from ko2_tui.ui import ConfirmModal, HelpModal, OptimizeModal, TextInputModal, UploadModal
 from ko2_tui.worker import WorkerEvent
 from textual.widgets import Checkbox, DataTable, RichLog, Static
 
@@ -892,6 +892,25 @@ def test_waveform_cache_hit_skips_worker_request(monkeypatch):
             assert after == before
             assert app._waveform_by_slot.get(1) == bins
             assert 1 not in app._waveform_pending
+
+    asyncio.run(_run())
+
+
+def test_question_mark_key_opens_help_modal(monkeypatch):
+    monkeypatch.setattr("ko2_tui.app.DeviceWorker", StubWorker)
+
+    async def _run():
+        app = KO2TUIApp(device_name="EP-133", debug=False)
+        async with app.run_test() as pilot:
+            _make_ready(app)
+
+            await pilot.press("question_mark")
+            await pilot.pause()
+            assert isinstance(app.screen, HelpModal)
+
+            await pilot.press("escape")
+            await pilot.pause()
+            assert not isinstance(app.screen, HelpModal)
 
     asyncio.run(_run())
 
