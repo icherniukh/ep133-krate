@@ -317,7 +317,7 @@ Or use the `audio2ko2` tool.
 
 ## Projects
 
-- Total: **16 projects** (1-16)
+- Total: **9 projects** (1-9)
 - Switch via Device ID 0x7C
 - Each project has independent samples
 - Project value in JSON is encoded as `project_num * 1000`
@@ -351,11 +351,45 @@ ko2.py info <slot>     # Get sample metadata
 ko2.py get <slot>      # Download sample
 ko2.py put <file>      # Upload sample (in progress)
 ko2.py rm <slot>       # Delete sample
-ko2.py scan            # List all samples
+ko2.py ls              # List all samples
 ```
 
 ## References
 
 - https://github.com/garrettjwilke/ep_133_sysex_thingy - Working sysex examples (pre-FW 2.0)
 - https://github.com/benjaminr/mcp-koii - MIDI control interface; contains complete sound-to-pad mapping that may aid pad group B/C/D research
-- abrilstudios/rcy - Reference implementation (Dec 2025, FW 2.0.5); source of current upload protocol
+- abrilstudios/rcy - Reference implementation (Dec 2025, FW 2.0.5); key reference for upload protocol
+
+## Slot IDs vs node IDs
+
+Two different addressing schemes exist and must not be conflated.
+
+### Slot IDs (1–999)
+
+Used for sample/audio data locations. These are the flat list of 999 sound slots.
+Upload, download, rename, and delete all address slots. Slot numbers are global across projects.
+
+### Node IDs
+
+Used for the internal filesystem: pads, projects, groups, folders.
+
+- Node `1000` = `/sounds/` directory (parent node for all uploads)
+- Pad nodes: `2000 + (project_num * 1000) + 100 + group_offset + file_num`
+  - `project_num`: 1–9
+  - `group_offset`: A=100, B=200, C=300, D=400
+  - Physical pads numbered bottom-to-top; filesystem stores top-to-bottom
+
+**Example:** Project 1, Group A, Pad 1 → node `3210`
+
+To assign a sample to a pad, set `{"sym": <slot_id>}` on the pad's node via `METADATA SET`.
+
+### Known node ranges
+
+| Range | Purpose |
+|---|---|
+| `1000` | `/sounds/` directory |
+| `2000` | Root filesystem node |
+| `9201–9212` | Group A pads (confirmed from captures) |
+| `9301–9312` | Group B pads (partial) |
+| `9401–9412` | Group C pads (partial) |
+| `9501–9512` | Group D pads (partial) |

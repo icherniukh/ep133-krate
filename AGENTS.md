@@ -148,3 +148,22 @@ For more details, see README.md and docs/QUICKSTART.md.
 - If push fails, resolve and retry until it succeeds
 
 <!-- END BEADS INTEGRATION -->
+
+## Key architectural decisions
+
+### View protocol for CLI output
+
+All `cmd_*` functions in `ko2.py` receive `view: View` (from `ko2_display.py`).
+Never use bare `print()` in command functions. Use `view.success()`, `view.error()`,
+`view.kv()`, etc. Three implementations: `TerminalView`, `SilentView`, `JsonView`.
+Tests use `Mock(spec=View)` — no stdout patching.
+
+### Descriptor DSL for protocol messages
+
+- `ko2_types.py` — wire primitives (`U7`, `BE16`, `Packed7`)
+- `ko2_models.py` — declarative message definitions
+- `ko2_operations.py` — multi-step transactions
+- `ko2_client.py` — transport only, no protocol knowledge
+
+Build raw payload first, then apply packed7. Never pre-split values before packed7.
+Slot/node fields are BE16 inside the raw payload.

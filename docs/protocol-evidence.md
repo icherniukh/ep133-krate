@@ -1,10 +1,6 @@
 # EP-133 KO-II Protocol Evidence & Research Archive
 
-This document serves as the historical "lab notebook" and forensic evidence for the EP-133 protocol reverse-engineering effort. It consolidates previous audits, wire validations, upload deep-dives, and metadata corruption risks.
-
----
-
-## 1. Protocol Audit & Confidence Matrix
+## 1. Protocol audit & confidence matrix
 
 *Ground truth: device captures in `captures/`, 45 unit tests, confirmed device tests.*
 
@@ -14,7 +10,7 @@ SOLID            SPECULATION      BLIND GUESS      UNKNOWN
 ████████████     ███████          ████             █████
 ```
 
-### Validation Matrix
+### Validation matrix
 
 | Operation | Implementation | RCY alignment | Wire evidence | Status | Notes |
 |---|---|---|---|---|---|
@@ -31,7 +27,7 @@ SOLID            SPECULATION      BLIND GUESS      UNKNOWN
 
 ---
 
-## 2. Wire Validation & Capture Logs
+## 2. Wire validation & capture logs
 
 To capture new evidence, run: `python midi_proxy.py --proxy captures/sniffer-<name>.jsonl`
 
@@ -65,14 +61,14 @@ Hunter summary after opening the official sample tool (no user actions):
 - RX metadata JSON confirms pre-rename: `name:"pr - kicks 9"` and post-rename: `name:"53_name))"`.
 - User report: sample slot `53` was used; pad label was `6` in group `D`.
 
-### Pad Mapping (raw observations)
+### Pad mapping (raw observations)
 - `captures/sniffer-padmap-A.jsonl`: Pad 0 -> `9211`, Pad 1 -> `9207`, etc.
 - `captures/sniffer-padmap-B.bin`: Pad 8 -> `9302`, Pad 0 -> `9311`.
 - `captures/sniffer-padmap-C.bin`: Pad 8 -> `9402`, Pad 0 -> `9411`.
 
 ---
 
-## 3. Upload Deep-Dive & Encoding Quirks
+## 3. Upload deep-dive & encoding quirks
 
 ### 2026-02-20 official tool upload captures (slot 26, slot 21)
 *Captures: `captures/sniffer-slot26.jsonl` and `captures/sniffer-upload21.jsonl`*
@@ -90,7 +86,7 @@ Hunter summary after opening the official sample tool (no user actions):
 - Why official tool sometimes uses `SysExCmd 0x7F` vs `0x7E` for upload.
 - Meaning of `0x0B` and `0x01` ops beyond verify/reinit.
 
-### Packed7 Transport Layer
+### Packed7 transport layer
 - Protocol fields are built first as raw payload bytes (`op`, `subop`, `slot_hi slot_lo`, etc.), then packed7 is applied for MIDI transport.
 - Every 7 raw payload bytes become 8 wire bytes: one packed7 control byte + seven 7-bit-clean data bytes.
 - Control bit `i` corresponds to payload byte `i` (0..6); final group may contain fewer than 7 payload bytes.
@@ -99,13 +95,13 @@ Hunter summary after opening the official sample tool (no user actions):
 - Mixing `pack_7bit` payloads with explicit 14-bit splits `((val >> 7) & 0x7F)` breaks at higher values.
 - Uploads expect raw 16-bit/32-bit values **inside** the packed payload.
 
-### The Working Upload Sequence
+### The working upload sequence
 1. **INIT (0x6C/0x7E family)**: slot, parent node (1000), size BE, name, JSON metadata.
 2. **CHUNKS (0x6C)**: 433-byte data chunks, wait for ACK response (0x2C), short delay.
 3. **SENTINEL + VERIFY**: empty `PUT_DATA` sentinel chunk, then VERIFY.
 4. **`_initialize()` reset**: client sends the 3-message init sequence after upload completes.
 
-### Device State After Completed Downloads (CONFIRMED 2026-03-06)
+### Device state after completed downloads (CONFIRMED 2026-03-06)
 After all download chunks are received, **the device remains in download mode** and silently
 drops the next command rather than processing it. Confirmed from `tui-2026-03-03-042744.jsonl`:
 both `DELETE TX` events in that capture are immediately followed by stale `op=GET` responses
@@ -127,7 +123,7 @@ the caller must add `_initialize()` explicitly.
 
 ---
 
-## 4. Metadata Corruption Risks
+## 4. Metadata corruption risks
 
 There are multiple sources of truth on the device, and they can diverge:
 
@@ -135,7 +131,7 @@ There are multiple sources of truth on the device, and they can diverge:
 2. **Filesystem node metadata** (via `FileOp.METADATA GET` on a node_id).
 3. **Slot metadata** (via legacy `GET_META` 0x75).
 
-### Known Risks
+### Known risks
 - **No Active +128 Bug:** Earlier revisions incorrectly reported a `GET_META` slot-offset bug for slots >127. Root cause was host-side encoding mistakes (U14 bytes interpreted by device as BE16). With correct BE16 + 7-bit packing, slot mapping behaves as expected.
 - **Stale Metadata:** The device can return `GET_META` responses for deleted slots, resulting in "ghost" names.
 - **Lost Sound Params:** Move/Copy via download+upload resets sound parameters (start/end/loop/pitch) because the upload only carries name + channels + samplerate.
@@ -146,7 +142,7 @@ There are multiple sources of truth on the device, and they can diverge:
 - `captures/2026-02-20-audit-100-199.jsonl` (100 slots)
   - `stale`: 57, `name:diff`: 22, clean: 21
 
-### Implemented Mitigations
+### Implemented mitigations
 - `ko2 info` and `ko2 ls` now use `/sounds` + node metadata (`FileOp.METADATA GET`) only.
 - `GET_META` is retained only as an explicit legacy audit/debug source (`ko2 audit` path).
 - The inventory command (`ko2 ls`) relies entirely on the filesystem listing (`/sounds`), ensuring empty slots are reported accurately.
