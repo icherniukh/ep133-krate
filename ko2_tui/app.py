@@ -957,7 +957,19 @@ class TUIApp(App[None]):
         if result is None:
             return
         path, name = result
-        self._queue_request(actions.upload(slot, path, name=name))
+        row = self.state.slots.get(slot)
+        if row and row.exists:
+            sample_name = row.name.strip() or f"Slot {slot:03d}"
+            self.push_screen(
+                ConfirmModal(f"Slot {slot:03d} already has a sample ({sample_name}) — overwrite?"),
+                callback=lambda ok: self._on_upload_overwrite_confirm(slot, path, name, ok),
+            )
+        else:
+            self._queue_request(actions.upload(slot, path, name=name))
+
+    def _on_upload_overwrite_confirm(self, slot: int, path: str, name: str | None, confirmed: bool) -> None:
+        if confirmed:
+            self._queue_request(actions.upload(slot, path, name=name))
 
     def _on_rename_modal(self, slot: int, new_name: str | None) -> None:
         if new_name:
