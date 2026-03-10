@@ -1707,7 +1707,7 @@ def main():
     put_parser.add_argument("--pitch", type=float, default=0.0, help="Pitch offset in semitones (e.g. -12.0)")
 
     # move
-    mv_parser = subparsers.add_parser("mv", help="Move sample between slots")
+    mv_parser = subparsers.add_parser("mv", aliases=["move"], help="Move sample between slots")
     mv_parser.add_argument("src", type=validate_slot, help="Source slot (1-999)")
     mv_parser.add_argument("dst", type=validate_slot, help="Destination slot (1-999)")
     mv_parser.add_argument(
@@ -1725,26 +1725,8 @@ def main():
         help="Skip confirmation",
     )
 
-    move_parser = subparsers.add_parser("move", help="Move sample between slots")
-    move_parser.add_argument("src", type=validate_slot, help="Source slot (1-999)")
-    move_parser.add_argument("dst", type=validate_slot, help="Destination slot (1-999)")
-    move_parser.add_argument(
-        "--raw", "--original", dest="raw", action="store_true", help="Use raw filename"
-    )
-    move_parser.add_argument(
-        "-y",
-        "--yes",
-        "-f",
-        "--force",
-        "-q",
-        "--quiet",
-        dest="yes",
-        action="store_true",
-        help="Skip confirmation",
-    )
-
     # copy
-    cp_parser = subparsers.add_parser("cp", help="Copy sample between slots")
+    cp_parser = subparsers.add_parser("cp", aliases=["copy"], help="Copy sample between slots")
     cp_parser.add_argument("src", type=validate_slot, help="Source slot (1-999)")
     cp_parser.add_argument("dst", type=validate_slot, help="Destination slot (1-999)")
     cp_parser.add_argument(
@@ -1762,58 +1744,10 @@ def main():
         help="Skip confirmation",
     )
 
-    copy_parser = subparsers.add_parser("copy", help="Copy sample between slots")
-    copy_parser.add_argument("src", type=validate_slot, help="Source slot (1-999)")
-    copy_parser.add_argument("dst", type=validate_slot, help="Destination slot (1-999)")
-    copy_parser.add_argument(
-        "--raw", "--original", dest="raw", action="store_true", help="Use raw filename"
-    )
-    copy_parser.add_argument(
-        "-y",
-        "--yes",
-        "-f",
-        "--force",
-        "-q",
-        "--quiet",
-        dest="yes",
-        action="store_true",
-        help="Skip confirmation",
-    )
-
     # delete
-    delete_parser = subparsers.add_parser("delete", help="Delete sample")
+    delete_parser = subparsers.add_parser("delete", aliases=["rm", "remove"], help="Delete sample")
     delete_parser.add_argument("slot", type=validate_slot, help="Slot number (1-999)")
     delete_parser.add_argument(
-        "-y",
-        "--yes",
-        "-f",
-        "--force",
-        "-q",
-        "--quiet",
-        dest="yes",
-        action="store_true",
-        help="Skip confirmation",
-    )
-
-    # rm: alias for delete
-    rm_parser = subparsers.add_parser("rm", help="Delete sample (alias)")
-    rm_parser.add_argument("slot", type=validate_slot, help="Slot number (1-999)")
-    rm_parser.add_argument(
-        "-y",
-        "--yes",
-        "-f",
-        "--force",
-        "-q",
-        "--quiet",
-        dest="yes",
-        action="store_true",
-        help="Skip confirmation",
-    )
-
-    # remove: alias for delete
-    remove_parser = subparsers.add_parser("remove", help="Delete sample (alias)")
-    remove_parser.add_argument("slot", type=validate_slot, help="Slot number (1-999)")
-    remove_parser.add_argument(
         "-y",
         "--yes",
         "-f",
