@@ -80,11 +80,17 @@ def test_upload_key_opens_modal_and_submits_request(monkeypatch):
         app = KO2TUIApp(device_name="EP-133", debug=False)
         async with app.run_test() as pilot:
             _make_ready(app)
+            # Slot 1 is occupied after _make_ready; dismiss the confirm dialog too.
 
             app.action_upload()
             await pilot.pause()
             assert isinstance(app.screen, UploadModal)
             app.screen.dismiss(("/tmp/input.wav", "afterparty kick"))
+            await pilot.pause()
+
+            # Slot 1 is occupied — overwrite confirm appears
+            assert isinstance(app.screen, ConfirmModal)
+            app.screen.dismiss(True)
             await pilot.pause()
 
             ops = _request_ops(app)
@@ -892,6 +898,89 @@ def test_waveform_cache_hit_skips_worker_request(monkeypatch):
             assert after == before
             assert app._waveform_by_slot.get(1) == bins
             assert 1 not in app._waveform_pending
+
+    asyncio.run(_run())
+
+
+def test_upload_to_occupied_slot_shows_confirm_then_uploads(monkeypatch):
+    """Uploading to an occupied slot must show ConfirmModal; upload proceeds on confirm."""
+    monkeypatch.setattr("ko2_tui.app.DeviceWorker", StubWorker)
+
+    async def _run():
+        app = KO2TUIApp(device_name="EP-133", debug=False)
+        async with app.run_test() as pilot:
+            _make_ready(app)
+            # Slot 1 is already occupied (set up by _make_ready via inventory event)
+            assert app.state.slots[1].exists
+
+            app.action_upload()
+            await pilot.pause()
+            assert isinstance(app.screen, UploadModal)
+            app.screen.dismiss(("/tmp/new.wav", None))
+            await pilot.pause()
+
+            # Should now show ConfirmModal asking about overwrite
+            assert isinstance(app.screen, ConfirmModal)
+            app.screen.dismiss(True)  # user confirms overwrite
+            await pilot.pause()
+
+            ops = _request_ops(app)
+            assert "upload" in ops
+
+    asyncio.run(_run())
+
+
+def test_upload_to_occupied_slot_aborts_on_cancel(monkeypatch):
+    """Uploading to an occupied slot must NOT upload when the user cancels the confirm dialog."""
+    monkeypatch.setattr("ko2_tui.app.DeviceWorker", StubWorker)
+
+    async def _run():
+        app = KO2TUIApp(device_name="EP-133", debug=False)
+        async with app.run_test() as pilot:
+            _make_ready(app)
+            assert app.state.slots[1].exists
+
+            app.action_upload()
+            await pilot.pause()
+            assert isinstance(app.screen, UploadModal)
+            app.screen.dismiss(("/tmp/new.wav", None))
+            await pilot.pause()
+
+            assert isinstance(app.screen, ConfirmModal)
+            app.screen.dismiss(False)  # user cancels
+            await pilot.pause()
+
+            ops = _request_ops(app)
+            assert "upload" not in ops
+
+    asyncio.run(_run())
+
+
+def test_upload_to_empty_slot_skips_confirm(monkeypatch):
+    """Uploading to an empty slot must skip the confirm dialog and queue upload directly."""
+    monkeypatch.setattr("ko2_tui.app.DeviceWorker", StubWorker)
+
+    async def _run():
+        app = KO2TUIApp(device_name="EP-133", debug=False)
+        async with app.run_test() as pilot:
+            _make_ready(app)
+            # Slot 2 is empty (only slot 1 is in the inventory)
+            assert not app.state.slots[2].exists
+
+            table = app.query_one("#slots", DataTable)
+            table.move_cursor(row=1, animate=False)  # row index 1 = slot 2
+            await pilot.pause()
+
+            app.action_upload()
+            await pilot.pause()
+            assert isinstance(app.screen, UploadModal)
+            app.screen.dismiss(("/tmp/new.wav", None))
+            await pilot.pause()
+
+            # Should NOT show ConfirmModal — upload queued immediately
+            assert not isinstance(app.screen, ConfirmModal)
+            ops = _request_ops(app)
+            assert "upload" in ops
 
     asyncio.run(_run())
 
