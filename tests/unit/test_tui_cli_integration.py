@@ -17,7 +17,7 @@ def test_tui_command_dispatch(monkeypatch):
     _FakeApp.last_kwargs = None
     _FakeApp.ran = False
 
-    fake_module = types.SimpleNamespace(KO2TUIApp=_FakeApp)
+    fake_module = types.SimpleNamespace(TUIApp=_FakeApp)
     monkeypatch.setattr(importlib, "import_module", lambda name: fake_module)
     monkeypatch.setattr(ko2, "find_device", lambda: "EP-133")
     monkeypatch.setattr("sys.argv", ["ko2.py", "tui"])
@@ -34,7 +34,7 @@ def test_tui_command_passes_debug_flags(monkeypatch):
     _FakeApp.last_kwargs = None
     _FakeApp.ran = False
 
-    fake_module = types.SimpleNamespace(KO2TUIApp=_FakeApp)
+    fake_module = types.SimpleNamespace(TUIApp=_FakeApp)
     monkeypatch.setattr(importlib, "import_module", lambda name: fake_module)
     monkeypatch.setattr(ko2, "find_device", lambda: "EP-133")
     monkeypatch.setattr("sys.argv", [
@@ -57,7 +57,7 @@ def test_tui_command_passes_dialog_log_flag(monkeypatch):
     _FakeApp.last_kwargs = None
     _FakeApp.ran = False
 
-    fake_module = types.SimpleNamespace(KO2TUIApp=_FakeApp)
+    fake_module = types.SimpleNamespace(TUIApp=_FakeApp)
     monkeypatch.setattr(importlib, "import_module", lambda name: fake_module)
     monkeypatch.setattr(ko2, "find_device", lambda: "EP-133")
     monkeypatch.setattr("sys.argv", [

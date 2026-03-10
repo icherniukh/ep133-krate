@@ -2,7 +2,7 @@ import asyncio
 
 import pytest
 
-from ko2_tui.app import KO2TUIApp
+from ko2_tui.app import TUIApp
 from ko2_tui.ui import TextInputModal
 
 
@@ -20,7 +20,7 @@ async def _wait_until(predicate, *, timeout_s: float = 5.0, step_s: float = 0.05
 
 def test_tui_rename_roundtrip_with_emulator(device_name, emulator_device):
     async def _run():
-        app = KO2TUIApp(device_name=device_name, debug=False)
+        app = TUIApp(device_name=device_name, debug=False)
         async with app.run_test() as pilot:
             await _wait_until(lambda: app.state.slots[1].exists, timeout_s=5.0)
             await _wait_until(

@@ -471,12 +471,12 @@ def cmd_tui(args, view: View):
     """Launch Textual TUI."""
     try:
         module = importlib.import_module("ko2_tui.app")
-        app_cls = getattr(module, "KO2TUIApp")
+        app_cls = getattr(module, "TUIApp")
     except ImportError:
         view.error("TUI dependencies are missing. Install `textual` and try again.")
         return 1
     except AttributeError:
-        view.error("TUI module is installed but missing KO2TUIApp.")
+        view.error("TUI module is installed but missing TUIApp.")
         return 1
 
     debug_arg = getattr(args, "debug", None)
