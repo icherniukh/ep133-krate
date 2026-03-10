@@ -18,7 +18,7 @@ from .waveform_widget import WaveformWidget
 from ko2_display import SampleFormat
 from .selectors import parse_selector
 from .state import SlotRow, TuiState
-from .ui import ConfirmModal, DetailsWidget, OptimizeModal, TextInputModal, UploadModal, table_row_values
+from .ui import ConfirmModal, DetailsWidget, HelpModal, OptimizeModal, TextInputModal, UploadModal, table_row_values
 from .worker import DeviceWorker, WorkerEvent
 
 
@@ -116,6 +116,7 @@ class TUIApp(App[None]):
         Binding("ctrl+d", "page_down", "Page Down", show=False),
         Binding("ctrl+u", "page_up", "Page Up", show=False),
         Binding("q", "quit", "Quit"),
+        Binding("question_mark", "help", "Help", show=False),
     ]
 
     def __init__(
@@ -1019,6 +1020,9 @@ class TUIApp(App[None]):
         mono, rate, speed, pitch = result
         self.state.selected_slots = set()
         self._queue_request(actions.optimize(slots, mono=mono, rate=rate, speed=speed, pitch=pitch))
+
+    def action_help(self) -> None:
+        self.push_screen(HelpModal())
 
     def action_quit(self) -> None:
         self._shutdown_worker()
