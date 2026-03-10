@@ -133,6 +133,8 @@ class DeviceWorker(threading.Thread):
                 self._handle_squash(req, client, phases, t_start)
             elif req.op == "optimize":
                 self._handle_optimize(req, client, phases, t_start)
+            elif req.op == "optimize_all":
+                self._handle_optimize_all(req, client, phases, t_start)
             elif req.op == "waveform":
                 slot = int(req.payload["slot"])
                 width = int(req.payload.get("width") or 60)
@@ -349,6 +351,106 @@ class DeviceWorker(threading.Thread):
 
         self._emit_success(f"Optimized {optimized_count} of {total} slots", started_at=t_start)
         self._emit_inventory(client, hydrate_slots=set(slots), phases=phases)
+
+    def _handle_optimize_all(self, req: WorkerRequest, client: EP133Client, phases: dict[str, float], t_start: float) -> None:
+        min_size = int(req.payload.get("min_size", 0))
+
+        from ko2 import backup_copy, optimize_sample
+
+        self._emit_progress(req.op, 0, 1, "Scanning for stereo samples...")
+        sounds = self._timed("device.list_sounds", phases, client.list_sounds)
+
+        candidates: list[Any] = []
+        for slot, entry in sorted(sounds.items()):
+            size_bytes = int(entry.get("size") or 0)
+            if min_size and size_bytes <= min_size:
+                continue
+            try:
+                info = self._timed("device.info", phases, client.info, slot, include_size=False)
+            except Exception:
+                continue
+
+            if info.channels_known:
+                if info.channels > 1:
+                    info.size_bytes = size_bytes
+                    candidates.append(info)
+            else:
+                # Probe for channel count when metadata is unavailable.
+                try:
+                    channels, probed_size = self._timed(
+                        "device.probe_channels", phases, client.probe_channels, slot
+                    )
+                except Exception:
+                    continue
+                if probed_size:
+                    info.size_bytes = probed_size
+                if channels > 1:
+                    info.channels = 2
+                    candidates.append(info)
+
+        if not candidates:
+            self._emit_success("No stereo samples found", started_at=t_start)
+            self._emit_inventory(client, phases=phases)
+            return
+
+        total = len(candidates)
+        optimized_count = 0
+        changed_slots: set[int] = set()
+
+        for idx, info in enumerate(candidates, 1):
+            slot = info.slot
+            name = info.name
+            self._emit_progress(req.op, idx, total, f"Optimizing slot {slot:03d} ({idx}/{total})")
+
+            with tempfile.TemporaryDirectory() as td:
+                temp_path = Path(td) / f"slot{slot:03d}.wav"
+                opt_path = temp_path.with_suffix(".opt.wav")
+                self._emit("busy", op=f"Optimizing ({idx}/{total}): {slot:03d}")
+
+                try:
+                    self._timed("device.get", phases, client.get, slot, temp_path)
+
+                    success, msg, orig_size, opt_size = self._timed(
+                        "local.optimize_sample",
+                        phases,
+                        optimize_sample,
+                        temp_path,
+                        output_path=opt_path,
+                    )
+
+                    if not success:
+                        self._emit("error", op=req.op, message=f"Failed to optimize slot {slot:03d}: {msg}")
+                        continue
+
+                    if msg == "already optimal":
+                        continue
+
+                    savings = orig_size - opt_size
+                    if savings < 5 * 1024:
+                        continue
+
+                    self._timed("local.backup_copy", phases, backup_copy, temp_path, slot=slot, name_hint=name)
+
+                    upload_path = opt_path if opt_path.exists() else temp_path
+                    self._timed(
+                        "device.put",
+                        phases,
+                        client.put,
+                        upload_path,
+                        slot,
+                        name=name,
+                        pitch=0.0,
+                        progress=False,
+                    )
+                    optimized_count += 1
+                    changed_slots.add(slot)
+                except Exception as exc:
+                    self._emit("error", op=req.op, message=f"Error on slot {slot:03d}: {exc}")
+                finally:
+                    self._emit_slot_refresh(client, slot, phases=phases)
+
+        self._emit_success(f"Optimized {optimized_count} of {total} stereo slots", started_at=t_start)
+        self._emit_inventory(client, hydrate_slots=changed_slots if changed_slots else None, phases=phases)
 
     def _ensure_client(self) -> EP133Client:
         if self._client is not None:

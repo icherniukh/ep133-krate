@@ -396,3 +396,73 @@ def test_waveform_precalc_background_threaded_mode(monkeypatch):
     assert wave_events
     assert wave_events[-1].payload["slot"] == 1
     assert "bins" in wave_events[-1].payload
+
+
+def test_worker_optimize_all_skips_mono_slots(monkeypatch, tmp_path):
+    """optimize_all scans inventory, skips mono slots, optimizes stereo ones."""
+
+    class OptimizeAllClient(FakeClient):
+        def list_sounds(self):
+            self.calls.append("list_sounds")
+            return {
+                1: {"name": "001 mono", "size": 50000, "node_id": 1001},
+                2: {"name": "002 stereo", "size": 50000, "node_id": 1002},
+            }
+
+        def info(self, slot, include_size=True):
+            self.calls.append(("info", slot, include_size))
+            channels = 2 if slot == 2 else 1
+            return SimpleNamespace(
+                slot=slot,
+                name=f"slot{slot}",
+                sym="",
+                samplerate=46875,
+                format="s16",
+                channels=channels,
+                channels_known=True,
+                size_bytes=50000,
+                duration=0.5,
+                is_empty=False,
+            )
+
+        def put(self, input_path, slot: int, name=None, progress=False, pitch=0.0):
+            self.calls.append(("put", str(input_path), slot, name, progress))
+
+        def get_node_metadata(self, node_id: int):
+            self.calls.append(("get_node_metadata", node_id))
+            return {"name": f"name-{node_id}", "channels": 1, "samplerate": 46875}
+
+    def _fake_optimize_sample(input_path, output_path, downsample_rate=None, speed=None):
+        Path(output_path).write_bytes(b"\x00" * 20000)
+        return True, "ok", 50000, 25000
+
+    def _fake_backup_copy(path, slot=None, name_hint=None):
+        return tmp_path / "backup.wav"
+
+    monkeypatch.setattr("ko2.optimize_sample", _fake_optimize_sample)
+    monkeypatch.setattr("ko2.backup_copy", _fake_backup_copy)
+
+    req_q: Queue = Queue()
+    evt_q: Queue = Queue()
+    fake = OptimizeAllClient()
+
+    worker = DeviceWorker(
+        device_name="EP-133",
+        request_queue=req_q,
+        event_queue=evt_q,
+        client_factory=lambda *args, **kwargs: fake,
+    )
+
+    worker._process_request(actions.optimize_all())
+    events = _drain(evt_q)
+    kinds = [e.kind for e in events]
+
+    # Only slot 2 (stereo) should have been uploaded
+    put_calls = [c for c in fake.calls if isinstance(c, tuple) and c[0] == "put"]
+    assert len(put_calls) == 1
+    assert put_calls[0][2] == 2  # slot 2
+
+    assert "success" in kinds
+    success_msg = next(e.payload.get("message", "") for e in events if e.kind == "success")
+    assert "1 of 1" in success_msg
+    assert kinds[-1] == "idle"
