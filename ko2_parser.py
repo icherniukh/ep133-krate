@@ -187,6 +187,10 @@ def build_parser() -> argparse.ArgumentParser:
         help="Skip confirmation",
     )
 
+    # audition
+    audition_parser = subparsers.add_parser("audition", aliases=["play"], help="Trigger on-device sample preview")
+    audition_parser.add_argument("slot", type=validate_slot, help="Slot number (1-999)")
+
     # optimize
     opt_parser = subparsers.add_parser("optimize", help="Optimize single sample")
     opt_parser.add_argument("slot", type=validate_slot, help="Slot number (1-999)")

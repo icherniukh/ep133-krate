@@ -28,7 +28,7 @@ from ko2_models import (
     SysExMessage, SysExResponse, 
     DownloadInitRequest, DownloadChunkRequest,
     MetadataGetLegacyRequest, MetadataGetRequest, MetadataSetRequest,
-    FileListRequest, InfoRequest, DeleteRequest
+    FileListRequest, InfoRequest, DeleteRequest, AuditionRequest
 )
 from ko2_types import Packed7, U14LE
 from ko2_operations import UploadTransaction
@@ -562,6 +562,18 @@ class EP133Client:
         status, _payload = resp
         if status != 0:
             raise EP133Error(f"Delete failed: status=0x{status:02X}")
+
+    def audition(self, slot: int) -> None:
+        """Trigger on-device playback preview of the sample at slot."""
+        resp = self._send_file_request(
+            AuditionRequest(slot=slot),
+            timeout=2.0,
+        )
+        if not resp:
+            raise EP133Error("Audition failed: no response")
+        status, _payload = resp
+        if status != 0:
+            raise EP133Error(f"Audition failed: status=0x{status:02X}")
 
     def set_node_metadata(self, node_id: int, metadata: Mapping[str, Any]) -> None:
         msg = MetadataSetRequest(

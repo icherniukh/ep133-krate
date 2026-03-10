@@ -118,6 +118,7 @@ class TUIApp(App[None]):
         Binding("ctrl+u", "page_up", "Page Up", show=False),
         Binding("q", "quit", "Quit"),
         Binding("question_mark", "help", "Help", show=False),
+        Binding("p", "audition", "Play", show=False),
     ]
 
     def __init__(
@@ -993,6 +994,11 @@ class TUIApp(App[None]):
     def _on_rename_modal(self, slot: int, new_name: str | None) -> None:
         if new_name:
             self._queue_request(actions.rename(slot, new_name))
+
+    def action_audition(self) -> None:
+        slot = self._current_slot()
+        if self.state.slots[slot].exists:
+            self._queue_request(actions.audition(slot))
 
     def action_delete(self) -> None:
         if self.state.selected_slots:

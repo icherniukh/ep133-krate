@@ -27,7 +27,7 @@ _HUNT_KEYWORDS = {
     "get_meta": {"cmds": {0x75}},
     "meta_rsp": {"cmds": {0x35}},
     "info": {"cmds": {0x77}},
-    "playback": {"cmds": {0x76}},
+    "playback": {"fileops": {0x05}},  # TE Tool uses rotating devids 0x60-0x6A; match by FileOp
     "list": {"fileops": {0x04}},
     "meta": {"fileops": {0x07}},
     "meta_get": {"fileops": {0x07}, "subops": {0x02}},

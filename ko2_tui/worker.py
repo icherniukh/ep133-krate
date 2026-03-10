@@ -117,6 +117,10 @@ class DeviceWorker(threading.Thread):
                 self._handle_copy(req, client, phases, t_start)
             elif req.op == "move":
                 self._handle_move(req, client, phases, t_start)
+            elif req.op == "audition":
+                slot = int(req.payload["slot"])
+                self._timed("device.audition", phases, client.audition, slot)
+                self._emit_success(f"Auditioning slot {slot:03d}", started_at=t_start)
             elif req.op == "delete":
                 slot = int(req.payload["slot"])
                 self._timed("device.delete", phases, client.delete, slot)

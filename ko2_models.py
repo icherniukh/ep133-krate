@@ -299,6 +299,26 @@ class DeleteRequest(FileMessage):
     file_op = U7Field(default=FileOp.DELETE)
     slot = BE16Field(default=0)
 
+class AuditionRequest(FileMessage):
+    """Trigger on-device sample preview (PROT-001).
+
+    Decoded payload (12 bytes):
+      [0x05][action][slot_hi][slot_lo][0x00×6][parent_node_hi][parent_node_lo]
+
+    Confirmed from captures:
+      sniffer-2026-03-10-165130.jsonl: slots 1–4, raw=050100NN00000000000003e8
+      sniffer-2026-03-10-173014.jsonl: slots 501–808, raw=050101NN/050103NN confirmed
+    Slot is BE16 at bytes [2:4]. The TE Sample Tool uses rotating devids 0x60–0x6A;
+    we use the fixed FILE devid (0x6A) for predictable response matching.
+    action: 0x01=play. parent_node=UPLOAD_PARENT_NODE targets sounds root.
+    """
+    opcode = SysExCmd.LIST_FILES
+    file_op = U7Field(default=FileOp.PLAYBACK)
+    action = U7Field(default=0x01)
+    slot = BE16Field(default=1)
+    padding = NullBytesField(length=6)
+    parent_node = BE16Field(default=UPLOAD_PARENT_NODE)
+
 class FileListRequest(FileMessage):
     opcode = SysExCmd.LIST_FILES
     file_op = U7Field(default=FileOp.LIST)

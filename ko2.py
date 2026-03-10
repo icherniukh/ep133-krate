@@ -112,104 +112,134 @@ def parse_page(arg: str) -> tuple[int, int] | None:
 
 
 
+def _ls_scan_fs(
+    client, start: int, end: int, name_source: str, view: View
+) -> tuple[list, bool]:
+    """Fetch /sounds filesystem listing and build SampleInfo list for start..end.
+
+    Returns (samples, success).  On failure returns ([], False) so the caller
+    can fall back to slot-scan.  If source='fs' the caller should treat False
+    as a hard error.
+    """
+    view.step("Fetching /sounds listing...")
+    sounds = client.list_sounds()
+    all_slots = list(range(start, end + 1))
+    total_slots = len(all_slots)
+    samples = []
+
+    for idx, slot in enumerate(all_slots, 1):
+        if total_slots:
+            view.progress(idx, total_slots, f"(slot {slot})")
+        e = sounds.get(slot)
+        if not e:
+            samples.append(empty_sample(slot))
+            continue
+
+        size_bytes = int(e.get("size") or 0)
+        fs_name = str(e.get("name", f"Slot {slot:03d}"))
+        meta_name = None
+        node_name = None
+        samplerate = SAMPLE_RATE
+        channels = 0
+
+        node_id = int(e.get("node_id") or 0)
+        node_meta = None
+        if name_source in ("auto", "node"):
+            try:
+                if node_id:
+                    node_meta = client.get_node_metadata(node_id)
+            except Exception:
+                node_meta = None
+            if node_meta:
+                node_name = node_meta.get("name") or node_meta.get("sym")
+                if "samplerate" in node_meta:
+                    samplerate = int(node_meta.get("samplerate") or SAMPLE_RATE)
+                if "channels" in node_meta:
+                    channels = int(node_meta.get("channels") or 0)
+
+        need_info = node_meta is None or channels == 0
+        if need_info:
+            try:
+                meta = client.info(slot, include_size=False, node_entry=e)
+                samplerate = int(meta.samplerate or samplerate or SAMPLE_RATE)
+                channels = int(meta.channels or channels or 0)
+                meta_name = meta.name
+            except Exception:
+                pass
+
+        name = choose_display_name(fs_name, meta_name, node_name, slot, name_source)
+        samples.append(
+            SampleInfo(
+                slot=slot,
+                name=name,
+                samplerate=samplerate,
+                channels=channels,
+                size_bytes=size_bytes,
+            )
+        )
+
+    if total_slots:
+        print()
+
+    return samples, True
+
+
+def _ls_scan_slots(client, start: int, end: int, view: View) -> list:
+    """Probe each slot individually and return a SampleInfo list for start..end."""
+    view.step(f"Scanning slots {start:03d}-{end:03d}...")
+    samples = []
+    for slot in range(start, end + 1):
+        view.progress(slot - start + 1, end - start + 1, f"(slot {slot})")
+        try:
+            info = client.info(slot, include_size=True)
+            # Metadata can persist after delete; treat size==0 as empty for listing.
+            if info.size_bytes:
+                samples.append(info)
+            else:
+                samples.append(empty_sample(slot))
+        except SlotEmptyError:
+            samples.append(empty_sample(slot))
+    print()  # Clear progress line
+    return samples
+
+
 def cmd_ls(args, view: View):
     """List samples by pages."""
-    with EP133Client(args.device) as client:
-        # Determine range
-        if args.range:
-            range_spec = parse_range(args.range)
-            if isinstance(range_spec, int):
-                start, end = range_spec, range_spec
-            else:
-                start, end = range_spec
-            if start > end:
-                start, end = end, start
-            if start < 1 or end > MAX_SLOTS:
-                view.error(f"Range must be within 1-{MAX_SLOTS}")
-                return 1
-        elif args.page:
-            page_range = parse_page(args.page)
-            if page_range is None:
-                view.error("Page must be 1-10")
-                return 1
-            start, end = page_range
-        elif args.all:
-            start, end = 1, MAX_SLOTS
+    # Determine range
+    if args.range:
+        range_spec = parse_range(args.range)
+        if isinstance(range_spec, int):
+            start, end = range_spec, range_spec
         else:
-            start, end = 1, 99  # Default to first page
+            start, end = range_spec
+        if start > end:
+            start, end = end, start
+        if start < 1 or end > MAX_SLOTS:
+            view.error(f"Range must be within 1-{MAX_SLOTS}")
+            return 1
+    elif args.page:
+        page_range = parse_page(args.page)
+        if page_range is None:
+            view.error("Page must be 1-10")
+            return 1
+        start, end = page_range
+    elif args.all:
+        start, end = 1, MAX_SLOTS
+    else:
+        start, end = 1, 99  # Default to first page
 
-        source = args.source
-        name_source = args.name_source
+    source = args.source
+    name_source = args.name_source
+
+    with EP133Client(args.device) as client:
         # Prefer filesystem listing (/sounds/) for ground truth; slot-scan can be stale.
         samples = []
         entries = None
+
         if source in ("auto", "fs"):
             try:
-                view.step("Fetching /sounds listing...")
-                sounds = client.list_sounds()
-                entries = list(sounds.values())
-                all_slots = list(range(start, end + 1))
-                total_slots = len(all_slots)
-                for idx, slot in enumerate(all_slots, 1):
-                    if total_slots:
-                        view.progress(idx, total_slots, f"(slot {slot})")
-                    e = sounds.get(slot)
-                    if not e:
-                        samples.append(empty_sample(slot))
-                        continue
-
-                    size_bytes = int(e.get("size") or 0)
-                    fs_name = str(e.get("name", f"Slot {slot:03d}"))
-                    meta_name = None
-                    node_name = None
-                    samplerate = SAMPLE_RATE
-                    channels = 0
-
-                    node_id = int(e.get("node_id") or 0)
-                    node_meta = None
-                    if name_source in ("auto", "node"):
-                        try:
-                            if node_id:
-                                node_meta = client.get_node_metadata(node_id)
-                        except Exception:
-                            node_meta = None
-                        if node_meta:
-                            node_name = node_meta.get("name") or node_meta.get("sym")
-                            if "samplerate" in node_meta:
-                                samplerate = int(
-                                    node_meta.get("samplerate") or SAMPLE_RATE
-                                )
-                            if "channels" in node_meta:
-                                channels = int(node_meta.get("channels") or 0)
-
-                    need_info = node_meta is None or channels == 0
-                    if need_info:
-                        try:
-                            meta = client.info(
-                                slot,
-                                include_size=False,
-                                node_entry=e,
-                            )
-                            samplerate = int(meta.samplerate or samplerate or SAMPLE_RATE)
-                            channels = int(meta.channels or channels or 0)
-                            meta_name = meta.name
-                        except Exception:
-                            pass
-
-                    name = choose_display_name(
-                        fs_name, meta_name, node_name, slot, name_source
-                    )
-                    samples.append(
-                        SampleInfo(
-                            slot=slot,
-                            name=name,
-                            samplerate=samplerate,
-                            channels=channels,
-                            size_bytes=size_bytes,
-                        )
-                    )
-                if total_slots:
-                    print()
+                samples, _ = _ls_scan_fs(client, start, end, name_source, view)
+                entries = samples  # non-None signals fs path succeeded
             except Exception as e:
                 if source == "fs":
                     view.error(f"Failed to list /sounds via filesystem API: {e}")
@@ -226,22 +256,7 @@ def cmd_ls(args, view: View):
                 return 1
 
         if entries is None and source in ("auto", "scan"):
-            view.step(f"Scanning slots {start:03d}-{end:03d}...")
-            for slot in range(start, end + 1):
-                view.progress(slot - start + 1, end - start + 1, f"(slot {slot})")
-                try:
-                    info = client.info(
-                        slot,
-                        include_size=True,
-                    )
-                    # Metadata can persist after delete; treat size==0 as empty for listing.
-                    if info.size_bytes:
-                        samples.append(info)
-                    else:
-                        samples.append(empty_sample(slot))
-                except SlotEmptyError:
-                    samples.append(empty_sample(slot))
-            print()  # Clear progress line
+            samples = _ls_scan_slots(client, start, end, view)
 
         samples = [s for s in samples if start <= s.slot <= end]
         view.render_samples(samples, start, end)
@@ -815,6 +830,116 @@ def cmd_optimize(args, view: View):
     return 0
 
 
+def _optimize_all_scan(
+    sounds: dict, client, min_size: int, view: View
+) -> list:
+    """Return list of SampleInfo candidates that are stereo (or unconfirmed).
+
+    Two-pass strategy:
+      1. Slots with confirmed metadata (channels_known=True): include if channels > 1.
+      2. Slots with missing channel metadata: probe via a partial download and heuristic.
+    """
+    meta_stereo = []
+    to_probe = []
+
+    for slot, e in sorted(sounds.items()):
+        size_bytes = int(e.get("size") or 0)
+        if min_size and size_bytes <= min_size:
+            continue
+        try:
+            info = client.info(slot, include_size=False, node_entry=e)
+        except Exception:
+            continue
+
+        if info.channels_known:
+            if info.channels > 1:
+                info.size_bytes = size_bytes
+                meta_stereo.append(info)
+            # else: metadata confirmed mono — skip
+        else:
+            info.size_bytes = size_bytes
+            to_probe.append(info)
+
+    probe_stereo = []
+    if to_probe:
+        view.step(f"{len(to_probe)} samples without channel metadata — probing...")
+        print()
+        for info in to_probe:
+            channels, probed_size = client.probe_channels(info.slot)
+            if probed_size:
+                info.size_bytes = probed_size
+            if channels > 1:
+                info.channels = 2
+                probe_stereo.append(info)
+                print(f"    Slot {info.slot:03d}: {info.name[:30]:<30} stereo detected")
+
+    return meta_stereo + probe_stereo
+
+
+def _optimize_all_process(
+    candidates: list, client, view: View
+) -> tuple[int, int]:
+    """Optimize each candidate: download, backup, optimize, upload if worthwhile.
+
+    Returns (optimized_count, total_savings_bytes).
+    """
+    optimized = 0
+    total_savings = 0
+
+    for i, info in enumerate(candidates, 1):
+        view.section(f"[{i}/{len(candidates)}] Slot {info.slot}: {info.name}")
+
+        with tempfile.TemporaryDirectory(prefix=f"ko2-slot{info.slot:03d}-") as td:
+            temp_path = Path(td) / f"slot{info.slot:03d}.wav"
+            opt_path = temp_path.with_suffix(".opt.wav")
+
+            try:
+                client.get(info.slot, temp_path)
+            except EP133Error as e:
+                view.error(f"Download failed: {e}")
+                continue
+
+            original_size = temp_path.stat().st_size
+
+            backup_path = backup_copy(temp_path, slot=info.slot, name_hint=info.name)
+            view.kv("Backup:", str(backup_path))
+
+            success, msg, _, opt_size = optimize_sample(temp_path, output_path=opt_path)
+
+            if not success:
+                view.error(msg)
+                continue
+
+            if msg == "already optimal":
+                print(f"  ⊘ Already optimal (channel count confirmed in WAV header)")
+                continue
+
+            savings = original_size - opt_size
+
+            if savings < 5 * 1024:
+                print(f"  ⊘ Skipped (savings: {SampleFormat.size(savings)})")
+                continue
+
+            try:
+                client.put(opt_path, info.slot, name=info.name, progress=False)
+                view.success(f"Saved {SampleFormat.size(savings)} ({savings/original_size*100:.1f}%)")
+                optimized += 1
+                total_savings += savings
+            except EP133Error as e:
+                view.error(f"Upload failed: {e}")
+
+    return optimized, total_savings
+
+
+def _optimize_all_report(
+    optimized: int, total: int, total_savings: int, view: View
+) -> None:
+    """Display batch optimization summary."""
+    view.section("=" * 40)
+    print(f"  Optimized: {optimized}/{total} samples")
+    print(f"  Total savings: {SampleFormat.size(total_savings)}")
+
+
 def cmd_optimize_all(args, view: View):
     """Optimize stereo samples on device (downmix to mono).
 
@@ -834,41 +959,7 @@ def cmd_optimize_all(args, view: View):
         if slot_filter is not None:
             sounds = {k: v for k, v in sounds.items() if k == slot_filter}
 
-        meta_stereo = []
-        to_probe = []
-
-        for slot, e in sorted(sounds.items()):
-            size_bytes = int(e.get("size") or 0)
-            if min_size and size_bytes <= min_size:
-                continue
-            try:
-                info = client.info(slot, include_size=False, node_entry=e)
-            except Exception:
-                continue
-
-            if info.channels_known:
-                if info.channels > 1:
-                    info.size_bytes = size_bytes
-                    meta_stereo.append(info)
-                # else: metadata confirmed mono, skip
-            else:
-                info.size_bytes = size_bytes
-                to_probe.append(info)
-
-        probe_stereo = []
-        if to_probe:
-            view.step(f"{len(to_probe)} samples without channel metadata — probing...")
-            print()
-            for info in to_probe:
-                channels, probed_size = client.probe_channels(info.slot)
-                if probed_size:
-                    info.size_bytes = probed_size
-                if channels > 1:
-                    info.channels = 2
-                    probe_stereo.append(info)
-                    print(f"    Slot {info.slot:03d}: {info.name[:30]:<30} stereo detected")
-
-        candidates = meta_stereo + probe_stereo
+        candidates = _optimize_all_scan(sounds, client, min_size, view)
 
         if not candidates:
             view.success("No stereo samples found")
@@ -889,61 +980,9 @@ def cmd_optimize_all(args, view: View):
             view.step("Cancelled")
             return 0
 
-        # Process each sample
         print()
-        optimized = 0
-        total_savings = 0
-
-        for i, info in enumerate(candidates, 1):
-            view.section(f"[{i}/{len(candidates)}] Slot {info.slot}: {info.name}")
-
-            with tempfile.TemporaryDirectory(prefix=f"ko2-slot{info.slot:03d}-") as td:
-                temp_path = Path(td) / f"slot{info.slot:03d}.wav"
-                opt_path = temp_path.with_suffix(".opt.wav")
-
-                # Download
-                try:
-                    client.get(info.slot, temp_path)
-                except EP133Error as e:
-                    view.error(f"Download failed: {e}")
-                    continue
-
-                original_size = temp_path.stat().st_size
-
-                # Backup
-                backup_path = backup_copy(temp_path, slot=info.slot, name_hint=info.name)
-                view.kv("Backup:", str(backup_path))
-
-                # Optimize
-                success, msg, _, opt_size = optimize_sample(temp_path, output_path=opt_path)
-
-                if not success:
-                    view.error(msg)
-                    continue
-
-                if msg == "already optimal":
-                    print(f"  ⊘ Already optimal (channel count confirmed in WAV header)")
-                    continue
-
-                savings = original_size - opt_size
-
-                # Skip if savings too small
-                if savings < 5 * 1024:
-                    print(f"  ⊘ Skipped (savings: {SampleFormat.size(savings)})")
-                    continue
-
-                # Upload
-                try:
-                    client.put(opt_path, info.slot, name=info.name, progress=False)
-                    view.success(f"Saved {SampleFormat.size(savings)} ({savings/original_size*100:.1f}%)")
-                    optimized += 1
-                    total_savings += savings
-                except EP133Error as e:
-                    view.error(f"Upload failed: {e}")
-
-        view.section("=" * 40)
-        print(f"  Optimized: {optimized}/{len(candidates)} samples")
-        print(f"  Total savings: {SampleFormat.size(total_savings)}")
+        optimized, total_savings = _optimize_all_process(candidates, client, view)
+        _optimize_all_report(optimized, len(candidates), total_savings, view)
 
     return 0
 
@@ -1154,6 +1193,19 @@ def cmd_delete(args, view: View):
     return 0
 
 
+def cmd_audition(args, view: View):
+    """Trigger on-device sample preview."""
+    with EP133Client(args.device) as client:
+        try:
+            view.step(f"Auditioning slot {args.slot:03d}")
+            client.audition(args.slot)
+            view.success(f"Auditioning slot {args.slot:03d}")
+        except EP133Error as e:
+            view.error(f"Audition failed: {e}")
+            return 1
+    return 0
+
+
 def cmd_group(args, view: View):
     """Compact samples in range toward one end."""
     start, end = parse_range(args.range)
@@ -1177,6 +1229,65 @@ def cmd_group(args, view: View):
         print(f"  (requires download/re-upload to execute)")
 
     return 0
+
+
+def _squash_scan(sounds: dict, start: int, end: int) -> dict:
+    """Return mapping of old_slot -> new_slot for slots that need to move.
+
+    Slots already at the correct sequential position are excluded.
+    """
+    used_slots = [s for s in sorted(sounds.keys()) if start <= s <= end]
+    mapping = {}
+    target_slot = start
+    for slot in used_slots:
+        if slot != target_slot:
+            mapping[slot] = target_slot
+        target_slot += 1
+    return mapping
+
+
+def _squash_process(
+    mapping: dict, sounds: dict, client, raw: bool, view: View
+) -> None:
+    """Execute each move in mapping: get, backup, delete old, put new.
+
+    On EP133Error mid-move, attempts to restore the old slot before re-raising.
+    """
+    for old_slot, new_slot in mapping.items():
+        try:
+            entry = sounds.get(old_slot)
+            name = _resolve_transfer_name(client, old_slot, entry, raw)
+            with tempfile.TemporaryDirectory(
+                prefix=f"ko2-move{old_slot:03d}-"
+            ) as td:
+                temp_path = Path(td) / f"slot{old_slot:03d}.wav"
+                client.get(old_slot, temp_path)
+                backup_copy(temp_path, slot=old_slot, name_hint=name)
+
+                deleted = False
+                try:
+                    client.delete(old_slot)
+                    deleted = True
+                    client.put(temp_path, new_slot, name=name, progress=False)
+                except EP133Error:
+                    if deleted:
+                        try:
+                            client.put(
+                                temp_path, old_slot, name=name, progress=False
+                            )
+                            view.warn(f"Restored slot {old_slot:03d} after failure")
+                        except Exception:
+                            pass
+                    raise
+            view.step(f"[{old_slot:03d} → {new_slot:03d}] ✓")
+        except EP133Error as e:
+            view.error(f"[{old_slot:03d} → {new_slot:03d}]: {e}")
+
+
+def _squash_report(mapping: dict, view: View) -> None:
+    """Display squash completion summary."""
+    view.success("Squash complete")
+    view.step(f"Freed {len(mapping)} slots")
 
 
 def cmd_squash(args, view: View):
@@ -1216,14 +1327,7 @@ def cmd_squash(args, view: View):
             view.step("No samples found")
             return 0
 
-        # Calculate squash mapping
-        mapping = {}  # old_slot -> new_slot
-        target_slot = start
-
-        for slot in used_slots:
-            if slot != target_slot:
-                mapping[slot] = target_slot
-            target_slot += 1
+        mapping = _squash_scan(sounds, start, end)
 
         if not mapping:
             view.success("Already compacted")
@@ -1264,46 +1368,12 @@ def cmd_squash(args, view: View):
             view.step("Cancelled")
             return 0
 
-        # Execute squash
         print()
         view.section("Executing...")
         print()
 
-        for old_slot, new_slot in mapping.items():
-            try:
-                entry = sounds.get(old_slot)
-                name = _resolve_transfer_name(client, old_slot, entry, raw)
-                with tempfile.TemporaryDirectory(
-                    prefix=f"ko2-move{old_slot:03d}-"
-                ) as td:
-                    temp_path = Path(td) / f"slot{old_slot:03d}.wav"
-                    client.get(old_slot, temp_path)
-                    backup_copy(temp_path, slot=old_slot, name_hint=name)
-
-                    deleted = False
-                    try:
-                        # Delete old slot
-                        client.delete(old_slot)
-                        deleted = True
-
-                        # Upload to new slot
-                        client.put(temp_path, new_slot, name=name, progress=False)
-                    except EP133Error:
-                        if deleted:
-                            try:
-                                client.put(
-                                    temp_path, old_slot, name=name, progress=False
-                                )
-                                view.warn(f"Restored slot {old_slot:03d} after failure")
-                            except Exception:
-                                pass
-                        raise
-                view.step(f"[{old_slot:03d} → {new_slot:03d}] ✓")
-            except EP133Error as e:
-                view.error(f"[{old_slot:03d} → {new_slot:03d}]: {e}")
-
-        view.success("Squash complete")
-        view.step(f"Freed {len(mapping)} slots")
+        _squash_process(mapping, sounds, client, raw, view)
+        _squash_report(mapping, view)
 
     return 0
 
@@ -1623,6 +1693,8 @@ def main():
         "delete": cmd_delete,
         "rm": cmd_delete,  # Alias
         "remove": cmd_delete,
+        "audition": cmd_audition,
+        "play": cmd_audition,  # Alias
         "optimize": cmd_optimize,
         "optimize-all": cmd_optimize_all,
         "group": cmd_group,
