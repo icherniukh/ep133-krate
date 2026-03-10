@@ -109,6 +109,7 @@ class TUIApp(App[None]):
         Binding("l", "toggle_logs", "Logs"),
         Binding("s", "squash", "Squash"),
         Binding("o", "optimize", "Optimize"),
+        Binding("O", "optimize_all", "Optimize All"),
         Binding("backspace", "delete", "Delete"),
         Binding("delete", "delete", "Delete", show=False),
         Binding("j", "cursor_down", "Down", show=False),
@@ -1053,6 +1054,27 @@ class TUIApp(App[None]):
 
     def action_help(self) -> None:
         self.push_screen(HelpModal())
+
+    def action_optimize_all(self) -> None:
+        stereo_slots = [
+            slot
+            for slot, row in self.state.slots.items()
+            if row.exists and row.channels > 1
+        ]
+        n_known = len(stereo_slots)
+        if n_known:
+            msg = f"Optimize all stereo samples? ({n_known} known stereo + any undetected stereo)"
+        else:
+            msg = "Optimize all stereo samples? (will scan all slots for stereo)"
+        self.push_screen(
+            ConfirmModal(msg),
+            callback=self._on_optimize_all_confirm,
+        )
+
+    def _on_optimize_all_confirm(self, confirmed: bool) -> None:
+        if confirmed:
+            self._queue_request(actions.optimize_all())
+
 
     def action_quit(self) -> None:
         self._shutdown_worker()
