@@ -175,6 +175,7 @@ class KO2TUIApp(App[None]):
             request_queue=self._request_queue,
             event_queue=self._event_queue,
             debug_logger=self._debug_logger,
+            waveform_cache_checker=self._has_cached_waveform,
         )
         self._worker.start()
 
@@ -672,6 +673,23 @@ class KO2TUIApp(App[None]):
             self._waveform_by_slot[slot] = cached
             return True
         return False
+
+    def _has_cached_waveform(self, slot: int) -> bool:
+        """Return True if valid waveform bins are already available for *slot*.
+
+        Used as a cache-checker callback by DeviceWorker to skip MIDI traffic
+        during precalc when the cache already holds valid data.
+        """
+        slot = int(slot)
+        if slot in self._waveform_by_slot:
+            bins = self._waveform_by_slot[slot]
+            if WaveformStore.is_valid_bins(bins):
+                return True
+        sig = _waveform_signature(slot, self.state.slots)
+        if sig is None:
+            return False
+        cached = self._waveform_store.get_for_slot(slot, sig)
+        return isinstance(cached, dict) and WaveformStore.is_valid_bins(cached)
 
     def _ensure_waveform(self, slot: int) -> None:
         slot = int(slot)

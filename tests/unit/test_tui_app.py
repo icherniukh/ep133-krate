@@ -9,7 +9,7 @@ from textual.widgets import Checkbox, DataTable, RichLog, Static
 
 
 class StubWorker:
-    def __init__(self, device_name, request_queue, event_queue, client_factory=None, debug_logger=None):
+    def __init__(self, device_name, request_queue, event_queue, client_factory=None, debug_logger=None, waveform_cache_checker=None):
         self.device_name = device_name
         self.request_queue = request_queue
         self.event_queue = event_queue
@@ -894,6 +894,50 @@ def test_waveform_cache_hit_skips_worker_request(monkeypatch):
             assert 1 not in app._waveform_pending
 
     asyncio.run(_run())
+
+
+def test_precalc_cache_hit_skips_midi_download():
+    """When _has_cached_waveform returns True, _maybe_run_waveform_precalc_step
+    must not call _download_slot_wav_bytes (zero MIDI traffic)."""
+    from queue import Queue as _Queue
+    from ko2_tui.worker import DeviceWorker
+
+    download_calls: list[int] = []
+
+    class _FakeClient:
+        pass
+
+    class _Worker(DeviceWorker):
+        def _ensure_client(self):
+            return _FakeClient()
+
+        def _download_slot_wav_bytes(self, client, *, slot, phases):
+            download_calls.append(slot)
+            return None
+
+    event_q: _Queue = _Queue()
+    req_q: _Queue = _Queue()
+
+    # cache_checker returns True for slot 5 (cache hit) and False for slot 7 (cache miss).
+    def _checker(slot: int) -> bool:
+        return slot == 5
+
+    worker = _Worker(
+        device_name=None,
+        request_queue=req_q,
+        event_queue=event_q,
+        waveform_cache_checker=_checker,
+    )
+    # Manually populate the precalc queue with two slots.
+    worker._waveform_precalc_slots = [5, 7]
+
+    # Step 1: slot 5 — cache hit, no download.
+    worker._maybe_run_waveform_precalc_step()
+    assert download_calls == [], "slot 5 is cached: _download_slot_wav_bytes must NOT be called"
+
+    # Step 2: slot 7 — cache miss, download proceeds.
+    worker._maybe_run_waveform_precalc_step()
+    assert download_calls == [7], "slot 7 is not cached: _download_slot_wav_bytes MUST be called"
 
 
 def test_waveform_event_persists_fingerprint_index(monkeypatch):

@@ -35,6 +35,7 @@ class DeviceWorker(threading.Thread):
         event_queue: Queue[WorkerEvent],
         client_factory: Callable[..., EP133Client] = EP133Client,
         debug_logger: DebugLogger | None = None,
+        waveform_cache_checker: Callable[[int], bool] | None = None,
     ):
         super().__init__(daemon=True)
         self.device_name = device_name
@@ -43,6 +44,7 @@ class DeviceWorker(threading.Thread):
         self._client_factory = client_factory
         self._client: EP133Client | None = None
         self._debug_logger = debug_logger
+        self._waveform_cache_checker = waveform_cache_checker
         self._op_samples: dict[str, list[float]] = {}
         self._waveform_precalc_slots: list[int] = []
         self._waveform_precalc_max_load = _env_float("KO2_TUI_WAVEFORM_PRECALC_MAX_LOAD", 0.75)
@@ -545,13 +547,23 @@ class DeviceWorker(threading.Thread):
         if self._load_ratio() > self._waveform_precalc_max_load:
             return
 
+        # Peek at the next slot without popping, so we can check the cache
+        # before opening any MIDI connection.
+        slot = int(self._waveform_precalc_slots[0])
+
+        # Skip MIDI traffic entirely when the app already has valid cached bins.
+        if self._waveform_cache_checker is not None and self._waveform_cache_checker(slot):
+            self._waveform_precalc_slots.pop(0)
+            return
+
+        self._waveform_precalc_slots.pop(0)
+
         try:
             client = self._ensure_client()
         except Exception:
             self._waveform_precalc_slots.clear()
             return
 
-        slot = int(self._waveform_precalc_slots.pop(0))
         phases: dict[str, float] = {}
         self._emit("busy", op="waveform")
         try:
