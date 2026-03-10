@@ -8,6 +8,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, call
 
+import pytest
+
 import ko2
 from ko2_display import View
 from ko2_client import SlotEmptyError, EP133Error
@@ -337,3 +339,78 @@ def test_cmd_optimize_empty_slot(monkeypatch):
     assert rc == 1
     view.error.assert_called_once()
     view.success.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# cmd_get / cmd_delete / cmd_rename / cmd_move / cmd_copy: error paths
+# parametrized across different slot numbers and command functions
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("slot,extra_args", [
+    (1,  {"output": None}),
+    (42, {"output": None}),
+    (99, {"output": None}),
+])
+def test_cmd_get_empty_slot_parametrized(monkeypatch, slot, extra_args):
+    """cmd_get with an empty slot must return rc=1 and call view.error."""
+    client = FakeClient(sounds={})
+    monkeypatch.setattr(ko2, "EP133Client", lambda *a, **k: client)
+
+    view = make_view()
+    rc = ko2.cmd_get(_args(slot=slot, **extra_args), view)
+
+    assert rc == 1
+    view.error.assert_called_once()
+    view.success.assert_not_called()
+
+
+@pytest.mark.parametrize("slot,name", [
+    (99, "x"),
+    (1,  "any name"),
+    (50, "renamed"),
+])
+def test_cmd_rename_empty_slot_parametrized(monkeypatch, slot, name):
+    """cmd_rename with an empty slot must return rc=1 and call view.error."""
+    client = FakeClient(sounds={})
+    monkeypatch.setattr(ko2, "EP133Client", lambda *a, **k: client)
+
+    view = make_view()
+    rc = ko2.cmd_rename(_args(slot=slot, name=name), view)
+
+    assert rc == 1
+    view.error.assert_called_once()
+
+
+@pytest.mark.parametrize("src,dst", [
+    (5,  10),
+    (99, 1),
+    (7,  100),
+])
+def test_cmd_move_empty_source_parametrized(monkeypatch, src, dst):
+    """cmd_move with an empty source slot must return rc=1 and call view.error."""
+    client = FakeClient(sounds={})
+    monkeypatch.setattr(ko2, "EP133Client", lambda *a, **k: client)
+
+    view = make_view()
+    rc = ko2.cmd_move(_args(src=src, dst=dst, raw=True), view)
+
+    assert rc == 1
+    view.error.assert_called_once()
+    view.success.assert_not_called()
+
+
+@pytest.mark.parametrize("src,dst", [
+    (5,  10),
+    (99, 1),
+    (7,  100),
+])
+def test_cmd_copy_empty_source_parametrized(monkeypatch, src, dst):
+    """cmd_copy with an empty source slot must return rc=1 and call view.error."""
+    client = FakeClient(sounds={})
+    monkeypatch.setattr(ko2, "EP133Client", lambda *a, **k: client)
+
+    view = make_view()
+    rc = ko2.cmd_copy(_args(src=src, dst=dst, raw=True), view)
+
+    assert rc == 1
+    view.error.assert_called_once()
