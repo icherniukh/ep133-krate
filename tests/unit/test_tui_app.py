@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 
-from ko2_tui.app import KO2TUIApp, _waveform_signature
+from ko2_tui.app import TUIApp, _waveform_signature
 from ko2_tui.ui import ConfirmModal, OptimizeModal, TextInputModal, UploadModal
 from ko2_tui.worker import WorkerEvent
 from textual.widgets import Checkbox, DataTable, RichLog, Static
@@ -25,13 +25,13 @@ class StubWorker:
         return None
 
 
-def _request_ops(app: KO2TUIApp) -> list[str]:
+def _request_ops(app: TUIApp) -> list[str]:
     worker = app._worker
     assert worker is not None
     return [r.op for r in worker.submitted]
 
 
-def _make_ready(app: KO2TUIApp) -> None:
+def _make_ready(app: TUIApp) -> None:
     app._handle_event(WorkerEvent(kind="idle", payload={"op": "refresh_inventory"}))
     app._handle_event(
         WorkerEvent(
@@ -45,7 +45,7 @@ def test_tui_mount_submits_initial_refresh(monkeypatch):
     monkeypatch.setattr("ko2_tui.app.DeviceWorker", StubWorker)
 
     async def _run():
-        app = KO2TUIApp(device_name="EP-133", debug=False)
+        app = TUIApp(device_name="EP-133", debug=False)
         async with app.run_test() as _pilot:
             ops = _request_ops(app)
             assert ops and ops[0] == "refresh_inventory"
@@ -57,7 +57,7 @@ def test_download_key_opens_modal_and_submits_request(monkeypatch):
     monkeypatch.setattr("ko2_tui.app.DeviceWorker", StubWorker)
 
     async def _run():
-        app = KO2TUIApp(device_name="EP-133", debug=False)
+        app = TUIApp(device_name="EP-133", debug=False)
         async with app.run_test() as pilot:
             _make_ready(app)
 
@@ -77,7 +77,7 @@ def test_upload_key_opens_modal_and_submits_request(monkeypatch):
     monkeypatch.setattr("ko2_tui.app.DeviceWorker", StubWorker)
 
     async def _run():
-        app = KO2TUIApp(device_name="EP-133", debug=False)
+        app = TUIApp(device_name="EP-133", debug=False)
         async with app.run_test() as pilot:
             _make_ready(app)
 
@@ -97,7 +97,7 @@ def test_rename_key_opens_modal_and_submits_request(monkeypatch):
     monkeypatch.setattr("ko2_tui.app.DeviceWorker", StubWorker)
 
     async def _run():
-        app = KO2TUIApp(device_name="EP-133", debug=False)
+        app = TUIApp(device_name="EP-133", debug=False)
         async with app.run_test() as pilot:
             _make_ready(app)
             app._handle_event(
@@ -120,7 +120,7 @@ def test_delete_key_shows_confirm_then_submits(monkeypatch):
     monkeypatch.setattr("ko2_tui.app.DeviceWorker", StubWorker)
 
     async def _run():
-        app = KO2TUIApp(device_name="EP-133", debug=False)
+        app = TUIApp(device_name="EP-133", debug=False)
         async with app.run_test() as pilot:
             _make_ready(app)
 
@@ -140,7 +140,7 @@ def test_delete_confirm_cancel_skips_request(monkeypatch):
     monkeypatch.setattr("ko2_tui.app.DeviceWorker", StubWorker)
 
     async def _run():
-        app = KO2TUIApp(device_name="EP-133", debug=False)
+        app = TUIApp(device_name="EP-133", debug=False)
         async with app.run_test() as pilot:
             _make_ready(app)
 
@@ -160,7 +160,7 @@ def test_requests_are_queued_while_busy(monkeypatch):
     monkeypatch.setattr("ko2_tui.app.DeviceWorker", StubWorker)
 
     async def _run():
-        app = KO2TUIApp(device_name="EP-133", debug=False)
+        app = TUIApp(device_name="EP-133", debug=False)
         async with app.run_test() as pilot:
             _make_ready(app)
             app.state.set_busy(True, "Running refresh_inventory...")
@@ -179,7 +179,7 @@ def test_inventory_enriched_event_updates_name(monkeypatch):
     monkeypatch.setattr("ko2_tui.app.DeviceWorker", StubWorker)
 
     async def _run():
-        app = KO2TUIApp(device_name="EP-133", debug=False)
+        app = TUIApp(device_name="EP-133", debug=False)
         async with app.run_test() as _pilot:
             _make_ready(app)
 
@@ -200,7 +200,7 @@ def test_inventory_refresh_preserves_viewport_scroll(monkeypatch):
     monkeypatch.setattr("ko2_tui.app.DeviceWorker", StubWorker)
 
     async def _run():
-        app = KO2TUIApp(device_name="EP-133", debug=False)
+        app = TUIApp(device_name="EP-133", debug=False)
         async with app.run_test() as pilot:
             _make_ready(app)
             table = app.query_one("#slots", DataTable)
@@ -228,7 +228,7 @@ def test_inventory_event_does_not_full_rebuild(monkeypatch):
     monkeypatch.setattr("ko2_tui.app.DeviceWorker", StubWorker)
 
     async def _run():
-        app = KO2TUIApp(device_name="EP-133", debug=False)
+        app = TUIApp(device_name="EP-133", debug=False)
         async with app.run_test() as _pilot:
             _make_ready(app)
 
@@ -256,7 +256,7 @@ def test_details_event_does_not_full_rebuild(monkeypatch):
     monkeypatch.setattr("ko2_tui.app.DeviceWorker", StubWorker)
 
     async def _run():
-        app = KO2TUIApp(device_name="EP-133", debug=False)
+        app = TUIApp(device_name="EP-133", debug=False)
         async with app.run_test() as _pilot:
             _make_ready(app)
 
@@ -294,7 +294,7 @@ def test_select_key_opens_modal_and_sets_selection(monkeypatch):
     monkeypatch.setattr("ko2_tui.app.DeviceWorker", StubWorker)
 
     async def _run():
-        app = KO2TUIApp(device_name="EP-133", debug=False)
+        app = TUIApp(device_name="EP-133", debug=False)
         async with app.run_test() as pilot:
             _make_ready(app)
 
@@ -313,7 +313,7 @@ def test_select_empty_expression_clears_selection(monkeypatch):
     monkeypatch.setattr("ko2_tui.app.DeviceWorker", StubWorker)
 
     async def _run():
-        app = KO2TUIApp(device_name="EP-133", debug=False)
+        app = TUIApp(device_name="EP-133", debug=False)
         async with app.run_test() as pilot:
             _make_ready(app)
             app.state.selected_slots = {1}
@@ -333,7 +333,7 @@ def test_select_cancel_leaves_selection_unchanged(monkeypatch):
     monkeypatch.setattr("ko2_tui.app.DeviceWorker", StubWorker)
 
     async def _run():
-        app = KO2TUIApp(device_name="EP-133", debug=False)
+        app = TUIApp(device_name="EP-133", debug=False)
         async with app.run_test() as pilot:
             _make_ready(app)
             app.state.selected_slots = {1}
@@ -352,7 +352,7 @@ def test_delete_on_selection_queues_bulk_delete(monkeypatch):
     monkeypatch.setattr("ko2_tui.app.DeviceWorker", StubWorker)
 
     async def _run():
-        app = KO2TUIApp(device_name="EP-133", debug=False)
+        app = TUIApp(device_name="EP-133", debug=False)
         async with app.run_test() as pilot:
             _make_ready(app)
             app.state.selected_slots = {1}
@@ -375,7 +375,7 @@ def test_delete_with_no_selection_uses_single_delete(monkeypatch):
     monkeypatch.setattr("ko2_tui.app.DeviceWorker", StubWorker)
 
     async def _run():
-        app = KO2TUIApp(device_name="EP-133", debug=False)
+        app = TUIApp(device_name="EP-133", debug=False)
         async with app.run_test() as pilot:
             _make_ready(app)
             assert app.state.selected_slots == set()
@@ -394,7 +394,7 @@ def test_delete_with_no_selection_uses_single_delete(monkeypatch):
 
 
 def test_trace_friendly_label_uses_hydrated_name():
-    app = KO2TUIApp(device_name="EP-133", debug=True)
+    app = TUIApp(device_name="EP-133", debug=True)
     app.state.apply_inventory({201: {"name": "201.pcm", "size": 9000, "node_id": 201}})
     app.state.apply_inventory_updates({201: {"name": "nt hh closed b"}})
 
@@ -406,7 +406,7 @@ def test_trace_friendly_label_uses_hydrated_name():
 
 
 def test_trace_event_renders_user_friendly_debug_message():
-    app = KO2TUIApp(device_name="EP-133", debug=True)
+    app = TUIApp(device_name="EP-133", debug=True)
     app.state.apply_inventory({201: {"name": "201.pcm", "size": 9000, "node_id": 201}})
     app.state.apply_inventory_updates({201: {"name": "nt hh closed b"}})
     lines: list[str] = []
@@ -423,7 +423,7 @@ def test_trace_event_renders_user_friendly_debug_message():
 
 
 def test_trace_event_suppresses_chunk_chatter():
-    app = KO2TUIApp(device_name="EP-133", debug=True)
+    app = TUIApp(device_name="EP-133", debug=True)
     lines: list[str] = []
     app._log = lines.append  # type: ignore[method-assign]
 
@@ -441,7 +441,7 @@ def test_slot_refresh_does_not_change_selected_slot(monkeypatch):
     monkeypatch.setattr("ko2_tui.app.DeviceWorker", StubWorker)
 
     async def _run():
-        app = KO2TUIApp(device_name="EP-133", debug=False)
+        app = TUIApp(device_name="EP-133", debug=False)
         async with app.run_test() as _pilot:
             _make_ready(app)
             app.state.selected_slot = 1
@@ -488,7 +488,7 @@ def test_details_event_queues_waveform_request(monkeypatch):
     monkeypatch.setattr("ko2_tui.app.WaveformStore", _EmptyWaveformStore)
 
     async def _run():
-        app = KO2TUIApp(device_name="EP-133", debug=False)
+        app = TUIApp(device_name="EP-133", debug=False)
         async with app.run_test() as _pilot:
             _make_ready(app)
 
@@ -533,7 +533,7 @@ def test_cursor_up_wraps_from_first_to_last_slot(monkeypatch):
     monkeypatch.setattr("ko2_tui.app.DeviceWorker", StubWorker)
 
     async def _run():
-        app = KO2TUIApp(device_name="EP-133", debug=False)
+        app = TUIApp(device_name="EP-133", debug=False)
         async with app.run_test() as pilot:
             _make_ready(app)
             table = app.query_one("#slots", DataTable)
@@ -553,7 +553,7 @@ def test_cursor_down_wraps_from_last_to_first_slot(monkeypatch):
     monkeypatch.setattr("ko2_tui.app.DeviceWorker", StubWorker)
 
     async def _run():
-        app = KO2TUIApp(device_name="EP-133", debug=False)
+        app = TUIApp(device_name="EP-133", debug=False)
         async with app.run_test() as pilot:
             _make_ready(app)
             table = app.query_one("#slots", DataTable)
@@ -573,7 +573,7 @@ def test_cursor_keys_move_one_row_in_middle(monkeypatch):
     monkeypatch.setattr("ko2_tui.app.DeviceWorker", StubWorker)
 
     async def _run():
-        app = KO2TUIApp(device_name="EP-133", debug=False)
+        app = TUIApp(device_name="EP-133", debug=False)
         async with app.run_test() as pilot:
             _make_ready(app)
             table = app.query_one("#slots", DataTable)
@@ -595,7 +595,7 @@ def test_log_view_toggle_hides_and_preserves_lines(monkeypatch):
     monkeypatch.setattr("ko2_tui.app.DeviceWorker", StubWorker)
 
     async def _run():
-        app = KO2TUIApp(device_name="EP-133", debug=False)
+        app = TUIApp(device_name="EP-133", debug=False)
         async with app.run_test() as pilot:
             _make_ready(app)
             logs = app.query_one("#logs", RichLog)
@@ -628,7 +628,7 @@ def test_log_toggle_does_not_break_table_navigation(monkeypatch):
     monkeypatch.setattr("ko2_tui.app.DeviceWorker", StubWorker)
 
     async def _run():
-        app = KO2TUIApp(device_name="EP-133", debug=False)
+        app = TUIApp(device_name="EP-133", debug=False)
         async with app.run_test() as pilot:
             _make_ready(app)
             table = app.query_one("#slots", DataTable)
@@ -650,7 +650,7 @@ def test_enter_key_triggers_details_request(monkeypatch):
     monkeypatch.setattr("ko2_tui.app.DeviceWorker", StubWorker)
 
     async def _run():
-        app = KO2TUIApp(device_name="EP-133", debug=False)
+        app = TUIApp(device_name="EP-133", debug=False)
         async with app.run_test() as pilot:
             _make_ready(app)
             before = list(_request_ops(app))
@@ -669,7 +669,7 @@ def test_enter_drops_in_move_mode(monkeypatch):
     monkeypatch.setattr("ko2_tui.app.DeviceWorker", StubWorker)
 
     async def _run():
-        app = KO2TUIApp(device_name="EP-133", debug=False)
+        app = TUIApp(device_name="EP-133", debug=False)
         async with app.run_test() as pilot:
             _make_ready(app)
             before = list(_request_ops(app))
@@ -692,7 +692,7 @@ def test_space_select_moves_down_only_on_toggle_on(monkeypatch):
     monkeypatch.setattr("ko2_tui.app.DeviceWorker", StubWorker)
 
     async def _run():
-        app = KO2TUIApp(device_name="EP-133", debug=False)
+        app = TUIApp(device_name="EP-133", debug=False)
         async with app.run_test() as pilot:
             _make_ready(app)
             table = app.query_one("#slots", DataTable)
@@ -723,7 +723,7 @@ def test_escape_cancels_move_mode(monkeypatch):
     monkeypatch.setattr("ko2_tui.app.DeviceWorker", StubWorker)
 
     async def _run():
-        app = KO2TUIApp(device_name="EP-133", debug=False)
+        app = TUIApp(device_name="EP-133", debug=False)
         async with app.run_test() as pilot:
             _make_ready(app)
             await pilot.press("m")
@@ -741,7 +741,7 @@ def test_status_shows_busy_and_idle_marker(monkeypatch):
     monkeypatch.setattr("ko2_tui.app.DeviceWorker", StubWorker)
 
     async def _run():
-        app = KO2TUIApp(device_name="EP-133", debug=False)
+        app = TUIApp(device_name="EP-133", debug=False)
         async with app.run_test() as _pilot:
             # Before any device contact: unknown state, no active class.
             app._handle_event(WorkerEvent(kind="idle", payload={"op": "refresh_inventory"}))
@@ -774,7 +774,7 @@ def test_progress_event_updates_status(monkeypatch):
     monkeypatch.setattr("ko2_tui.app.DeviceWorker", StubWorker)
 
     async def _run():
-        app = KO2TUIApp(device_name="EP-133", debug=False)
+        app = TUIApp(device_name="EP-133", debug=False)
         async with app.run_test() as _pilot:
             _make_ready(app)
             app._handle_event(
@@ -798,7 +798,7 @@ def test_dialog_log_file_receives_ui_messages(monkeypatch, tmp_path):
     async def _run():
         dialog_path = tmp_path / "dialog.log"
         debug_path = tmp_path / "debug.jsonl"
-        app = KO2TUIApp(
+        app = TUIApp(
             device_name="EP-133",
             debug=True,
             debug_log=str(debug_path),
@@ -819,7 +819,7 @@ def test_optimize_modal_uses_unstereo_label(monkeypatch):
     monkeypatch.setattr("ko2_tui.app.DeviceWorker", StubWorker)
 
     async def _run():
-        app = KO2TUIApp(device_name="EP-133", debug=False)
+        app = TUIApp(device_name="EP-133", debug=False)
         async with app.run_test() as pilot:
             _make_ready(app)
             await pilot.press("o")
@@ -859,7 +859,7 @@ def test_waveform_cache_hit_skips_worker_request(monkeypatch):
     monkeypatch.setattr("ko2_tui.app.WaveformStore", _FakeWaveformStore)
 
     async def _run():
-        app = KO2TUIApp(device_name="EP-133", debug=False)
+        app = TUIApp(device_name="EP-133", debug=False)
         async with app.run_test() as _pilot:
             _make_ready(app)
             app._handle_event(
@@ -924,7 +924,7 @@ def test_waveform_event_persists_fingerprint_index(monkeypatch):
     monkeypatch.setattr("ko2_tui.app.WaveformStore", _FakeWaveformStore)
 
     async def _run():
-        app = KO2TUIApp(device_name="EP-133", debug=False)
+        app = TUIApp(device_name="EP-133", debug=False)
         async with app.run_test() as _pilot:
             _make_ready(app)
             app._handle_event(

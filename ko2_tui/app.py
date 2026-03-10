@@ -22,7 +22,7 @@ from .ui import ConfirmModal, DetailsWidget, OptimizeModal, TextInputModal, Uplo
 from .worker import DeviceWorker, WorkerEvent
 
 
-class KO2TUIApp(App[None]):
+class TUIApp(App[None]):
     CSS = """
     #main {
         height: 1fr;
