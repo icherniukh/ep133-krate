@@ -11,7 +11,6 @@ Before making any protocol claim, constant reference, or code change touching th
 
 1. Read `PROTOCOL.md` — primary source for all SysEx opcodes, byte formats, slot encoding
 2. Read `docs/PROTOCOL_EVIDENCE.md` — forensic notes, confirmed vs speculative findings
-3. Read `STATUS.md` — current phase status and open questions
 
 **Never guess.** If a value is not in the docs, say "I cannot find this in PROTOCOL.md — please verify."
 For every protocol constant or hardware behavior, cite the exact file and approximate location.
@@ -26,13 +25,13 @@ Do NOT trial-and-error on the device. Unknown behavior means capture first.
 | Question | Source |
 |----------|--------|
 | Protocol opcodes, byte offsets | `PROTOCOL.md` |
-| Phase status, what's done | `STATUS.md` |
+| Phase status, what's done | Beads (`bd list`) |
 | Forensic/capture evidence | `docs/PROTOCOL_EVIDENCE.md` |
 | Slot/node addressing | `ep133-device` skill |
 | Wire format details | `ep133-protocol` skill |
 | TUI threading patterns | `.claude/skills/ko2-tui-threading.md` |
 
-Do NOT infer project status from `git status` or recent file timestamps. Read `STATUS.md` directly.
+Do NOT infer project status from `git status` or recent file timestamps. Use `bd list` (Beads).
 
 ---
 
@@ -56,12 +55,13 @@ When corrected on an approach, fully internalize the correction. Do not revert i
 ## Architecture (post KO2-012 refactor)
 
 - `ko2.py` — CLI, 16 `cmd_*` functions, all take `(args, view: View)`
+- `ko2_parser.py` — argparse setup (`build_parser()`, `validate_slot()`, `parse_range()`); mv/cp/rm use `aliases=[]`
 - `ko2_display.py` — `View` protocol + `TerminalView`/`SilentView`/`JsonView`/`SampleFormat`
 - `ko2_client.py` — `EP133Client` context manager, synchronous/blocking, uses mido
 - `ko2_models.py` — protocol message descriptors
 - `ko2_types.py` — wire-level types and constants
 - `ko2_operations.py` — multi-step transaction operations
-- `ko2_tui/` — Textual TUI (app.py ~1037 lines, ui.py, worker.py, waveform_widget.py, waveform_store.py)
+- `ko2_tui/` — Textual TUI (`TUIApp` in app.py ~1041 lines, ui.py + `HelpModal`, worker.py, waveform_widget.py, waveform_store.py)
 
 **View protocol rule:** All CLI output goes through `view: View`. No bare `print()` in `cmd_*`.
 **TUI threading rule:** `EP133Client` is synchronous. Always `run_worker(fn, thread=True)`.
