@@ -14,30 +14,46 @@ class WaveformWidget(Static):
         self._slot: int | None = None
         self._pending: bool = False
         self._bins: dict[str, Any] | None = None
+        self._cursor: float | None = None
 
     def set_empty(self) -> None:
         self._slot = None
         self._pending = False
         self._bins = None
+        self._cursor = None
         self.refresh()
 
     def set_pending(self, slot: int) -> None:
         self._slot = slot
         self._pending = True
         self._bins = None
+        self._cursor = None
         self.refresh()
 
     def set_not_loaded(self, slot: int) -> None:
         self._slot = slot
         self._pending = False
         self._bins = None
+        self._cursor = None
         self.refresh()
 
     def set_bins(self, slot: int, bins: dict[str, Any]) -> None:
         self._slot = slot
         self._pending = False
         self._bins = bins
+        self._cursor = None
         self.refresh()
+
+    def set_cursor(self, fraction: float) -> None:
+        """Set playback cursor position. fraction in [0.0, 1.0)."""
+        self._cursor = float(fraction)
+        self.refresh()
+
+    def clear_cursor(self) -> None:
+        """Remove playback cursor."""
+        if self._cursor is not None:
+            self._cursor = None
+            self.refresh()
 
     def render(self) -> RenderableType:
         slot = self._slot
@@ -77,12 +93,23 @@ class WaveformWidget(Static):
             width_chars=cols,
             height_chars=rows,
         )
+
+        # cursor column
+        cursor_col: int | None = None
+        if self._cursor is not None:
+            cursor_col = min(int(self._cursor * cols), cols - 1)
+
         text = Text()
         center = (len(art) - 1) / 2.0
         for idx, line in enumerate(art):
             dist = abs(idx - center) / center if center > 0 else 0.0
             color = "#f59e0b" if dist > 0.75 else "#2dd4bf" if dist > 0.4 else "#22d3ee"
-            text.append(line, style=f"bold {color}")
+            if cursor_col is not None and cursor_col < len(line):
+                text.append(line[:cursor_col], style=f"bold {color}")
+                text.append("│", style="bold bright_white")
+                text.append(line[cursor_col + 1:], style=f"bold {color}")
+            else:
+                text.append(line, style=f"bold {color}")
             if idx < len(art) - 1:
                 text.append("\n")
         return Panel(
