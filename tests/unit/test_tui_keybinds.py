@@ -12,6 +12,8 @@ from __future__ import annotations
 
 import asyncio
 
+import pytest
+
 from ko2_tui.app import TUIApp
 from ko2_tui.ui import ConfirmModal, HelpModal, TextInputModal
 from ko2_tui.worker import WorkerEvent
@@ -326,5 +328,36 @@ def test_escape_in_move_mode_cancels_move(monkeypatch):
             await pilot.press("escape")
             await pilot.pause()
             assert app.moving_src is None
+
+    asyncio.run(_run())
+
+
+# ---------------------------------------------------------------------------
+# audition_started event → playback state initialization
+# ---------------------------------------------------------------------------
+
+def test_audition_started_event_initializes_playback_state(monkeypatch):
+    """_handle_event('audition_started') calls _start_playback_animation."""
+    import time
+
+    monkeypatch.setattr("ko2_tui.app.DeviceWorker", StubWorker)
+
+    async def _run():
+        app = TUIApp(device_name="test", debug=False)
+        async with app.run_test() as pilot:
+            _make_ready(app)
+
+            before = time.monotonic()
+            app._handle_event(WorkerEvent(kind="audition_started", payload={"slot": 1, "duration_s": 1.5}))
+            after = time.monotonic()
+            await pilot.pause()
+
+            assert app._play_slot == 1
+            assert app._play_duration == pytest.approx(1.5)
+            assert before <= app._play_start <= after
+
+            # Clean up timer
+            if app._play_timer is not None:
+                app._play_timer.stop()
 
     asyncio.run(_run())

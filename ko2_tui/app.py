@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import time
 from queue import Empty, Queue
 from typing import Any, Iterable, cast
 
@@ -16,6 +17,7 @@ from .dialog_log import DialogLogger
 from .waveform_store import WaveformStore
 from .waveform_widget import WaveformWidget
 from ko2_display import SampleFormat
+from ko2_models import SAMPLE_RATE
 from .selectors import parse_selector
 from .state import SlotRow, TuiState
 from .ui import ConfirmModal, DetailsWidget, HelpModal, OptimizeModal, TextInputModal, UploadModal, table_row_values
@@ -148,6 +150,12 @@ class TUIApp(App[None]):
         self._waveform_store = WaveformStore()
         self._waveform_precalc_active: bool = False
         self._logs_visible: bool = True
+
+        # Playback cursor animation
+        self._play_slot: int | None = None
+        self._play_start: float = 0.0
+        self._play_duration: float = 0.0
+        self._play_timer: Any | None = None
 
     def compose(self) -> ComposeResult:
         with Horizontal(id="main"):
@@ -457,6 +465,13 @@ class TUIApp(App[None]):
                 self._update_waveform(slot)
             return
 
+        if kind == "audition_started":
+            slot = int(payload.get("slot") or 0)
+            duration_s = float(payload.get("duration_s") or 0.0)
+            if slot and duration_s > 0:
+                self._start_playback_animation(slot, duration_s)
+            return
+
         if kind == "success":
             self._device_online = True
             self._log(f"OK: {payload.get('message', '')}")
@@ -726,6 +741,40 @@ class TUIApp(App[None]):
             widget.set_bins(slot, self._waveform_by_slot[slot])
         else:
             widget.set_not_loaded(slot)
+
+    def _start_playback_animation(self, slot: int, duration_s: float) -> None:
+        self._stop_playback_animation()
+        self._play_slot = slot
+        self._play_start = time.monotonic()
+        self._play_duration = duration_s
+        self._play_timer = self.set_interval(1 / 15, self._on_playback_tick)
+
+    def _stop_playback_animation(self) -> None:
+        if self._play_timer is not None:
+            self._play_timer.stop()
+            self._play_timer = None
+        try:
+            widget = self.query_one("#waveform", WaveformWidget)
+            widget.clear_cursor()
+        except Exception:
+            pass
+        self._play_slot = None
+
+    def _on_playback_tick(self) -> None:
+        if self._play_slot is None or self._play_duration <= 0:
+            self._stop_playback_animation()
+            return
+        elapsed = time.monotonic() - self._play_start
+        fraction = elapsed / self._play_duration
+        if fraction >= 1.0:
+            self._stop_playback_animation()
+            return
+        if self._play_slot == self.state.selected_slot:
+            try:
+                widget = self.query_one("#waveform", WaveformWidget)
+                widget.set_cursor(fraction)
+            except Exception:
+                pass
 
     def _with_friendly_trace_name(self, line: str, trace: dict) -> str:
         slot = trace.get("slot")
@@ -997,8 +1046,13 @@ class TUIApp(App[None]):
 
     def action_audition(self) -> None:
         slot = self._current_slot()
-        if self.state.slots[slot].exists:
-            self._queue_request(actions.audition(slot))
+        row = self.state.slots.get(slot)
+        if not row or not row.exists:
+            return
+        sr = row.samplerate or SAMPLE_RATE
+        ch = max(row.channels, 1)
+        duration_s = row.size_bytes / (sr * ch * 2) if row.size_bytes > 0 else 0.0
+        self._queue_request(actions.audition(slot, duration_s=duration_s))
 
     def action_delete(self) -> None:
         if self.state.selected_slots:
