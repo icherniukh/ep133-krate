@@ -54,3 +54,34 @@ def test_set_bins_clears_cursor():
     bins = {"mins": [0] * 10, "maxs": [64] * 10}
     w.set_bins(1, bins)
     assert w._cursor is None
+
+
+def test_set_cursor_clamps_negative():
+    w = _make_widget()
+    w.set_cursor(-0.5)
+    assert w._cursor == 0.0
+
+
+def test_render_with_cursor_inserts_bar():
+    """│ appears at the correct column when cursor is set and bins are loaded."""
+    from rich.text import Text
+    from rich.panel import Panel
+
+    w = _make_widget()
+    bins = {"mins": [-64] * 20, "maxs": [64] * 20}
+    w.set_bins(1, bins)
+    w.set_cursor(0.5)
+
+    result = w.render()
+    # result is a Panel; get its renderable
+    assert isinstance(result, Panel)
+    content = result.renderable
+    assert isinstance(content, Text)
+    full = content.plain
+    # With cols=72 (fallback) and fraction=0.5, cursor_col = min(36, 71) = 36
+    # Each row should have │ at position 36
+    lines = full.split("\n")
+    for line in lines:
+        # Lines may be shorter than 72 due to rstrip — skip short ones
+        if len(line) > 36:
+            assert line[36] == "│", f"Expected │ at col 36, got {line[36]!r} in: {line!r}"

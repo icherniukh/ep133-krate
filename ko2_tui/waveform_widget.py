@@ -46,7 +46,7 @@ class WaveformWidget(Static):
 
     def set_cursor(self, fraction: float) -> None:
         """Set playback cursor position. fraction in [0.0, 1.0)."""
-        self._cursor = float(fraction)
+        self._cursor = max(0.0, float(fraction))
         self.refresh()
 
     def clear_cursor(self) -> None:
