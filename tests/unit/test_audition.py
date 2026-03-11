@@ -176,3 +176,45 @@ def test_cmd_audition_step_called_before_success():
     _rc, view = _run_cmd_audition(slot=8, fake_client=client)
     view.step.assert_called_once()
     assert "008" in view.step.call_args[0][0]
+
+
+# ---------------------------------------------------------------------------
+# Worker audition_started event tests
+# ---------------------------------------------------------------------------
+
+def test_worker_emits_audition_started():
+    """Worker should emit audition_started with slot and duration_s after ACK."""
+    import pytest
+    from ko2_tui.worker import DeviceWorker, WorkerEvent
+    from ko2_tui.actions import WorkerRequest
+    from queue import Queue
+
+    events: list[WorkerEvent] = []
+
+    class FakeAuditionClient:
+        def __enter__(self): return self
+        def __exit__(self, *a): pass
+        def audition(self, slot): pass
+
+    req_q: Queue = Queue()
+    evt_q: Queue = Queue()
+    req_q.put(WorkerRequest(op="audition", payload={"slot": 5, "duration_s": 2.0}))
+    req_q.put(WorkerRequest(op="stop"))
+
+    worker = DeviceWorker(
+        device_name="test",
+        request_queue=req_q,
+        event_queue=evt_q,
+        client_factory=lambda name, **kw: FakeAuditionClient(),
+    )
+    worker.run()
+
+    while not evt_q.empty():
+        events.append(evt_q.get_nowait())
+
+    kinds = [e.kind for e in events]
+    assert "audition_started" in kinds
+
+    ev = next(e for e in events if e.kind == "audition_started")
+    assert ev.payload["slot"] == 5
+    assert ev.payload["duration_s"] == pytest.approx(2.0)

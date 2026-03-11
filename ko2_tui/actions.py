@@ -71,8 +71,8 @@ def waveform(slot: int, width: int = 320, height: int = 24) -> WorkerRequest:
     return WorkerRequest(op="waveform", payload={"slot": int(slot), "width": int(width), "height": int(height)})
 
 
-def audition(slot: int) -> WorkerRequest:
-    return WorkerRequest(op="audition", payload={"slot": int(slot)})
+def audition(slot: int, duration_s: float = 0.0) -> WorkerRequest:
+    return WorkerRequest(op="audition", payload={"slot": int(slot), "duration_s": float(duration_s)})
 
 
 def stop() -> WorkerRequest:
