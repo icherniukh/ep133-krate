@@ -747,7 +747,7 @@ class TUIApp(App[None]):
         self._play_slot = slot
         self._play_start = time.monotonic()
         self._play_duration = duration_s
-        self._play_timer = self.set_interval(1 / 15, self._on_playback_tick)
+        self._play_timer = self.set_interval(1 / 24, self._on_playback_tick)
 
     def _stop_playback_animation(self) -> None:
         if self._play_timer is not None:
