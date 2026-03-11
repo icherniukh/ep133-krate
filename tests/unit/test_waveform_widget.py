@@ -82,6 +82,6 @@ def test_render_with_cursor_inserts_bar():
     # Each row should have │ at position 36
     lines = full.split("\n")
     for line in lines:
-        # Lines may be shorter than 72 due to rstrip — skip short ones
-        if len(line) > 36:
-            assert line[36] == "│", f"Expected │ at col 36, got {line[36]!r} in: {line!r}"
+        # All lines padded to cols when cursor is active — │ present on every row
+        assert len(line) > 36, f"Line too short: {line!r}"
+        assert line[36] == "│", f"Expected │ at col 36, got {line[36]!r} in: {line!r}"

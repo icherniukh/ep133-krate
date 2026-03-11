@@ -104,7 +104,8 @@ class WaveformWidget(Static):
         for idx, line in enumerate(art):
             dist = abs(idx - center) / center if center > 0 else 0.0
             color = "#f59e0b" if dist > 0.75 else "#2dd4bf" if dist > 0.4 else "#22d3ee"
-            if cursor_col is not None and cursor_col < len(line):
+            if cursor_col is not None:
+                line = line.ljust(cols)
                 text.append(line[:cursor_col], style=f"bold {color}")
                 text.append("│", style="bold bright_white")
                 text.append(line[cursor_col + 1:], style=f"bold {color}")
