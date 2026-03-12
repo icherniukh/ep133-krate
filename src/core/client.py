@@ -76,26 +76,7 @@ class SlotEmptyError(EP133Error):
     pass
 
 
-def _detect_channels(data: bytes, sample_check: int = 4000) -> int:
-    """Detect mono vs stereo from raw s16 LE PCM data.
-
-    For stereo interleaved PCM, even-indexed (L) and odd-indexed (R) samples
-    are from independent channels and differ substantially. For mono PCM,
-    adjacent samples are highly correlated (smooth waveform), so |L-R| is
-    small relative to the signal amplitude.
-
-    Returns 2 if mean(|L-R|) / mean(|sample|) > 1.0, else 1.
-    """
-    import struct
-    if len(data) < 8:
-        return 1
-    n = min(len(data) // 2, sample_check)
-    values = struct.unpack(f"<{n}h", data[: n * 2])
-    mean_abs = sum(abs(v) for v in values) / n
-    if mean_abs == 0:
-        return 1
-    mean_lr_diff = sum(abs(values[i] - values[i + 1]) for i in range(0, n - 1, 2)) / (n // 2)
-    return 2 if (mean_lr_diff / mean_abs) > 1.0 else 1
+from .audio import detect_channels as _detect_channels
 
 
 def _parse_json_tolerant(data: bytes) -> dict | None:
