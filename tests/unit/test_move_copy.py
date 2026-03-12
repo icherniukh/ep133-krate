@@ -6,7 +6,6 @@ import cli.cmd_slots
 import cli.cmd_audio
 import cli.cmd_system
 import core.ops
-import cli.helpers
 from ko2_client import EP133Client, SlotEmptyError
 from core.ops import backup_copy, optimize_sample
 from ko2_display import TerminalView

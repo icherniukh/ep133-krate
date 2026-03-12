@@ -8,7 +8,7 @@ from ko2_display import View, SampleFormat
 from ko2_parser import validate_slot
 
 from core.ops import optimize_sample, backup_copy
-from cli.helpers import confirm
+from cli.prompts import confirm
 from ko2_models import SAMPLE_RATE
 
 def cmd_optimize(args, view: View):

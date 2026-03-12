@@ -14,12 +14,14 @@ from core.ops import (
     squash_scan,
     squash_process,
 )
-from cli.helpers import (
-    choose_display_name,
-    empty_sample,
-    parse_page,
-    confirm,
-)
+from ko2_parser import parse_page
+from cli.naming import choose_display_name
+from cli.prompts import confirm
+
+from ko2_client import SampleInfo
+from ko2_models import SAMPLE_RATE
+def empty_sample(slot: int) -> SampleInfo:
+    return SampleInfo(slot=slot, name='...', samplerate=SAMPLE_RATE, channels=0, size_bytes=0)
 
 def _ls_scan_fs(client, start: int, end: int, name_source: str, view: View) -> tuple[list, bool]:
     view.step("Fetching /sounds listing...")

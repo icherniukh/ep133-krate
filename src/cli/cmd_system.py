@@ -5,13 +5,11 @@ from ko2_client import EP133Client
 from ko2_models import MAX_SLOTS, decode_14bit, decode_node_id
 from ko2_display import View, SampleFormat
 from ko2_parser import parse_range
-from cli.helpers import (
-    parse_page,
-    short_text as _short,
-    sanitize_field as _sanitize_field,
-    format_bar as _format_bar,
-    extract_total_memory as _extract_total_memory,
-)
+from ko2_parser import parse_page
+from cli.formatters import short_text as _short
+from cli.formatters import sanitize_field as _sanitize_field
+from cli.formatters import format_bar as _format_bar
+from cli.sysinfo import extract_total_memory as _extract_total_memory
 
 def cmd_status(args, view: View):
     with EP133Client(args.device) as client:

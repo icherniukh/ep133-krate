@@ -42,6 +42,20 @@ def parse_range(arg: str) -> tuple[int, int] | int:
         raise argparse.ArgumentTypeError(f"Invalid range or slot: '{arg}'")
 
 
+def parse_page(arg: str) -> tuple[int, int] | None:
+    """Parse page argument: '1' = slots 1-99, '2' = 100-199, etc."""
+    try:
+        page = int(arg)
+        if not 1 <= page <= 10:
+            return None
+        start = (page - 1) * 100 + 1
+        end = page * 100
+        return start, end
+    except ValueError:
+        return None
+
+
+
 def build_parser() -> argparse.ArgumentParser:
     """Build and return the ko2 CLI argument parser."""
     parser = argparse.ArgumentParser(
