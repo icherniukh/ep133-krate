@@ -1,0 +1,1357 @@
+Last login: Fri Feb 20 17:09:23 on ttys010
+
+ko2-tools on  fix/upload-protocol [!?] via 🐍 v3.12.12
+➜ python midi_sniffer.py
+🎹 Monitoring MIDI traffic on: EP-133
+======================================================================
+💡 Now use the EP Sample Tool to trigger a backup
+   Watch for SysEx messages that might trigger download
+======================================================================
+
+[17:09:38.135] ← IN  SysEx (15 bytes) - Unknown
+           7e 33 06 02 00 20 76 20 00 01 00 00 00 00 00
+           ASCII: ~3... v .......
+
+[17:09:38.196] ← IN  SysEx (160 bytes) - Command 0x21
+           00 20 76 33 40 21 17 01 00 00 70 72 6f 64 75 63 74 00 3a 45 ... (+140 bytes)
+           ASCII: . v3@!....product.:EP-133.;mode:n.ormal;
+
+[17:09:38.257] ← IN  SysEx (15 bytes) - Command 0x21
+           00 20 76 33 40 21 18 05 00 00 0c 00 00 02 00
+           ASCII: . v3@!.........
+
+[17:09:38.304] ← IN  SysEx (372 bytes) - Command 0x2A
+           00 20 76 33 40 2a 00 05 00 00 00 00 00 01 1d 00 00 00 22 74 ... (+352 bytes)
+           ASCII: . v3@*............"t001.p.cm......."J002
+
+[17:09:38.317] ← IN  SysEx (372 bytes) - Command 0x2A
+           00 20 76 33 40 2a 01 05 00 00 00 01 00 1c 1d 00 00 03 09 34 ... (+352 bytes)
+           ASCII: . v3@*.............4028.p.cm.......zZ029
+
+[17:09:38.329] ← IN  SysEx (372 bytes) - Command 0x2A
+           00 20 76 33 40 2a 02 05 00 00 00 02 00 32 1d 00 04 01 78 1c ... (+352 bytes)
+           ASCII: . v3@*.......2....x.050.p.cm..3....x.051
+
+[17:09:38.342] ← IN  SysEx (372 bytes) - Command 0x2A
+           00 20 76 33 40 2a 03 05 00 00 00 03 00 47 1d 00 02 01 31 10 ... (+352 bytes)
+           ASCII: . v3@*.......G....1.071.p.cm..H....=.072
+
+[17:09:38.355] ← IN  SysEx (372 bytes) - Command 0x2A
+           00 20 76 33 40 2a 04 05 00 00 00 04 00 5e 1d 00 03 03 28 4e ... (+352 bytes)
+           ASCII: . v3@*.......^....(N094.p.cm.._.....N095
+
+[17:09:38.368] ← IN  SysEx (372 bytes) - Command 0x2A
+           00 20 76 33 40 2a 05 05 00 00 00 05 00 74 1d 00 00 00 3c 2e ... (+352 bytes)
+           ASCII: . v3@*.......t....<.116.p.cm..u....0(117
+
+[17:09:38.378] ← IN  SysEx (372 bytes) - Command 0x2A
+           00 20 76 33 40 2a 06 05 00 08 00 06 00 09 1d 00 00 00 2e 4c ... (+352 bytes)
+           ASCII: . v3@*.............L137.p.cm.......3.138
+
+[17:09:38.390] ← IN  SysEx (372 bytes) - Command 0x2A
+           00 20 76 33 40 2a 07 05 00 08 00 07 00 59 1d 00 00 01 00 1c ... (+352 bytes)
+           ASCII: . v3@*.......Y......217.p.cm..Z....X.218
+
+[17:09:38.403] ← IN  SysEx (372 bytes) - Command 0x2A
+           00 20 76 33 40 2a 08 05 00 08 00 08 00 70 1d 00 02 03 16 6e ... (+352 bytes)
+           ASCII: . v3@*.......p.....n240.p.cm..q....er241
+
+[17:09:38.416] ← IN  SysEx (372 bytes) - Command 0x2A
+           00 20 76 33 40 2a 09 05 00 00 00 09 01 37 1d 00 00 00 68 26 ... (+352 bytes)
+           ASCII: . v3@*.......7....h&311.p.cm..8.....h312
+
+[17:09:38.429] ← IN  SysEx (372 bytes) - Command 0x2A
+           00 20 76 33 40 2a 0a 05 00 00 00 0a 01 55 1d 00 00 03 00 6c ... (+352 bytes)
+           ASCII: . v3@*.......U.....l341.p.cm..W....R"343
+
+[17:09:38.440] ← IN  SysEx (372 bytes) - Command 0x2A
+           00 20 76 33 40 2a 0b 05 00 08 00 0b 01 17 1d 00 02 03 41 4e ... (+352 bytes)
+           ASCII: . v3@*............AN407.p.cm.........408
+
+[17:09:38.452] ← IN  SysEx (372 bytes) - Command 0x2A
+           00 20 76 33 40 2a 0c 05 00 08 00 0c 01 2c 1d 00 00 01 0f 2e ... (+352 bytes)
+           ASCII: . v3@*.......,......428.p.cm..-.....l429
+
+[17:09:38.465] ← IN  SysEx (372 bytes) - Command 0x2A
+           00 20 76 33 40 2a 0d 05 00 08 00 0d 01 41 1d 00 02 00 7c 32 ... (+352 bytes)
+           ASCII: . v3@*.......A....|2449.p.cm..B....BL450
+
+[17:09:38.477] ← IN  SysEx (372 bytes) - Command 0x2A
+           00 20 76 33 40 2a 0e 05 00 08 00 0e 01 7f 1d 00 00 02 66 0a ... (+352 bytes)
+           ASCII: . v3@*............f.511.p.cm.......$L512
+
+[17:09:38.490] ← IN  SysEx (372 bytes) - Command 0x2A
+           00 20 76 33 40 2a 0f 05 00 00 00 0f 02 15 1d 00 0c 00 28 40 ... (+352 bytes)
+           ASCII: . v3@*............(@533.p.cm.......e@534
+
+[17:09:38.501] ← IN  SysEx (372 bytes) - Command 0x2A
+           00 20 76 33 40 2a 10 05 00 00 00 10 02 32 1d 00 02 00 4f 00 ... (+352 bytes)
+           ASCII: . v3@*.......2....O.562.p.cm..3....+.563
+
+[17:09:38.514] ← IN  SysEx (372 bytes) - Command 0x2A
+           00 20 76 33 40 2a 11 05 00 08 00 11 02 5a 1d 00 01 00 48 4e ... (+352 bytes)
+           ASCII: . v3@*.......Z....HN730.p.cm..[....}N731
+
+[17:09:38.525] ← IN  SysEx (46 bytes) - Command 0x2A
+           00 20 76 33 40 2a 12 05 00 08 00 12 03 66 1d 00 00 02 07 56 ... (+26 bytes)
+           ASCII: . v3@*.......f.....V998.p.cm..g.....P999
+
+[17:09:38.537] ← IN  SysEx (12 bytes) - Command 0x2A
+           00 20 76 33 40 2a 13 05 00 00 00 13
+           ASCII: . v3@*......
+
+[17:09:38.562] ← IN  SysEx (377 bytes) - Command 0x2A
+           00 20 76 33 40 2a 14 05 00 00 00 00 7b 22 63 68 61 00 6e 6e ... (+357 bytes)
+           ASCII: . v3@*......{"cha.nnels":.1,"samp.lerate
+
+[17:09:38.563] ← IN  SysEx (14 bytes) - Command 0x2A
+           00 20 76 33 40 2a 15 05 00 00 00 01 7d 00
+           ASCII: . v3@*......}.
+
+[17:09:38.575] ← IN  SysEx (12 bytes) - Command 0x2A
+           00 20 76 33 40 2a 16 05 00 00 00 02
+           ASCII: . v3@*......
+
+[17:09:38.601] ← IN  SysEx (377 bytes) - Command 0x35
+           00 20 76 33 40 35 01 05 00 00 00 00 7b 22 63 68 61 00 6e 6e ... (+357 bytes)
+           ASCII: . v3@5......{"cha.nnels":.2,"samp.lerate
+
+[17:09:38.798] ← IN  SysEx (372 bytes) - Command 0x2A
+           00 20 76 33 40 2a 17 05 00 00 00 00 00 01 1d 00 00 00 22 74 ... (+352 bytes)
+           ASCII: . v3@*............"t001.p.cm......."J002
+
+[17:09:38.809] ← IN  SysEx (372 bytes) - Command 0x2A
+           00 20 76 33 40 2a 18 05 00 00 00 01 00 1c 1d 00 00 03 09 34 ... (+352 bytes)
+           ASCII: . v3@*.............4028.p.cm.......zZ029
+
+[17:09:38.820] ← IN  SysEx (372 bytes) - Command 0x2A
+           00 20 76 33 40 2a 19 05 00 00 00 02 00 32 1d 00 04 01 78 1c ... (+352 bytes)
+           ASCII: . v3@*.......2....x.050.p.cm..3....x.051
+
+[17:09:38.833] ← IN  SysEx (372 bytes) - Command 0x2A
+           00 20 76 33 40 2a 1a 05 00 00 00 03 00 47 1d 00 02 01 31 10 ... (+352 bytes)
+           ASCII: . v3@*.......G....1.071.p.cm..H....=.072
+
+[17:09:38.846] ← IN  SysEx (372 bytes) - Command 0x2A
+           00 20 76 33 40 2a 1b 05 00 00 00 04 00 5e 1d 00 03 03 28 4e ... (+352 bytes)
+           ASCII: . v3@*.......^....(N094.p.cm.._.....N095
+
+[17:09:38.857] ← IN  SysEx (372 bytes) - Command 0x2A
+           00 20 76 33 40 2a 1c 05 00 00 00 05 00 74 1d 00 00 00 3c 2e ... (+352 bytes)
+           ASCII: . v3@*.......t....<.116.p.cm..u....0(117
+
+[17:09:38.869] ← IN  SysEx (372 bytes) - Command 0x2A
+           00 20 76 33 40 2a 1d 05 00 08 00 06 00 09 1d 00 00 00 2e 4c ... (+352 bytes)
+           ASCII: . v3@*.............L137.p.cm.......3.138
+
+[17:09:38.870] ← IN  SysEx (372 bytes) - Command 0x2A
+           00 20 76 33 40 2a 1e 05 00 08 00 07 00 59 1d 00 00 01 00 1c ... (+352 bytes)
+           ASCII: . v3@*.......Y......217.p.cm..Z....X.218
+
+[17:09:38.892] ← IN  SysEx (372 bytes) - Command 0x2A
+           00 20 76 33 40 2a 1f 05 00 08 00 08 00 70 1d 00 02 03 16 6e ... (+352 bytes)
+           ASCII: . v3@*.......p.....n240.p.cm..q....er241
+
+[17:09:38.903] ← IN  SysEx (372 bytes) - Command 0x2A
+           00 20 76 33 40 2a 20 05 00 00 00 09 01 37 1d 00 00 00 68 26 ... (+352 bytes)
+           ASCII: . v3@* ......7....h&311.p.cm..8.....h312
+
+[17:09:38.913] ← IN  SysEx (372 bytes) - Command 0x2A
+           00 20 76 33 40 2a 21 05 00 00 00 0a 01 55 1d 00 00 03 00 6c ... (+352 bytes)
+           ASCII: . v3@*!......U.....l341.p.cm..W....R"343
+
+[17:09:38.926] ← IN  SysEx (372 bytes) - Command 0x2A
+           00 20 76 33 40 2a 22 05 00 08 00 0b 01 17 1d 00 02 03 41 4e ... (+352 bytes)
+           ASCII: . v3@*"...........AN407.p.cm.........408
+
+[17:09:38.939] ← IN  SysEx (372 bytes) - Command 0x2A
+           00 20 76 33 40 2a 23 05 00 08 00 0c 01 2c 1d 00 00 01 0f 2e ... (+352 bytes)
+           ASCII: . v3@*#......,......428.p.cm..-.....l429
+
+[17:09:38.951] ← IN  SysEx (372 bytes) - Command 0x2A
+           00 20 76 33 40 2a 24 05 00 08 00 0d 01 41 1d 00 02 00 7c 32 ... (+352 bytes)
+           ASCII: . v3@*$......A....|2449.p.cm..B....BL450
+
+[17:09:38.964] ← IN  SysEx (372 bytes) - Command 0x2A
+           00 20 76 33 40 2a 25 05 00 08 00 0e 01 7f 1d 00 00 02 66 0a ... (+352 bytes)
+           ASCII: . v3@*%...........f.511.p.cm.......$L512
+
+[17:09:38.977] ← IN  SysEx (372 bytes) - Command 0x2A
+           00 20 76 33 40 2a 26 05 00 00 00 0f 02 15 1d 00 0c 00 28 40 ... (+352 bytes)
+           ASCII: . v3@*&...........(@533.p.cm.......e@534
+
+[17:09:38.990] ← IN  SysEx (372 bytes) - Command 0x2A
+           00 20 76 33 40 2a 27 05 00 00 00 10 02 32 1d 00 02 00 4f 00 ... (+352 bytes)
+           ASCII: . v3@*'......2....O.562.p.cm..3....+.563
+
+[17:09:39.002] ← IN  SysEx (372 bytes) - Command 0x2A
+           00 20 76 33 40 2a 28 05 00 08 00 11 02 5a 1d 00 01 00 48 4e ... (+352 bytes)
+           ASCII: . v3@*(......Z....HN730.p.cm..[....}N731
+
+[17:09:39.015] ← IN  SysEx (46 bytes) - Command 0x2A
+           00 20 76 33 40 2a 29 05 00 08 00 12 03 66 1d 00 00 02 07 56 ... (+26 bytes)
+           ASCII: . v3@*)......f.....V998.p.cm..g.....P999
+
+[17:09:39.027] ← IN  SysEx (12 bytes) - Command 0x2A
+           00 20 76 33 40 2a 2a 05 00 00 00 13
+           ASCII: . v3@**.....
+
+[17:09:39.040] ← IN  SysEx (377 bytes) - Command 0x2A
+           00 20 76 33 40 2a 2b 05 00 00 00 00 7b 22 63 68 61 00 6e 6e ... (+357 bytes)
+           ASCII: . v3@*+.....{"cha.nnels":.1,"samp.lerate
+
+[17:09:39.051] ← IN  SysEx (14 bytes) - Command 0x2A
+           00 20 76 33 40 2a 2c 05 00 00 00 01 7d 00
+           ASCII: . v3@*,.....}.
+
+[17:09:39.063] ← IN  SysEx (12 bytes) - Command 0x2A
+           00 20 76 33 40 2a 2d 05 00 00 00 02
+           ASCII: . v3@*-.....
+
+[17:09:43.603] ← IN  SysEx (15 bytes) - Unknown
+           7e 33 06 02 00 20 76 20 00 01 00 00 00 00 00
+           ASCII: ~3... v .......
+
+[17:09:43.665] ← IN  SysEx (160 bytes) - Command 0x21
+           00 20 76 33 40 21 17 01 00 00 70 72 6f 64 75 63 74 00 3a 45 ... (+140 bytes)
+           ASCII: . v3@!....product.:EP-133.;mode:n.ormal;
+
+[17:09:43.725] ← IN  SysEx (15 bytes) - Command 0x21
+           00 20 76 33 40 21 18 05 00 00 0c 00 00 02 00
+           ASCII: . v3@!.........
+
+[17:09:43.775] ← IN  SysEx (372 bytes) - Command 0x2A
+           00 20 76 33 40 2a 00 05 00 00 00 00 00 01 1d 00 00 00 22 74 ... (+352 bytes)
+           ASCII: . v3@*............"t001.p.cm......."J002
+
+[17:09:43.788] ← IN  SysEx (372 bytes) - Command 0x2A
+           00 20 76 33 40 2a 01 05 00 00 00 01 00 1c 1d 00 00 03 09 34 ... (+352 bytes)
+           ASCII: . v3@*.............4028.p.cm.......zZ029
+
+[17:09:43.800] ← IN  SysEx (372 bytes) - Command 0x2A
+           00 20 76 33 40 2a 02 05 00 00 00 02 00 32 1d 00 04 01 78 1c ... (+352 bytes)
+           ASCII: . v3@*.......2....x.050.p.cm..3....x.051
+
+[17:09:43.813] ← IN  SysEx (372 bytes) - Command 0x2A
+           00 20 76 33 40 2a 03 05 00 00 00 03 00 47 1d 00 02 01 31 10 ... (+352 bytes)
+           ASCII: . v3@*.......G....1.071.p.cm..H....=.072
+
+[17:09:43.825] ← IN  SysEx (372 bytes) - Command 0x2A
+           00 20 76 33 40 2a 04 05 00 00 00 04 00 5e 1d 00 03 03 28 4e ... (+352 bytes)
+           ASCII: . v3@*.......^....(N094.p.cm.._.....N095
+
+[17:09:43.838] ← IN  SysEx (372 bytes) - Command 0x2A
+           00 20 76 33 40 2a 05 05 00 00 00 05 00 74 1d 00 00 00 3c 2e ... (+352 bytes)
+           ASCII: . v3@*.......t....<.116.p.cm..u....0(117
+
+[17:09:43.849] ← IN  SysEx (372 bytes) - Command 0x2A
+           00 20 76 33 40 2a 06 05 00 08 00 06 00 09 1d 00 00 00 2e 4c ... (+352 bytes)
+           ASCII: . v3@*.............L137.p.cm.......3.138
+
+[17:09:43.862] ← IN  SysEx (372 bytes) - Command 0x2A
+           00 20 76 33 40 2a 07 05 00 08 00 07 00 59 1d 00 00 01 00 1c ... (+352 bytes)
+           ASCII: . v3@*.......Y......217.p.cm..Z....X.218
+
+[17:09:43.873] ← IN  SysEx (372 bytes) - Command 0x2A
+           00 20 76 33 40 2a 08 05 00 08 00 08 00 70 1d 00 02 03 16 6e ... (+352 bytes)
+           ASCII: . v3@*.......p.....n240.p.cm..q....er241
+
+[17:09:43.885] ← IN  SysEx (372 bytes) - Command 0x2A
+           00 20 76 33 40 2a 09 05 00 00 00 09 01 37 1d 00 00 00 68 26 ... (+352 bytes)
+           ASCII: . v3@*.......7....h&311.p.cm..8.....h312
+
+[17:09:43.898] ← IN  SysEx (372 bytes) - Command 0x2A
+           00 20 76 33 40 2a 0a 05 00 00 00 0a 01 55 1d 00 00 03 00 6c ... (+352 bytes)
+           ASCII: . v3@*.......U.....l341.p.cm..W....R"343
+
+[17:09:43.911] ← IN  SysEx (372 bytes) - Command 0x2A
+           00 20 76 33 40 2a 0b 05 00 08 00 0b 01 17 1d 00 02 03 41 4e ... (+352 bytes)
+           ASCII: . v3@*............AN407.p.cm.........408
+
+[17:09:43.921] ← IN  SysEx (372 bytes) - Command 0x2A
+           00 20 76 33 40 2a 0c 05 00 08 00 0c 01 2c 1d 00 00 01 0f 2e ... (+352 bytes)
+           ASCII: . v3@*.......,......428.p.cm..-.....l429
+
+[17:09:43.932] ← IN  SysEx (372 bytes) - Command 0x2A
+           00 20 76 33 40 2a 0d 05 00 08 00 0d 01 41 1d 00 02 00 7c 32 ... (+352 bytes)
+           ASCII: . v3@*.......A....|2449.p.cm..B....BL450
+
+[17:09:43.944] ← IN  SysEx (372 bytes) - Command 0x2A
+           00 20 76 33 40 2a 0e 05 00 08 00 0e 01 7f 1d 00 00 02 66 0a ... (+352 bytes)
+           ASCII: . v3@*............f.511.p.cm.......$L512
+
+[17:09:43.957] ← IN  SysEx (372 bytes) - Command 0x2A
+           00 20 76 33 40 2a 0f 05 00 00 00 0f 02 15 1d 00 0c 00 28 40 ... (+352 bytes)
+           ASCII: . v3@*............(@533.p.cm.......e@534
+
+[17:09:43.969] ← IN  SysEx (372 bytes) - Command 0x2A
+           00 20 76 33 40 2a 10 05 00 00 00 10 02 32 1d 00 02 00 4f 00 ... (+352 bytes)
+           ASCII: . v3@*.......2....O.562.p.cm..3....+.563
+
+[17:09:43.982] ← IN  SysEx (372 bytes) - Command 0x2A
+           00 20 76 33 40 2a 11 05 00 08 00 11 02 5a 1d 00 01 00 48 4e ... (+352 bytes)
+           ASCII: . v3@*.......Z....HN730.p.cm..[....}N731
+
+[17:09:43.994] ← IN  SysEx (46 bytes) - Command 0x2A
+           00 20 76 33 40 2a 12 05 00 08 00 12 03 66 1d 00 00 02 07 56 ... (+26 bytes)
+           ASCII: . v3@*.......f.....V998.p.cm..g.....P999
+
+[17:09:44.007] ← IN  SysEx (12 bytes) - Command 0x2A
+           00 20 76 33 40 2a 13 05 00 00 00 13
+           ASCII: . v3@*......
+
+[17:09:44.032] ← IN  SysEx (377 bytes) - Command 0x2A
+           00 20 76 33 40 2a 14 05 00 00 00 00 7b 22 63 68 61 00 6e 6e ... (+357 bytes)
+           ASCII: . v3@*......{"cha.nnels":.1,"samp.lerate
+
+[17:09:44.032] ← IN  SysEx (14 bytes) - Command 0x2A
+           00 20 76 33 40 2a 15 05 00 00 00 01 7d 00
+           ASCII: . v3@*......}.
+
+[17:09:44.045] ← IN  SysEx (12 bytes) - Command 0x2A
+           00 20 76 33 40 2a 16 05 00 00 00 02
+           ASCII: . v3@*......
+
+[17:09:44.056] ← IN  SysEx (377 bytes) - Command 0x2A
+           00 20 76 33 40 2a 17 05 00 00 00 00 7b 22 63 68 61 00 6e 6e ... (+357 bytes)
+           ASCII: . v3@*......{"cha.nnels":.1,"samp.lerate
+
+[17:09:44.069] ← IN  SysEx (16 bytes) - Command 0x2A
+           00 20 76 33 40 2a 18 05 00 00 00 01 35 35 7d 00
+           ASCII: . v3@*......55}.
+
+[17:09:44.081] ← IN  SysEx (12 bytes) - Command 0x2A
+           00 20 76 33 40 2a 19 05 00 00 00 02
+           ASCII: . v3@*......
+
+[17:09:44.103] ← IN  SysEx (377 bytes) - Command 0x2A
+           00 20 76 33 40 2a 1a 05 00 00 00 00 7b 22 63 68 61 00 6e 6e ... (+357 bytes)
+           ASCII: . v3@*......{"cha.nnels":.1,"samp.lerate
+
+[17:09:44.103] ← IN  SysEx (14 bytes) - Command 0x2A
+           00 20 76 33 40 2a 1b 05 00 00 00 01 7d 00
+           ASCII: . v3@*......}.
+
+[17:09:44.116] ← IN  SysEx (12 bytes) - Command 0x2A
+           00 20 76 33 40 2a 1c 05 00 00 00 02
+           ASCII: . v3@*......
+
+[17:09:44.141] ← IN  SysEx (377 bytes) - Command 0x2A
+           00 20 76 33 40 2a 1d 05 00 00 00 00 7b 22 63 68 61 00 6e 6e ... (+357 bytes)
+           ASCII: . v3@*......{"cha.nnels":.1,"samp.lerate
+
+[17:09:44.141] ← IN  SysEx (16 bytes) - Command 0x2A
+           00 20 76 33 40 2a 1e 05 00 00 00 01 35 35 7d 00
+           ASCII: . v3@*......55}.
+
+[17:09:44.152] ← IN  SysEx (12 bytes) - Command 0x2A
+           00 20 76 33 40 2a 1f 05 00 00 00 02
+           ASCII: . v3@*......
+
+[17:09:44.177] ← IN  SysEx (377 bytes) - Command 0x2A
+           00 20 76 33 40 2a 20 05 00 00 00 00 7b 22 63 68 61 00 6e 6e ... (+357 bytes)
+           ASCII: . v3@* .....{"cha.nnels":.1,"samp.lerate
+
+[17:09:44.177] ← IN  SysEx (16 bytes) - Command 0x2A
+           00 20 76 33 40 2a 21 05 00 00 00 01 35 35 7d 00
+           ASCII: . v3@*!.....55}.
+
+[17:09:44.190] ← IN  SysEx (12 bytes) - Command 0x2A
+           00 20 76 33 40 2a 22 05 00 00 00 02
+           ASCII: . v3@*".....
+
+[17:09:44.215] ← IN  SysEx (377 bytes) - Command 0x2A
+           00 20 76 33 40 2a 23 05 00 00 00 00 7b 22 63 68 61 00 6e 6e ... (+357 bytes)
+           ASCII: . v3@*#.....{"cha.nnels":.1,"samp.lerate
+
+[17:09:44.215] ← IN  SysEx (16 bytes) - Command 0x2A
+           00 20 76 33 40 2a 24 05 00 00 00 01 35 35 7d 00
+           ASCII: . v3@*$.....55}.
+
+[17:09:44.227] ← IN  SysEx (12 bytes) - Command 0x2A
+           00 20 76 33 40 2a 25 05 00 00 00 02
+           ASCII: . v3@*%.....
+
+[17:09:44.252] ← IN  SysEx (377 bytes) - Command 0x2A
+           00 20 76 33 40 2a 26 05 00 00 00 00 7b 22 63 68 61 00 6e 6e ... (+357 bytes)
+           ASCII: . v3@*&.....{"cha.nnels":.1,"samp.lerate
+
+[17:09:44.252] ← IN  SysEx (15 bytes) - Command 0x2A
+           00 20 76 33 40 2a 27 05 00 00 00 01 35 7d 00
+           ASCII: . v3@*'.....5}.
+
+[17:09:44.264] ← IN  SysEx (12 bytes) - Command 0x2A
+           00 20 76 33 40 2a 28 05 00 00 00 02
+           ASCII: . v3@*(.....
+
+[17:09:44.289] ← IN  SysEx (377 bytes) - Command 0x2A
+           00 20 76 33 40 2a 29 05 00 00 00 00 7b 22 63 68 61 00 6e 6e ... (+357 bytes)
+           ASCII: . v3@*).....{"cha.nnels":.1,"samp.lerate
+
+[17:09:44.289] ← IN  SysEx (15 bytes) - Command 0x2A
+           00 20 76 33 40 2a 2a 05 00 00 00 01 35 7d 00
+           ASCII: . v3@**.....5}.
+
+[17:09:44.301] ← IN  SysEx (12 bytes) - Command 0x2A
+           00 20 76 33 40 2a 2b 05 00 00 00 02
+           ASCII: . v3@*+.....
+
+[17:09:44.327] ← IN  SysEx (377 bytes) - Command 0x2A
+           00 20 76 33 40 2a 2c 05 00 00 00 00 7b 22 63 68 61 00 6e 6e ... (+357 bytes)
+           ASCII: . v3@*,.....{"cha.nnels":.1,"samp.lerate
+
+[17:09:44.327] ← IN  SysEx (14 bytes) - Command 0x2A
+           00 20 76 33 40 2a 2d 05 00 00 00 01 7d 00
+           ASCII: . v3@*-.....}.
+
+[17:09:44.340] ← IN  SysEx (12 bytes) - Command 0x2A
+           00 20 76 33 40 2a 2e 05 00 00 00 02
+           ASCII: . v3@*......
+
+[17:09:44.362] ← IN  SysEx (377 bytes) - Command 0x2A
+           00 20 76 33 40 2a 2f 05 00 00 00 00 7b 22 63 68 61 00 6e 6e ... (+357 bytes)
+           ASCII: . v3@*/.....{"cha.nnels":.1,"samp.lerate
+
+[17:09:44.362] ← IN  SysEx (15 bytes) - Command 0x2A
+           00 20 76 33 40 2a 30 05 00 00 00 01 35 7d 00
+           ASCII: . v3@*0.....5}.
+
+[17:09:44.375] ← IN  SysEx (12 bytes) - Command 0x2A
+           00 20 76 33 40 2a 31 05 00 00 00 02
+           ASCII: . v3@*1.....
+
+[17:09:44.400] ← IN  SysEx (377 bytes) - Command 0x2A
+           00 20 76 33 40 2a 32 05 00 00 00 00 7b 22 63 68 61 00 6e 6e ... (+357 bytes)
+           ASCII: . v3@*2.....{"cha.nnels":.1,"samp.lerate
+
+[17:09:44.400] ← IN  SysEx (22 bytes) - Command 0x2A
+           00 20 76 33 40 2a 33 05 00 00 00 01 73 65 22 3a 32 00 35 35 ... (+2 bytes)
+           ASCII: . v3@*3.....se":2.55}.
+
+[17:09:44.413] ← IN  SysEx (12 bytes) - Command 0x2A
+           00 20 76 33 40 2a 34 05 00 00 00 02
+           ASCII: . v3@*4.....
+
+[17:09:44.435] ← IN  SysEx (377 bytes) - Command 0x2A
+           00 20 76 33 40 2a 35 05 00 00 00 00 7b 22 63 68 61 00 6e 6e ... (+357 bytes)
+           ASCII: . v3@*5.....{"cha.nnels":.1,"samp.lerate
+
+[17:09:44.446] ← IN  SysEx (22 bytes) - Command 0x2A
+           00 20 76 33 40 2a 36 05 00 00 00 01 73 65 22 3a 32 00 35 35 ... (+2 bytes)
+           ASCII: . v3@*6.....se":2.55}.
+
+[17:09:44.457] ← IN  SysEx (12 bytes) - Command 0x2A
+           00 20 76 33 40 2a 37 05 00 00 00 02
+           ASCII: . v3@*7.....
+
+[17:09:44.469] ← IN  SysEx (377 bytes) - Command 0x2A
+           00 20 76 33 40 2a 38 05 00 00 00 00 7b 22 63 68 61 00 6e 6e ... (+357 bytes)
+           ASCII: . v3@*8.....{"cha.nnels":.1,"samp.lerate
+
+[17:09:44.482] ← IN  SysEx (22 bytes) - Command 0x2A
+           00 20 76 33 40 2a 39 05 00 00 00 01 73 65 22 3a 32 00 35 35 ... (+2 bytes)
+           ASCII: . v3@*9.....se":2.55}.
+
+[17:09:44.493] ← IN  SysEx (12 bytes) - Command 0x2A
+           00 20 76 33 40 2a 3a 05 00 00 00 02
+           ASCII: . v3@*:.....
+
+[17:09:44.506] ← IN  SysEx (377 bytes) - Command 0x2A
+           00 20 76 33 40 2a 3b 05 00 00 00 00 7b 22 63 68 61 00 6e 6e ... (+357 bytes)
+           ASCII: . v3@*;.....{"cha.nnels":.1,"samp.lerate
+
+[17:09:44.517] ← IN  SysEx (22 bytes) - Command 0x2A
+           00 20 76 33 40 2a 3c 05 00 00 00 01 73 65 22 3a 32 00 35 35 ... (+2 bytes)
+           ASCII: . v3@*<.....se":2.55}.
+
+[17:09:44.529] ← IN  SysEx (12 bytes) - Command 0x2A
+           00 20 76 33 40 2a 3d 05 00 00 00 02
+           ASCII: . v3@*=.....
+
+[17:09:44.542] ← IN  SysEx (377 bytes) - Command 0x2A
+           00 20 76 33 40 2a 3e 05 00 00 00 00 7b 22 63 68 61 00 6e 6e ... (+357 bytes)
+           ASCII: . v3@*>.....{"cha.nnels":.1,"samp.lerate
+
+[17:09:44.555] ← IN  SysEx (15 bytes) - Command 0x2A
+           00 20 76 33 40 2a 3f 05 00 00 00 01 35 7d 00
+           ASCII: . v3@*?.....5}.
+
+[17:09:44.568] ← IN  SysEx (12 bytes) - Command 0x2A
+           00 20 76 33 40 2a 40 05 00 00 00 02
+           ASCII: . v3@*@.....
+
+[17:09:44.580] ← IN  SysEx (377 bytes) - Command 0x2A
+           00 20 76 33 40 2a 41 05 00 00 00 00 7b 22 63 68 61 00 6e 6e ... (+357 bytes)
+           ASCII: . v3@*A.....{"cha.nnels":.1,"samp.lerate
+
+[17:09:44.593] ← IN  SysEx (22 bytes) - Command 0x2A
+           00 20 76 33 40 2a 42 05 00 00 00 01 73 65 22 3a 32 00 35 35 ... (+2 bytes)
+           ASCII: . v3@*B.....se":2.55}.
+
+[17:09:44.605] ← IN  SysEx (12 bytes) - Command 0x2A
+           00 20 76 33 40 2a 43 05 00 00 00 02
+           ASCII: . v3@*C.....
+
+[17:09:44.618] ← IN  SysEx (377 bytes) - Command 0x2A
+           00 20 76 33 40 2a 44 05 00 00 00 00 7b 22 63 68 61 00 6e 6e ... (+357 bytes)
+           ASCII: . v3@*D.....{"cha.nnels":.1,"samp.lerate
+
+[17:09:44.631] ← IN  SysEx (20 bytes) - Command 0x2A
+           00 20 76 33 40 2a 45 05 00 00 00 01 22 3a 32 35 35 00 7d 00
+           ASCII: . v3@*E.....":255.}.
+
+[17:09:44.641] ← IN  SysEx (12 bytes) - Command 0x2A
+           00 20 76 33 40 2a 46 05 00 00 00 02
+           ASCII: . v3@*F.....
+
+[17:09:44.665] ← IN  SysEx (377 bytes) - Command 0x2A
+           00 20 76 33 40 2a 47 05 00 00 00 00 7b 22 63 68 61 00 6e 6e ... (+357 bytes)
+           ASCII: . v3@*G.....{"cha.nnels":.1,"samp.lerate
+
+[17:09:44.665] ← IN  SysEx (22 bytes) - Command 0x2A
+           00 20 76 33 40 2a 48 05 00 00 00 01 73 65 22 3a 32 00 35 35 ... (+2 bytes)
+           ASCII: . v3@*H.....se":2.55}.
+
+[17:09:44.675] ← IN  SysEx (12 bytes) - Command 0x2A
+           00 20 76 33 40 2a 49 05 00 00 00 02
+           ASCII: . v3@*I.....
+
+[17:09:44.698] ← IN  SysEx (377 bytes) - Command 0x2A
+           00 20 76 33 40 2a 4a 05 00 00 00 00 7b 22 63 68 61 00 6e 6e ... (+357 bytes)
+           ASCII: . v3@*J.....{"cha.nnels":.1,"samp.lerate
+
+[17:09:44.698] ← IN  SysEx (15 bytes) - Command 0x2A
+           00 20 76 33 40 2a 4b 05 00 00 00 01 35 7d 00
+           ASCII: . v3@*K.....5}.
+
+[17:09:44.711] ← IN  SysEx (12 bytes) - Command 0x2A
+           00 20 76 33 40 2a 4c 05 00 00 00 02
+           ASCII: . v3@*L.....
+
+[17:09:44.733] ← IN  SysEx (377 bytes) - Command 0x2A
+           00 20 76 33 40 2a 4d 05 00 00 00 00 7b 22 63 68 61 00 6e 6e ... (+357 bytes)
+           ASCII: . v3@*M.....{"cha.nnels":.1,"samp.lerate
+
+[17:09:44.744] ← IN  SysEx (14 bytes) - Command 0x2A
+           00 20 76 33 40 2a 4e 05 00 00 00 01 7d 00
+           ASCII: . v3@*N.....}.
+
+[17:09:44.755] ← IN  SysEx (12 bytes) - Command 0x2A
+           00 20 76 33 40 2a 4f 05 00 00 00 02
+           ASCII: . v3@*O.....
+
+[17:09:44.769] ← IN  SysEx (377 bytes) - Command 0x2A
+           00 20 76 33 40 2a 50 05 00 00 00 00 7b 22 63 68 61 00 6e 6e ... (+357 bytes)
+           ASCII: . v3@*P.....{"cha.nnels":.2,"samp.lerate
+
+[17:09:44.779] ← IN  SysEx (15 bytes) - Command 0x2A
+           00 20 76 33 40 2a 51 05 00 00 00 01 35 7d 00
+           ASCII: . v3@*Q.....5}.
+
+[17:09:44.789] ← IN  SysEx (12 bytes) - Command 0x2A
+           00 20 76 33 40 2a 52 05 00 00 00 02
+           ASCII: . v3@*R.....
+
+[17:09:44.801] ← IN  SysEx (377 bytes) - Command 0x2A
+           00 20 76 33 40 2a 53 05 00 00 00 00 7b 22 63 68 61 00 6e 6e ... (+357 bytes)
+           ASCII: . v3@*S.....{"cha.nnels":.2,"samp.lerate
+
+[17:09:44.814] ← IN  SysEx (17 bytes) - Command 0x2A
+           00 20 76 33 40 2a 54 05 00 00 00 01 32 35 35 7d 00
+           ASCII: . v3@*T.....255}.
+
+[17:09:44.825] ← IN  SysEx (12 bytes) - Command 0x2A
+           00 20 76 33 40 2a 55 05 00 00 00 02
+           ASCII: . v3@*U.....
+
+[17:09:44.849] ← IN  SysEx (377 bytes) - Command 0x2A
+           00 20 76 33 40 2a 56 05 00 00 00 00 7b 22 63 68 61 00 6e 6e ... (+357 bytes)
+           ASCII: . v3@*V.....{"cha.nnels":.1,"samp.lerate
+
+[17:09:44.850] ← IN  SysEx (16 bytes) - Command 0x2A
+           00 20 76 33 40 2a 57 05 00 00 00 01 35 35 7d 00
+           ASCII: . v3@*W.....55}.
+
+[17:09:44.862] ← IN  SysEx (12 bytes) - Command 0x2A
+           00 20 76 33 40 2a 58 05 00 00 00 02
+           ASCII: . v3@*X.....
+
+[17:09:44.875] ← IN  SysEx (377 bytes) - Command 0x2A
+           00 20 76 33 40 2a 59 05 00 00 00 00 7b 22 63 68 61 00 6e 6e ... (+357 bytes)
+           ASCII: . v3@*Y.....{"cha.nnels":.1,"samp.lerate
+
+[17:09:44.888] ← IN  SysEx (15 bytes) - Command 0x2A
+           00 20 76 33 40 2a 5a 05 00 00 00 01 35 7d 00
+           ASCII: . v3@*Z.....5}.
+
+[17:09:44.900] ← IN  SysEx (12 bytes) - Command 0x2A
+           00 20 76 33 40 2a 5b 05 00 00 00 02
+           ASCII: . v3@*[.....
+
+[17:09:44.913] ← IN  SysEx (377 bytes) - Command 0x2A
+           00 20 76 33 40 2a 5c 05 00 00 00 00 7b 22 63 68 61 00 6e 6e ... (+357 bytes)
+           ASCII: . v3@*\.....{"cha.nnels":.1,"samp.lerate
+
+[17:09:44.925] ← IN  SysEx (23 bytes) - Command 0x2A
+           00 20 76 33 40 2a 5d 05 00 00 00 01 61 73 65 22 3a 00 32 35 ... (+3 bytes)
+           ASCII: . v3@*].....ase":.255}.
+
+[17:09:44.937] ← IN  SysEx (12 bytes) - Command 0x2A
+           00 20 76 33 40 2a 5e 05 00 00 00 02
+           ASCII: . v3@*^.....
+
+[17:09:44.949] ← IN  SysEx (371 bytes) - Command 0x2A
+           00 20 76 33 40 2a 5f 05 00 00 00 00 7b 22 63 68 61 00 6e 6e ... (+351 bytes)
+           ASCII: . v3@*_.....{"cha.nnels":.1,"samp.lerate
+
+[17:09:44.962] ← IN  SysEx (12 bytes) - Command 0x2A
+           00 20 76 33 40 2a 60 05 00 00 00 01
+           ASCII: . v3@*`.....
+
+[17:09:44.973] ← IN  SysEx (371 bytes) - Command 0x2A
+           00 20 76 33 40 2a 61 05 00 00 00 00 7b 22 63 68 61 00 6e 6e ... (+351 bytes)
+           ASCII: . v3@*a.....{"cha.nnels":.1,"samp.lerate
+
+[17:09:44.984] ← IN  SysEx (12 bytes) - Command 0x2A
+           00 20 76 33 40 2a 62 05 00 00 00 01
+           ASCII: . v3@*b.....
+
+[17:09:44.996] ← IN  SysEx (371 bytes) - Command 0x2A
+           00 20 76 33 40 2a 63 05 00 00 00 00 7b 22 63 68 61 00 6e 6e ... (+351 bytes)
+           ASCII: . v3@*c.....{"cha.nnels":.1,"samp.lerate
+
+[17:09:45.009] ← IN  SysEx (12 bytes) - Command 0x2A
+           00 20 76 33 40 2a 64 05 00 00 00 01
+           ASCII: . v3@*d.....
+
+[17:09:45.020] ← IN  SysEx (369 bytes) - Command 0x2A
+           00 20 76 33 40 2a 65 05 00 00 00 00 7b 22 63 68 61 00 6e 6e ... (+349 bytes)
+           ASCII: . v3@*e.....{"cha.nnels":.1,"samp.lerate
+
+[17:09:45.033] ← IN  SysEx (12 bytes) - Command 0x2A
+           00 20 76 33 40 2a 66 05 00 00 00 01
+           ASCII: . v3@*f.....
+
+[17:09:45.045] ← IN  SysEx (371 bytes) - Command 0x2A
+           00 20 76 33 40 2a 67 05 00 00 00 00 7b 22 63 68 61 00 6e 6e ... (+351 bytes)
+           ASCII: . v3@*g.....{"cha.nnels":.1,"samp.lerate
+
+[17:09:45.057] ← IN  SysEx (12 bytes) - Command 0x2A
+           00 20 76 33 40 2a 68 05 00 00 00 01
+           ASCII: . v3@*h.....
+
+[17:09:45.070] ← IN  SysEx (369 bytes) - Command 0x2A
+           00 20 76 33 40 2a 69 05 00 00 00 00 7b 22 63 68 61 00 6e 6e ... (+349 bytes)
+           ASCII: . v3@*i.....{"cha.nnels":.1,"samp.lerate
+
+[17:09:45.080] ← IN  SysEx (12 bytes) - Command 0x2A
+           00 20 76 33 40 2a 6a 05 00 00 00 01
+           ASCII: . v3@*j.....
+
+[17:09:45.093] ← IN  SysEx (371 bytes) - Command 0x2A
+           00 20 76 33 40 2a 6b 05 00 00 00 00 7b 22 63 68 61 00 6e 6e ... (+351 bytes)
+           ASCII: . v3@*k.....{"cha.nnels":.1,"samp.lerate
+
+[17:09:45.106] ← IN  SysEx (12 bytes) - Command 0x2A
+           00 20 76 33 40 2a 6c 05 00 00 00 01
+           ASCII: . v3@*l.....
+
+[17:09:45.118] ← IN  SysEx (369 bytes) - Command 0x2A
+           00 20 76 33 40 2a 6d 05 00 00 00 00 7b 22 63 68 61 00 6e 6e ... (+349 bytes)
+           ASCII: . v3@*m.....{"cha.nnels":.1,"samp.lerate
+
+[17:09:45.131] ← IN  SysEx (12 bytes) - Command 0x2A
+           00 20 76 33 40 2a 6e 05 00 00 00 01
+           ASCII: . v3@*n.....
+
+[17:09:45.143] ← IN  SysEx (371 bytes) - Command 0x2A
+           00 20 76 33 40 2a 6f 05 00 00 00 00 7b 22 63 68 61 00 6e 6e ... (+351 bytes)
+           ASCII: . v3@*o.....{"cha.nnels":.1,"samp.lerate
+
+[17:09:45.155] ← IN  SysEx (12 bytes) - Command 0x2A
+           00 20 76 33 40 2a 70 05 00 00 00 01
+           ASCII: . v3@*p.....
+
+[17:09:45.168] ← IN  SysEx (371 bytes) - Command 0x2A
+           00 20 76 33 40 2a 71 05 00 00 00 00 7b 22 63 68 61 00 6e 6e ... (+351 bytes)
+           ASCII: . v3@*q.....{"cha.nnels":.1,"samp.lerate
+
+[17:09:45.180] ← IN  SysEx (12 bytes) - Command 0x2A
+           00 20 76 33 40 2a 72 05 00 00 00 01
+           ASCII: . v3@*r.....
+
+[17:09:45.192] ← IN  SysEx (371 bytes) - Command 0x2A
+           00 20 76 33 40 2a 73 05 00 00 00 00 7b 22 63 68 61 00 6e 6e ... (+351 bytes)
+           ASCII: . v3@*s.....{"cha.nnels":.1,"samp.lerate
+
+[17:09:45.192] ← IN  SysEx (12 bytes) - Command 0x2A
+           00 20 76 33 40 2a 74 05 00 00 00 01
+           ASCII: . v3@*t.....
+
+[17:09:45.214] ← IN  SysEx (371 bytes) - Command 0x2A
+           00 20 76 33 40 2a 75 05 00 00 00 00 7b 22 63 68 61 00 6e 6e ... (+351 bytes)
+           ASCII: . v3@*u.....{"cha.nnels":.1,"samp.lerate
+
+[17:09:45.226] ← IN  SysEx (12 bytes) - Command 0x2A
+           00 20 76 33 40 2a 76 05 00 00 00 01
+           ASCII: . v3@*v.....
+
+[17:09:45.238] ← IN  SysEx (377 bytes) - Command 0x2A
+           00 20 76 33 40 2a 77 05 00 00 00 00 7b 22 63 68 61 00 6e 6e ... (+357 bytes)
+           ASCII: . v3@*w.....{"cha.nnels":.2,"samp.lerate
+
+[17:09:45.250] ← IN  SysEx (19 bytes) - Command 0x2A
+           00 20 76 33 40 2a 78 05 00 00 00 01 3a 32 35 35 7d 00 00
+           ASCII: . v3@*x.....:255}..
+
+[17:09:45.263] ← IN  SysEx (12 bytes) - Command 0x2A
+           00 20 76 33 40 2a 79 05 00 00 00 02
+           ASCII: . v3@*y.....
+
+[17:09:45.274] ← IN  SysEx (377 bytes) - Command 0x2A
+           00 20 76 33 40 2a 7a 05 00 00 00 00 7b 22 63 68 61 00 6e 6e ... (+357 bytes)
+           ASCII: . v3@*z.....{"cha.nnels":.2,"samp.lerate
+
+[17:09:45.285] ← IN  SysEx (19 bytes) - Command 0x2A
+           00 20 76 33 40 2a 7b 05 00 00 00 01 3a 32 35 35 7d 00 00
+           ASCII: . v3@*{.....:255}..
+
+[17:09:45.297] ← IN  SysEx (12 bytes) - Command 0x2A
+           00 20 76 33 40 2a 7c 05 00 00 00 02
+           ASCII: . v3@*|.....
+
+[17:09:45.318] ← IN  SysEx (377 bytes) - Command 0x2A
+           00 20 76 33 40 2a 7d 05 00 00 00 00 7b 22 63 68 61 00 6e 6e ... (+357 bytes)
+           ASCII: . v3@*}.....{"cha.nnels":.2,"samp.lerate
+
+[17:09:45.330] ← IN  SysEx (19 bytes) - Command 0x2A
+           00 20 76 33 40 2a 7e 05 00 00 00 01 3a 32 35 35 7d 00 00
+           ASCII: . v3@*~.....:255}..
+
+[17:09:45.340] ← IN  SysEx (12 bytes) - Command 0x2A
+           00 20 76 33 40 2a 7f 05 00 00 00 02
+           ASCII: . v3@*......
+
+[17:09:45.351] ← IN  SysEx (377 bytes) - Command 0x2A
+           00 20 76 33 40 2a 00 05 00 00 00 00 7b 22 63 68 61 00 6e 6e ... (+357 bytes)
+           ASCII: . v3@*......{"cha.nnels":.2,"samp.lerate
+
+[17:09:45.363] ← IN  SysEx (19 bytes) - Command 0x2A
+           00 20 76 33 40 2a 01 05 00 00 00 01 3a 32 35 35 7d 00 00
+           ASCII: . v3@*......:255}..
+
+[17:09:45.376] ← IN  SysEx (12 bytes) - Command 0x2A
+           00 20 76 33 40 2a 02 05 00 00 00 02
+           ASCII: . v3@*......
+
+[17:09:45.388] ← IN  SysEx (377 bytes) - Command 0x2A
+           00 20 76 33 40 2a 03 05 00 00 00 00 7b 22 63 68 61 00 6e 6e ... (+357 bytes)
+           ASCII: . v3@*......{"cha.nnels":.2,"samp.lerate
+
+[17:09:45.399] ← IN  SysEx (19 bytes) - Command 0x2A
+           00 20 76 33 40 2a 04 05 00 00 00 01 3a 32 35 35 7d 00 00
+           ASCII: . v3@*......:255}..
+
+[17:09:45.412] ← IN  SysEx (12 bytes) - Command 0x2A
+           00 20 76 33 40 2a 05 05 00 00 00 02
+           ASCII: . v3@*......
+
+[17:09:45.424] ← IN  SysEx (377 bytes) - Command 0x2A
+           00 20 76 33 40 2a 06 05 00 00 00 00 7b 22 63 68 61 00 6e 6e ... (+357 bytes)
+           ASCII: . v3@*......{"cha.nnels":.2,"samp.lerate
+
+[17:09:45.436] ← IN  SysEx (19 bytes) - Command 0x2A
+           00 20 76 33 40 2a 07 05 00 00 00 01 3a 32 35 35 7d 00 00
+           ASCII: . v3@*......:255}..
+
+[17:09:45.447] ← IN  SysEx (12 bytes) - Command 0x2A
+           00 20 76 33 40 2a 08 05 00 00 00 02
+           ASCII: . v3@*......
+
+[17:09:45.472] ← IN  SysEx (377 bytes) - Command 0x2A
+           00 20 76 33 40 2a 09 05 00 00 00 00 7b 22 63 68 61 00 6e 6e ... (+357 bytes)
+           ASCII: . v3@*......{"cha.nnels":.2,"samp.lerate
+
+[17:09:45.472] ← IN  SysEx (19 bytes) - Command 0x2A
+           00 20 76 33 40 2a 0a 05 00 00 00 01 3a 32 35 35 7d 00 00
+           ASCII: . v3@*......:255}..
+
+[17:09:45.485] ← IN  SysEx (12 bytes) - Command 0x2A
+           00 20 76 33 40 2a 0b 05 00 00 00 02
+           ASCII: . v3@*......
+
+[17:09:45.508] ← IN  SysEx (377 bytes) - Command 0x2A
+           00 20 76 33 40 2a 0c 05 00 00 00 00 7b 22 63 68 61 00 6e 6e ... (+357 bytes)
+           ASCII: . v3@*......{"cha.nnels":.2,"samp.lerate
+
+[17:09:45.508] ← IN  SysEx (17 bytes) - Command 0x2A
+           00 20 76 33 40 2a 0d 05 00 00 00 01 32 35 35 7d 00
+           ASCII: . v3@*......255}.
+
+[17:09:45.520] ← IN  SysEx (12 bytes) - Command 0x2A
+           00 20 76 33 40 2a 0e 05 00 00 00 02
+           ASCII: . v3@*......
+
+[17:09:45.533] ← IN  SysEx (377 bytes) - Command 0x2A
+           00 20 76 33 40 2a 0f 05 00 00 00 00 7b 22 63 68 61 00 6e 6e ... (+357 bytes)
+           ASCII: . v3@*......{"cha.nnels":.2,"samp.lerate
+
+[17:09:45.545] ← IN  SysEx (19 bytes) - Command 0x2A
+           00 20 76 33 40 2a 10 05 00 00 00 01 3a 32 35 35 7d 00 00
+           ASCII: . v3@*......:255}..
+
+[17:09:45.558] ← IN  SysEx (12 bytes) - Command 0x2A
+           00 20 76 33 40 2a 11 05 00 00 00 02
+           ASCII: . v3@*......
+
+[17:09:45.582] ← IN  SysEx (377 bytes) - Command 0x2A
+           00 20 76 33 40 2a 12 05 00 00 00 00 7b 22 63 68 61 00 6e 6e ... (+357 bytes)
+           ASCII: . v3@*......{"cha.nnels":.2,"samp.lerate
+
+[17:09:45.582] ← IN  SysEx (20 bytes) - Command 0x2A
+           00 20 76 33 40 2a 13 05 00 00 00 01 22 3a 32 35 35 00 7d 00
+           ASCII: . v3@*......":255.}.
+
+[17:09:45.593] ← IN  SysEx (12 bytes) - Command 0x2A
+           00 20 76 33 40 2a 14 05 00 00 00 02
+           ASCII: . v3@*......
+
+[17:09:45.618] ← IN  SysEx (377 bytes) - Command 0x2A
+           00 20 76 33 40 2a 15 05 00 00 00 00 7b 22 63 68 61 00 6e 6e ... (+357 bytes)
+           ASCII: . v3@*......{"cha.nnels":.2,"samp.lerate
+
+[17:09:45.618] ← IN  SysEx (20 bytes) - Command 0x2A
+           00 20 76 33 40 2a 16 05 00 00 00 01 22 3a 32 35 35 00 7d 00
+           ASCII: . v3@*......":255.}.
+
+[17:09:45.631] ← IN  SysEx (12 bytes) - Command 0x2A
+           00 20 76 33 40 2a 17 05 00 00 00 02
+           ASCII: . v3@*......
+
+[17:09:45.655] ← IN  SysEx (377 bytes) - Command 0x2A
+           00 20 76 33 40 2a 18 05 00 00 00 00 7b 22 63 68 61 00 6e 6e ... (+357 bytes)
+           ASCII: . v3@*......{"cha.nnels":.2,"samp.lerate
+
+[17:09:45.655] ← IN  SysEx (20 bytes) - Command 0x2A
+           00 20 76 33 40 2a 19 05 00 00 00 01 22 3a 32 35 35 00 7d 00
+           ASCII: . v3@*......":255.}.
+
+[17:09:45.667] ← IN  SysEx (12 bytes) - Command 0x2A
+           00 20 76 33 40 2a 1a 05 00 00 00 02
+           ASCII: . v3@*......
+
+[17:09:45.692] ← IN  SysEx (377 bytes) - Command 0x2A
+           00 20 76 33 40 2a 1b 05 00 00 00 00 7b 22 63 68 61 00 6e 6e ... (+357 bytes)
+           ASCII: . v3@*......{"cha.nnels":.2,"samp.lerate
+
+[17:09:45.692] ← IN  SysEx (20 bytes) - Command 0x2A
+           00 20 76 33 40 2a 1c 05 00 00 00 01 22 3a 32 35 35 00 7d 00
+           ASCII: . v3@*......":255.}.
+
+[17:09:45.705] ← IN  SysEx (12 bytes) - Command 0x2A
+           00 20 76 33 40 2a 1d 05 00 00 00 02
+           ASCII: . v3@*......
+
+[17:09:45.730] ← IN  SysEx (377 bytes) - Command 0x2A
+           00 20 76 33 40 2a 1e 05 00 00 00 00 7b 22 63 68 61 00 6e 6e ... (+357 bytes)
+           ASCII: . v3@*......{"cha.nnels":.2,"samp.lerate
+
+[17:09:45.730] ← IN  SysEx (24 bytes) - Command 0x2A
+           00 20 76 33 40 2a 1f 05 00 00 00 01 65 61 73 65 22 00 3a 32 ... (+4 bytes)
+           ASCII: . v3@*......ease".:255}.
+
+[17:09:45.741] ← IN  SysEx (12 bytes) - Command 0x2A
+           00 20 76 33 40 2a 20 05 00 00 00 02
+           ASCII: . v3@* .....
+
+[17:09:45.765] ← IN  SysEx (377 bytes) - Command 0x2A
+           00 20 76 33 40 2a 21 05 00 00 00 00 7b 22 63 68 61 00 6e 6e ... (+357 bytes)
+           ASCII: . v3@*!.....{"cha.nnels":.2,"samp.lerate
+
+[17:09:45.765] ← IN  SysEx (23 bytes) - Command 0x2A
+           00 20 76 33 40 2a 22 05 00 00 00 01 61 73 65 22 3a 00 32 35 ... (+3 bytes)
+           ASCII: . v3@*".....ase":.255}.
+
+[17:09:45.777] ← IN  SysEx (12 bytes) - Command 0x2A
+           00 20 76 33 40 2a 23 05 00 00 00 02
+           ASCII: . v3@*#.....
+
+[17:09:45.801] ← IN  SysEx (377 bytes) - Command 0x2A
+           00 20 76 33 40 2a 24 05 00 00 00 00 7b 22 63 68 61 00 6e 6e ... (+357 bytes)
+           ASCII: . v3@*$.....{"cha.nnels":.2,"samp.lerate
+
+[17:09:45.801] ← IN  SysEx (23 bytes) - Command 0x2A
+           00 20 76 33 40 2a 25 05 00 00 00 01 61 73 65 22 3a 00 32 35 ... (+3 bytes)
+           ASCII: . v3@*%.....ase":.255}.
+
+[17:09:45.814] ← IN  SysEx (12 bytes) - Command 0x2A
+           00 20 76 33 40 2a 26 05 00 00 00 02
+           ASCII: . v3@*&.....
+
+[17:09:45.839] ← IN  SysEx (377 bytes) - Command 0x2A
+           00 20 76 33 40 2a 27 05 00 00 00 00 7b 22 63 68 61 00 6e 6e ... (+357 bytes)
+           ASCII: . v3@*'.....{"cha.nnels":.2,"samp.lerate
+
+[17:09:45.839] ← IN  SysEx (20 bytes) - Command 0x2A
+           00 20 76 33 40 2a 28 05 00 00 00 01 22 3a 32 35 35 00 7d 00
+           ASCII: . v3@*(.....":255.}.
+
+[17:09:45.852] ← IN  SysEx (12 bytes) - Command 0x2A
+           00 20 76 33 40 2a 29 05 00 00 00 02
+           ASCII: . v3@*).....
+
+[17:09:45.875] ← IN  SysEx (377 bytes) - Command 0x2A
+           00 20 76 33 40 2a 2a 05 00 00 00 00 7b 22 63 68 61 00 6e 6e ... (+357 bytes)
+           ASCII: . v3@**.....{"cha.nnels":.2,"samp.lerate
+
+[17:09:45.876] ← IN  SysEx (20 bytes) - Command 0x2A
+           00 20 76 33 40 2a 2b 05 00 00 00 01 22 3a 32 35 35 00 7d 00
+           ASCII: . v3@*+.....":255.}.
+
+[17:09:45.888] ← IN  SysEx (12 bytes) - Command 0x2A
+           00 20 76 33 40 2a 2c 05 00 00 00 02
+           ASCII: . v3@*,.....
+
+[17:09:45.914] ← IN  SysEx (377 bytes) - Command 0x2A
+           00 20 76 33 40 2a 2d 05 00 00 00 00 7b 22 63 68 61 00 6e 6e ... (+357 bytes)
+           ASCII: . v3@*-.....{"cha.nnels":.2,"samp.lerate
+
+[17:09:45.914] ← IN  SysEx (19 bytes) - Command 0x2A
+           00 20 76 33 40 2a 2e 05 00 00 00 01 3a 32 35 35 7d 00 00
+           ASCII: . v3@*......:255}..
+
+[17:09:45.927] ← IN  SysEx (12 bytes) - Command 0x2A
+           00 20 76 33 40 2a 2f 05 00 00 00 02
+           ASCII: . v3@*/.....
+
+[17:09:45.950] ← IN  SysEx (377 bytes) - Command 0x2A
+           00 20 76 33 40 2a 30 05 00 00 00 00 7b 22 63 68 61 00 6e 6e ... (+357 bytes)
+           ASCII: . v3@*0.....{"cha.nnels":.2,"samp.lerate
+
+[17:09:45.950] ← IN  SysEx (19 bytes) - Command 0x2A
+           00 20 76 33 40 2a 31 05 00 00 00 01 3a 32 35 35 7d 00 00
+           ASCII: . v3@*1.....:255}..
+
+[17:09:45.963] ← IN  SysEx (12 bytes) - Command 0x2A
+           00 20 76 33 40 2a 32 05 00 00 00 02
+           ASCII: . v3@*2.....
+
+[17:09:45.988] ← IN  SysEx (377 bytes) - Command 0x2A
+           00 20 76 33 40 2a 33 05 00 00 00 00 7b 22 63 68 61 00 6e 6e ... (+357 bytes)
+           ASCII: . v3@*3.....{"cha.nnels":.2,"samp.lerate
+
+[17:09:45.988] ← IN  SysEx (20 bytes) - Command 0x2A
+           00 20 76 33 40 2a 34 05 00 00 00 01 22 3a 32 35 35 00 7d 00
+           ASCII: . v3@*4.....":255.}.
+
+[17:09:46.001] ← IN  SysEx (12 bytes) - Command 0x2A
+           00 20 76 33 40 2a 35 05 00 00 00 02
+           ASCII: . v3@*5.....
+
+[17:09:46.012] ← IN  SysEx (377 bytes) - Command 0x2A
+           00 20 76 33 40 2a 36 05 00 00 00 00 7b 22 63 68 61 00 6e 6e ... (+357 bytes)
+           ASCII: . v3@*6.....{"cha.nnels":.2,"samp.lerate
+
+[17:09:46.025] ← IN  SysEx (23 bytes) - Command 0x2A
+           00 20 76 33 40 2a 37 05 00 00 00 01 61 73 65 22 3a 00 32 35 ... (+3 bytes)
+           ASCII: . v3@*7.....ase":.255}.
+
+[17:09:46.037] ← IN  SysEx (12 bytes) - Command 0x2A
+           00 20 76 33 40 2a 38 05 00 00 00 02
+           ASCII: . v3@*8.....
+
+[17:09:46.061] ← IN  SysEx (377 bytes) - Command 0x2A
+           00 20 76 33 40 2a 39 05 00 00 00 00 7b 22 63 68 61 00 6e 6e ... (+357 bytes)
+           ASCII: . v3@*9.....{"cha.nnels":.2,"samp.lerate
+
+[17:09:46.061] ← IN  SysEx (22 bytes) - Command 0x2A
+           00 20 76 33 40 2a 3a 05 00 00 00 01 73 65 22 3a 32 00 35 35 ... (+2 bytes)
+           ASCII: . v3@*:.....se":2.55}.
+
+[17:09:46.072] ← IN  SysEx (12 bytes) - Command 0x2A
+           00 20 76 33 40 2a 3b 05 00 00 00 02
+           ASCII: . v3@*;.....
+
+[17:09:46.084] ← IN  SysEx (377 bytes) - Command 0x2A
+           00 20 76 33 40 2a 3c 05 00 00 00 00 7b 22 63 68 61 00 6e 6e ... (+357 bytes)
+           ASCII: . v3@*<.....{"cha.nnels":.2,"samp.lerate
+
+[17:09:46.097] ← IN  SysEx (23 bytes) - Command 0x2A
+           00 20 76 33 40 2a 3d 05 00 00 00 01 61 73 65 22 3a 00 32 35 ... (+3 bytes)
+           ASCII: . v3@*=.....ase":.255}.
+
+[17:09:46.109] ← IN  SysEx (12 bytes) - Command 0x2A
+           00 20 76 33 40 2a 3e 05 00 00 00 02
+           ASCII: . v3@*>.....
+
+[17:09:46.122] ← IN  SysEx (377 bytes) - Command 0x2A
+           00 20 76 33 40 2a 3f 05 00 00 00 00 7b 22 63 68 61 00 6e 6e ... (+357 bytes)
+           ASCII: . v3@*?.....{"cha.nnels":.2,"samp.lerate
+
+[17:09:46.133] ← IN  SysEx (23 bytes) - Command 0x2A
+           00 20 76 33 40 2a 40 05 00 00 00 01 61 73 65 22 3a 00 32 35 ... (+3 bytes)
+           ASCII: . v3@*@.....ase":.255}.
+
+[17:09:46.146] ← IN  SysEx (12 bytes) - Command 0x2A
+           00 20 76 33 40 2a 41 05 00 00 00 02
+           ASCII: . v3@*A.....
+
+[17:09:46.169] ← IN  SysEx (377 bytes) - Command 0x2A
+           00 20 76 33 40 2a 42 05 00 00 00 00 7b 22 63 68 61 00 6e 6e ... (+357 bytes)
+           ASCII: . v3@*B.....{"cha.nnels":.2,"samp.lerate
+
+[17:09:46.169] ← IN  SysEx (23 bytes) - Command 0x2A
+           00 20 76 33 40 2a 43 05 00 00 00 01 61 73 65 22 3a 00 32 35 ... (+3 bytes)
+           ASCII: . v3@*C.....ase":.255}.
+
+[17:09:46.181] ← IN  SysEx (12 bytes) - Command 0x2A
+           00 20 76 33 40 2a 44 05 00 00 00 02
+           ASCII: . v3@*D.....
+
+[17:09:46.204] ← IN  SysEx (377 bytes) - Command 0x2A
+           00 20 76 33 40 2a 45 05 00 00 00 00 7b 22 63 68 61 00 6e 6e ... (+357 bytes)
+           ASCII: . v3@*E.....{"cha.nnels":.2,"samp.lerate
+
+[17:09:46.204] ← IN  SysEx (23 bytes) - Command 0x2A
+           00 20 76 33 40 2a 46 05 00 00 00 01 61 73 65 22 3a 00 32 35 ... (+3 bytes)
+           ASCII: . v3@*F.....ase":.255}.
+
+[17:09:46.216] ← IN  SysEx (12 bytes) - Command 0x2A
+           00 20 76 33 40 2a 47 05 00 00 00 02
+           ASCII: . v3@*G.....
+
+[17:09:46.240] ← IN  SysEx (377 bytes) - Command 0x2A
+           00 20 76 33 40 2a 48 05 00 00 00 00 7b 22 63 68 61 00 6e 6e ... (+357 bytes)
+           ASCII: . v3@*H.....{"cha.nnels":.2,"samp.lerate
+
+[17:09:46.240] ← IN  SysEx (23 bytes) - Command 0x2A
+           00 20 76 33 40 2a 49 05 00 00 00 01 61 73 65 22 3a 00 32 35 ... (+3 bytes)
+           ASCII: . v3@*I.....ase":.255}.
+
+[17:09:46.251] ← IN  SysEx (12 bytes) - Command 0x2A
+           00 20 76 33 40 2a 4a 05 00 00 00 02
+           ASCII: . v3@*J.....
+
+[17:09:46.277] ← IN  SysEx (371 bytes) - Command 0x2A
+           00 20 76 33 40 2a 4b 05 00 00 00 00 7b 22 63 68 61 00 6e 6e ... (+351 bytes)
+           ASCII: . v3@*K.....{"cha.nnels":.1,"samp.lerate
+
+[17:09:46.277] ← IN  SysEx (12 bytes) - Command 0x2A
+           00 20 76 33 40 2a 4c 05 00 00 00 01
+           ASCII: . v3@*L.....
+
+[17:09:46.301] ← IN  SysEx (371 bytes) - Command 0x2A
+           00 20 76 33 40 2a 4d 05 00 00 00 00 7b 22 63 68 61 00 6e 6e ... (+351 bytes)
+           ASCII: . v3@*M.....{"cha.nnels":.1,"samp.lerate
+
+[17:09:46.301] ← IN  SysEx (12 bytes) - Command 0x2A
+           00 20 76 33 40 2a 4e 05 00 00 00 01
+           ASCII: . v3@*N.....
+
+[17:09:46.325] ← IN  SysEx (373 bytes) - Command 0x2A
+           00 20 76 33 40 2a 4f 05 00 00 00 00 7b 22 63 68 61 00 6e 6e ... (+353 bytes)
+           ASCII: . v3@*O.....{"cha.nnels":.1,"samp.lerate
+
+[17:09:46.337] ← IN  SysEx (12 bytes) - Command 0x2A
+           00 20 76 33 40 2a 50 05 00 00 00 01
+           ASCII: . v3@*P.....
+
+[17:09:46.348] ← IN  SysEx (377 bytes) - Command 0x2A
+           00 20 76 33 40 2a 51 05 00 00 00 00 7b 22 63 68 61 00 6e 6e ... (+357 bytes)
+           ASCII: . v3@*Q.....{"cha.nnels":.1,"samp.lerate
+
+[17:09:46.361] ← IN  SysEx (19 bytes) - Command 0x2A
+           00 20 76 33 40 2a 52 05 00 00 00 01 3a 32 35 35 7d 00 00
+           ASCII: . v3@*R.....:255}..
+
+[17:09:46.373] ← IN  SysEx (12 bytes) - Command 0x2A
+           00 20 76 33 40 2a 53 05 00 00 00 02
+           ASCII: . v3@*S.....
+
+[17:09:46.385] ← IN  SysEx (368 bytes) - Command 0x2A
+           00 20 76 33 40 2a 54 05 00 00 00 00 7b 22 63 68 61 00 6e 6e ... (+348 bytes)
+           ASCII: . v3@*T.....{"cha.nnels":.1,"samp.lerate
+
+[17:09:46.397] ← IN  SysEx (12 bytes) - Command 0x2A
+           00 20 76 33 40 2a 55 05 00 00 00 01
+           ASCII: . v3@*U.....
+
+[17:09:46.409] ← IN  SysEx (371 bytes) - Command 0x2A
+           00 20 76 33 40 2a 56 05 00 00 00 00 7b 22 63 68 61 00 6e 6e ... (+351 bytes)
+           ASCII: . v3@*V.....{"cha.nnels":.1,"samp.lerate
+
+[17:09:46.419] ← IN  SysEx (12 bytes) - Command 0x2A
+           00 20 76 33 40 2a 57 05 00 00 00 01
+           ASCII: . v3@*W.....
+
+[17:09:46.432] ← IN  SysEx (369 bytes) - Command 0x2A
+           00 20 76 33 40 2a 58 05 00 00 00 00 7b 22 63 68 61 00 6e 6e ... (+349 bytes)
+           ASCII: . v3@*X.....{"cha.nnels":.1,"samp.lerate
+
+[17:09:46.445] ← IN  SysEx (12 bytes) - Command 0x2A
+           00 20 76 33 40 2a 59 05 00 00 00 01
+           ASCII: . v3@*Y.....
+
+[17:09:46.457] ← IN  SysEx (371 bytes) - Command 0x2A
+           00 20 76 33 40 2a 5a 05 00 00 00 00 7b 22 63 68 61 00 6e 6e ... (+351 bytes)
+           ASCII: . v3@*Z.....{"cha.nnels":.1,"samp.lerate
+
+[17:09:46.469] ← IN  SysEx (12 bytes) - Command 0x2A
+           00 20 76 33 40 2a 5b 05 00 00 00 01
+           ASCII: . v3@*[.....
+
+[17:09:46.481] ← IN  SysEx (376 bytes) - Command 0x2A
+           00 20 76 33 40 2a 5c 05 00 00 00 00 7b 22 63 68 61 00 6e 6e ... (+356 bytes)
+           ASCII: . v3@*\.....{"cha.nnels":.1,"samp.lerate
+
+[17:09:46.494] ← IN  SysEx (12 bytes) - Command 0x2A
+           00 20 76 33 40 2a 5d 05 00 00 00 01
+           ASCII: . v3@*].....
+
+[17:09:46.505] ← IN  SysEx (377 bytes) - Command 0x2A
+           00 20 76 33 40 2a 5e 05 00 00 00 00 7b 22 63 68 61 00 6e 6e ... (+357 bytes)
+           ASCII: . v3@*^.....{"cha.nnels":.1,"samp.lerate
+
+[17:09:46.518] ← IN  SysEx (16 bytes) - Command 0x2A
+           00 20 76 33 40 2a 5f 05 00 00 00 01 35 35 7d 00
+           ASCII: . v3@*_.....55}.
+
+[17:09:46.531] ← IN  SysEx (12 bytes) - Command 0x2A
+           00 20 76 33 40 2a 60 05 00 00 00 02
+           ASCII: . v3@*`.....
+
+[17:09:46.542] ← IN  SysEx (372 bytes) - Command 0x2A
+           00 20 76 33 40 2a 61 05 00 00 00 00 7b 22 63 68 61 00 6e 6e ... (+352 bytes)
+           ASCII: . v3@*a.....{"cha.nnels":.1,"samp.lerate
+
+[17:09:46.553] ← IN  SysEx (12 bytes) - Command 0x2A
+           00 20 76 33 40 2a 62 05 00 00 00 01
+           ASCII: . v3@*b.....
+
+[17:09:46.564] ← IN  SysEx (371 bytes) - Command 0x2A
+           00 20 76 33 40 2a 63 05 00 00 00 00 7b 22 63 68 61 00 6e 6e ... (+351 bytes)
+           ASCII: . v3@*c.....{"cha.nnels":.1,"samp.lerate
+
+[17:09:46.576] ← IN  SysEx (12 bytes) - Command 0x2A
+           00 20 76 33 40 2a 64 05 00 00 00 01
+           ASCII: . v3@*d.....
+
+[17:09:46.589] ← IN  SysEx (377 bytes) - Command 0x2A
+           00 20 76 33 40 2a 65 05 00 00 00 00 7b 22 63 68 61 00 6e 6e ... (+357 bytes)
+           ASCII: . v3@*e.....{"cha.nnels":.1,"samp.lerate
+
+[17:09:46.601] ← IN  SysEx (22 bytes) - Command 0x2A
+           00 20 76 33 40 2a 66 05 00 00 00 01 73 65 22 3a 32 00 35 35 ... (+2 bytes)
+           ASCII: . v3@*f.....se":2.55}.
+
+[17:09:46.614] ← IN  SysEx (12 bytes) - Command 0x2A
+           00 20 76 33 40 2a 67 05 00 00 00 02
+           ASCII: . v3@*g.....
+
+[17:09:46.627] ← IN  SysEx (369 bytes) - Command 0x2A
+           00 20 76 33 40 2a 68 05 00 00 00 00 7b 22 63 68 61 00 6e 6e ... (+349 bytes)
+           ASCII: . v3@*h.....{"cha.nnels":.1,"samp.lerate
+
+[17:09:46.640] ← IN  SysEx (12 bytes) - Command 0x2A
+           00 20 76 33 40 2a 69 05 00 00 00 01
+           ASCII: . v3@*i.....
+
+[17:09:46.652] ← IN  SysEx (371 bytes) - Command 0x2A
+           00 20 76 33 40 2a 6a 05 00 00 00 00 7b 22 63 68 61 00 6e 6e ... (+351 bytes)
+           ASCII: . v3@*j.....{"cha.nnels":.1,"samp.lerate
+
+[17:09:46.664] ← IN  SysEx (12 bytes) - Command 0x2A
+           00 20 76 33 40 2a 6b 05 00 00 00 01
+           ASCII: . v3@*k.....
+
+[17:09:46.677] ← IN  SysEx (376 bytes) - Command 0x2A
+           00 20 76 33 40 2a 6c 05 00 00 00 00 7b 22 63 68 61 00 6e 6e ... (+356 bytes)
+           ASCII: . v3@*l.....{"cha.nnels":.1,"samp.lerate
+
+[17:09:46.690] ← IN  SysEx (12 bytes) - Command 0x2A
+           00 20 76 33 40 2a 6d 05 00 00 00 01
+           ASCII: . v3@*m.....
+
+[17:09:46.700] ← IN  SysEx (368 bytes) - Command 0x2A
+           00 20 76 33 40 2a 6e 05 00 00 00 00 7b 22 63 68 61 00 6e 6e ... (+348 bytes)
+           ASCII: . v3@*n.....{"cha.nnels":.1,"samp.lerate
+
+[17:09:46.713] ← IN  SysEx (12 bytes) - Command 0x2A
+           00 20 76 33 40 2a 6f 05 00 00 00 01
+           ASCII: . v3@*o.....
+
+[17:09:46.726] ← IN  SysEx (371 bytes) - Command 0x2A
+           00 20 76 33 40 2a 70 05 00 00 00 00 7b 22 63 68 61 00 6e 6e ... (+351 bytes)
+           ASCII: . v3@*p.....{"cha.nnels":.1,"samp.lerate
+
+[17:09:46.739] ← IN  SysEx (12 bytes) - Command 0x2A
+           00 20 76 33 40 2a 71 05 00 00 00 01
+           ASCII: . v3@*q.....
+
+[17:09:46.751] ← IN  SysEx (373 bytes) - Command 0x2A
+           00 20 76 33 40 2a 72 05 00 00 00 00 7b 22 63 68 61 00 6e 6e ... (+353 bytes)
+           ASCII: . v3@*r.....{"cha.nnels":.1,"samp.lerate
+
+[17:09:46.763] ← IN  SysEx (12 bytes) - Command 0x2A
+           00 20 76 33 40 2a 73 05 00 00 00 01
+           ASCII: . v3@*s.....
+
+[17:09:46.775] ← IN  SysEx (377 bytes) - Command 0x2A
+           00 20 76 33 40 2a 74 05 00 00 00 00 7b 22 63 68 61 00 6e 6e ... (+357 bytes)
+           ASCII: . v3@*t.....{"cha.nnels":.1,"samp.lerate
+
+[17:09:46.788] ← IN  SysEx (16 bytes) - Command 0x2A
+           00 20 76 33 40 2a 75 05 00 00 00 01 35 35 7d 00
+           ASCII: . v3@*u.....55}.
+
+[17:09:46.801] ← IN  SysEx (12 bytes) - Command 0x2A
+           00 20 76 33 40 2a 76 05 00 00 00 02
+           ASCII: . v3@*v.....
+
+[17:09:46.814] ← IN  SysEx (377 bytes) - Command 0x2A
+           00 20 76 33 40 2a 77 05 00 00 00 00 7b 22 63 68 61 00 6e 6e ... (+357 bytes)
+           ASCII: . v3@*w.....{"cha.nnels":.1,"samp.lerate
+
+[17:09:46.825] ← IN  SysEx (16 bytes) - Command 0x2A
+           00 20 76 33 40 2a 78 05 00 00 00 01 35 35 7d 00
+           ASCII: . v3@*x.....55}.
+
+[17:09:46.835] ← IN  SysEx (12 bytes) - Command 0x2A
+           00 20 76 33 40 2a 79 05 00 00 00 02
+           ASCII: . v3@*y.....
+
+[17:09:46.848] ← IN  SysEx (377 bytes) - Command 0x2A
+           00 20 76 33 40 2a 7a 05 00 00 00 00 7b 22 63 68 61 00 6e 6e ... (+357 bytes)
+           ASCII: . v3@*z.....{"cha.nnels":.1,"samp.lerate
+
+[17:09:46.861] ← IN  SysEx (15 bytes) - Command 0x2A
+           00 20 76 33 40 2a 7b 05 00 00 00 01 35 7d 00
+           ASCII: . v3@*{.....5}.
+
+[17:09:46.873] ← IN  SysEx (12 bytes) - Command 0x2A
+           00 20 76 33 40 2a 7c 05 00 00 00 02
+           ASCII: . v3@*|.....
+
+[17:09:46.885] ← IN  SysEx (377 bytes) - Command 0x2A
+           00 20 76 33 40 2a 7d 05 00 00 00 00 7b 22 63 68 61 00 6e 6e ... (+357 bytes)
+           ASCII: . v3@*}.....{"cha.nnels":.1,"samp.lerate
+
+[17:09:46.897] ← IN  SysEx (21 bytes) - Command 0x2A
+           00 20 76 33 40 2a 7e 05 00 00 00 01 65 22 3a 32 35 00 35 7d ... (+1 bytes)
+           ASCII: . v3@*~.....e":25.5}.
+
+[17:09:46.908] ← IN  SysEx (12 bytes) - Command 0x2A
+           00 20 76 33 40 2a 7f 05 00 00 00 02
+           ASCII: . v3@*......
+
+[17:09:46.921] ← IN  SysEx (369 bytes) - Command 0x2A
+           00 20 76 33 40 2a 00 05 00 00 00 00 7b 22 63 68 61 00 6e 6e ... (+349 bytes)
+           ASCII: . v3@*......{"cha.nnels":.1,"samp.lerate
+
+[17:09:46.934] ← IN  SysEx (12 bytes) - Command 0x2A
+           00 20 76 33 40 2a 01 05 00 00 00 01
+           ASCII: . v3@*......
+
+[17:09:46.947] ← IN  SysEx (375 bytes) - Command 0x2A
+           00 20 76 33 40 2a 02 05 00 00 00 00 7b 22 63 68 61 00 6e 6e ... (+355 bytes)
+           ASCII: . v3@*......{"cha.nnels":.1,"samp.lerate
+
+[17:09:46.960] ← IN  SysEx (12 bytes) - Command 0x2A
+           00 20 76 33 40 2a 03 05 00 00 00 01
+           ASCII: . v3@*......
+
+[17:09:49.977] ← IN  SysEx (15 bytes) - Unknown
+           7e 33 06 02 00 20 76 20 00 01 00 00 00 00 00
+           ASCII: ~3... v .......
+
+[17:09:50.035] ← IN  SysEx (160 bytes) - Command 0x21
+           00 20 76 33 40 21 17 01 00 00 70 72 6f 64 75 63 74 00 3a 45 ... (+140 bytes)
+           ASCII: . v3@!....product.:EP-133.;mode:n.ormal;
+
+[17:09:50.094] ← IN  SysEx (15 bytes) - Command 0x21
+           00 20 76 33 40 21 18 05 00 00 0c 00 00 02 00
+           ASCII: . v3@!.........
+
+[17:09:50.145] ← IN  SysEx (372 bytes) - Command 0x2A
+           00 20 76 33 40 2a 00 05 00 00 00 00 00 01 1d 00 00 00 22 74 ... (+352 bytes)
+           ASCII: . v3@*............"t001.p.cm......."J002
+
+[17:09:50.156] ← IN  SysEx (372 bytes) - Command 0x2A
+           00 20 76 33 40 2a 01 05 00 00 00 01 00 1c 1d 00 00 03 09 34 ... (+352 bytes)
+           ASCII: . v3@*.............4028.p.cm.......zZ029
+
+[17:09:50.168] ← IN  SysEx (372 bytes) - Command 0x2A
+           00 20 76 33 40 2a 02 05 00 00 00 02 00 32 1d 00 04 01 78 1c ... (+352 bytes)
+           ASCII: . v3@*.......2....x.050.p.cm..3....x.051
+
+[17:09:50.181] ← IN  SysEx (372 bytes) - Command 0x2A
+           00 20 76 33 40 2a 03 05 00 00 00 03 00 47 1d 00 02 01 31 10 ... (+352 bytes)
+           ASCII: . v3@*.......G....1.071.p.cm..H....=.072
+
+[17:09:50.193] ← IN  SysEx (372 bytes) - Command 0x2A
+           00 20 76 33 40 2a 04 05 00 00 00 04 00 5e 1d 00 03 03 28 4e ... (+352 bytes)
+           ASCII: . v3@*.......^....(N094.p.cm.._.....N095
+
+[17:09:50.206] ← IN  SysEx (372 bytes) - Command 0x2A
+           00 20 76 33 40 2a 05 05 00 00 00 05 00 74 1d 00 00 00 3c 2e ... (+352 bytes)
+           ASCII: . v3@*.......t....<.116.p.cm..u....0(117
+
+[17:09:50.218] ← IN  SysEx (372 bytes) - Command 0x2A
+           00 20 76 33 40 2a 06 05 00 08 00 06 00 09 1d 00 00 00 2e 4c ... (+352 bytes)
+           ASCII: . v3@*.............L137.p.cm.......3.138
+
+[17:09:50.230] ← IN  SysEx (372 bytes) - Command 0x2A
+           00 20 76 33 40 2a 07 05 00 08 00 07 00 59 1d 00 00 01 00 1c ... (+352 bytes)
+           ASCII: . v3@*.......Y......217.p.cm..Z....X.218
+
+[17:09:50.243] ← IN  SysEx (372 bytes) - Command 0x2A
+           00 20 76 33 40 2a 08 05 00 08 00 08 00 70 1d 00 02 03 16 6e ... (+352 bytes)
+           ASCII: . v3@*.......p.....n240.p.cm..q....er241
+
+[17:09:50.256] ← IN  SysEx (372 bytes) - Command 0x2A
+           00 20 76 33 40 2a 09 05 00 00 00 09 01 37 1d 00 00 00 68 26 ... (+352 bytes)
+           ASCII: . v3@*.......7....h&311.p.cm..8.....h312
+
+[17:09:50.269] ← IN  SysEx (372 bytes) - Command 0x2A
+           00 20 76 33 40 2a 0a 05 00 00 00 0a 01 55 1d 00 00 03 00 6c ... (+352 bytes)
+           ASCII: . v3@*.......U.....l341.p.cm..W....R"343
+
+[17:09:50.281] ← IN  SysEx (372 bytes) - Command 0x2A
+           00 20 76 33 40 2a 0b 05 00 08 00 0b 01 17 1d 00 02 03 41 4e ... (+352 bytes)
+           ASCII: . v3@*............AN407.p.cm.........408
+
+[17:09:50.293] ← IN  SysEx (372 bytes) - Command 0x2A
+           00 20 76 33 40 2a 0c 05 00 08 00 0c 01 2c 1d 00 00 01 0f 2e ... (+352 bytes)
+           ASCII: . v3@*.......,......428.p.cm..-.....l429
+
+[17:09:50.306] ← IN  SysEx (372 bytes) - Command 0x2A
+           00 20 76 33 40 2a 0d 05 00 08 00 0d 01 41 1d 00 02 00 7c 32 ... (+352 bytes)
+           ASCII: . v3@*.......A....|2449.p.cm..B....BL450
+
+[17:09:50.317] ← IN  SysEx (372 bytes) - Command 0x2A
+           00 20 76 33 40 2a 0e 05 00 08 00 0e 01 7f 1d 00 00 02 66 0a ... (+352 bytes)
+           ASCII: . v3@*............f.511.p.cm.......$L512
+
+[17:09:50.329] ← IN  SysEx (372 bytes) - Command 0x2A
+           00 20 76 33 40 2a 0f 05 00 00 00 0f 02 15 1d 00 0c 00 28 40 ... (+352 bytes)
+           ASCII: . v3@*............(@533.p.cm.......e@534
+
+[17:09:50.340] ← IN  SysEx (372 bytes) - Command 0x2A
+           00 20 76 33 40 2a 10 05 00 00 00 10 02 32 1d 00 02 00 4f 00 ... (+352 bytes)
+           ASCII: . v3@*.......2....O.562.p.cm..3....+.563
+
+[17:09:50.352] ← IN  SysEx (372 bytes) - Command 0x2A
+           00 20 76 33 40 2a 11 05 00 08 00 11 02 5a 1d 00 01 00 48 4e ... (+352 bytes)
+           ASCII: . v3@*.......Z....HN730.p.cm..[....}N731
+
+[17:09:50.365] ← IN  SysEx (46 bytes) - Command 0x2A
+           00 20 76 33 40 2a 12 05 00 08 00 12 03 66 1d 00 00 02 07 56 ... (+26 bytes)
+           ASCII: . v3@*.......f.....V998.p.cm..g.....P999
+
+[17:09:50.377] ← IN  SysEx (12 bytes) - Command 0x2A
+           00 20 76 33 40 2a 13 05 00 00 00 13
+           ASCII: . v3@*......
+
+^C
+
+✅ Monitoring stopped
