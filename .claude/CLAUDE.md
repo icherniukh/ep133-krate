@@ -52,16 +52,35 @@ When corrected on an approach, fully internalize the correction. Do not revert i
 
 ---
 
-## Architecture (post KO2-012 refactor)
+## Architecture (post ARCH-001 src/ restructure)
 
-- `ko2.py` — CLI, 16 `cmd_*` functions, all take `(args, view: View)`
-- `ko2_parser.py` — argparse setup (`build_parser()`, `validate_slot()`, `parse_range()`); mv/cp/rm use `aliases=[]`
-- `ko2_display.py` — `View` protocol + `TerminalView`/`SilentView`/`JsonView`/`SampleFormat`
-- `ko2_client.py` — `EP133Client` context manager, synchronous/blocking, uses mido
-- `ko2_models.py` — protocol message descriptors
-- `ko2_types.py` — wire-level types and constants
-- `ko2_operations.py` — multi-step transaction operations
-- `ko2_tui/` — Textual TUI (`TUIApp` in app.py ~1041 lines, ui.py + `HelpModal`, worker.py, waveform_widget.py, waveform_store.py)
+### CLI layer — `src/cli/`
+- `cli_main.py` — `main()` entry point, view construction, dispatch
+- `parser.py` — `build_parser()`, `validate_slot()`, `parse_range()`; mv/cp/rm use `aliases=[]`
+- `display.py` — `View` protocol + `TerminalView`/`SilentView`/`JsonView`/`SampleFormat`
+- `cmd_audio.py` — `cmd_optimize`, `cmd_optimize_all`, `cmd_audition`, `cmd_play`
+- `cmd_slots.py` — `cmd_ls`, `cmd_mv`, `cmd_cp`, `cmd_rm`, `cmd_rename`, `cmd_squash`
+- `cmd_system.py` — `cmd_info`, `cmd_backup`, `cmd_fingerprint`, plus others
+- `cmd_transfer.py` — `cmd_put`, `cmd_get`
+- `formatters.py`, `naming.py`, `prompts.py`, `sysinfo.py` — shared CLI helpers
+
+### Core layer — `src/core/`
+- `client.py` — `EP133Client` context manager, synchronous/blocking, uses mido
+- `models.py` — protocol message descriptors
+- `types.py` — wire-level types and constants
+- `operations.py` — multi-step transaction operations
+- `ops.py` — device operations (mv/cp/rm at protocol level)
+- `audio.py` — DSP/analysis utilities (pure functions, no device I/O)
+- `backup.py` — backup copy helper
+
+### TUI layer — `src/tui/`
+- `app.py` — `TUIApp` (~1041 lines), main Textual app
+- `ui.py` — `DetailsWidget`, `HelpModal`
+- `worker.py` — `DeviceWorker`, threaded MIDI ops
+- `waveform_widget.py`, `waveform_store.py` — waveform rendering pipeline
+
+### Entry point
+- `ko2.py` — thin shim, calls `src/cli/cli_main.main()`
 
 **View protocol rule:** All CLI output goes through `view: View`. No bare `print()` in `cmd_*`.
 **TUI threading rule:** `EP133Client` is synchronous. Always `run_worker(fn, thread=True)`.
