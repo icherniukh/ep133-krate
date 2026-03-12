@@ -135,7 +135,7 @@ class TerminalView:
         [88, 52],
     ]
 
-    # --- private layout helpers ---
+    # --- Terminal Formatting Strategies ---
 
     def _size_color(self, size_bytes: int) -> str:
         result = SampleFormat.size_band(size_bytes)

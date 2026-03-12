@@ -381,7 +381,7 @@ class DownloadInitResponse(FileMessage):
     filename = NullTerminatedStringField()
 
 
-# --- Logical Helpers (Pure) ---
+# --- Protocol Payload Decoders ---
 
 def decode_14bit(hi: int, lo: int) -> int:
     """Decode a 14-bit (hi/lo 7-bit) value."""

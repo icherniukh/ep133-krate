@@ -1,4 +1,4 @@
-"""Audio analysis utilities for EP-133 sample processing.
+"""Digital signal processing (DSP) algorithms and analysis routines for EP-133 audio payloads.
 
 Pure functions for WAV data analysis — no device communication.
 Shared between CLI, TUI, and future web/mobile frontends.
