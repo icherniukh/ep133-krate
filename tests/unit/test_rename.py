@@ -1,4 +1,4 @@
-from ko2_client import EP133Client
+from core.client import EP133Client
 
 
 def _make_client_for_rename(status: int | None):

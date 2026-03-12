@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import pytest
 
-from ko2_tui.selectors import RangeSelector, parse_selector
-from ko2_tui.state import TuiState
+from tui.selectors import RangeSelector, parse_selector
+from tui.state import TuiState
 
 
 def _slots(state: TuiState) -> dict:

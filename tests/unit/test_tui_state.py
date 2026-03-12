@@ -1,4 +1,4 @@
-from ko2_tui.state import TuiState, initial_slots
+from tui.state import TuiState, initial_slots
 
 
 def test_initial_slots_has_999_entries():

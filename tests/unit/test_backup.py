@@ -1,5 +1,5 @@
 """
-Unit tests for ko2_backup.py.
+Unit tests for core.backup.py.
 
 Covers:
 - Backup file naming convention
@@ -17,7 +17,7 @@ from unittest.mock import patch
 
 import pytest
 
-from ko2_backup import backup_copy, sanitize_filename_part, DEFAULT_BACKUP_DIR
+from core.backup import backup_copy, sanitize_filename_part, DEFAULT_BACKUP_DIR
 
 
 # ---------------------------------------------------------------------------
@@ -125,7 +125,7 @@ class TestBackupCopyNaming:
         bak_dir = tmp_path / "backups"
 
         fixed_ts = "20260310T120000"
-        with patch("ko2_backup.time") as mock_time:
+        with patch("core.backup.time") as mock_time:
             mock_time.strftime.return_value = fixed_ts
             dst = backup_copy(src, slot=1, backup_dir=bak_dir)
 
@@ -246,7 +246,7 @@ class TestBackupCopyCollisions:
         bak_dir = tmp_path / "backups"
 
         fixed_ts = "20260310T120000"
-        with patch("ko2_backup.time") as mock_time:
+        with patch("core.backup.time") as mock_time:
             mock_time.strftime.return_value = fixed_ts
             dst1 = backup_copy(src, slot=1, backup_dir=bak_dir)
             dst2 = backup_copy(src, slot=1, backup_dir=bak_dir)
@@ -260,11 +260,11 @@ class TestBackupCopyCollisions:
         src.write_bytes(b"\x00" * 8)
         bak_dir = tmp_path / "backups"
 
-        with patch("ko2_backup.time") as mock_time:
+        with patch("core.backup.time") as mock_time:
             mock_time.strftime.return_value = "20260310T120000"
             dst1 = backup_copy(src, slot=1, backup_dir=bak_dir)
 
-        with patch("ko2_backup.time") as mock_time:
+        with patch("core.backup.time") as mock_time:
             mock_time.strftime.return_value = "20260310T120001"
             dst2 = backup_copy(src, slot=1, backup_dir=bak_dir)
 
@@ -278,7 +278,7 @@ class TestBackupCopyCollisions:
         bak_dir = tmp_path / "backups"
 
         fixed_ts = "20260310T120000"
-        with patch("ko2_backup.time") as mock_time:
+        with patch("core.backup.time") as mock_time:
             mock_time.strftime.return_value = fixed_ts
             dst1 = backup_copy(src, slot=1, backup_dir=bak_dir)
             dst2 = backup_copy(src, slot=2, backup_dir=bak_dir)

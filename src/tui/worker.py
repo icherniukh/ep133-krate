@@ -14,8 +14,8 @@ from pathlib import Path
 from queue import Empty, Queue
 from typing import Any, Callable
 
-from ko2_client import EP133Client, SlotEmptyError
-from ko2_models import SAMPLE_RATE
+from core.client import EP133Client, SlotEmptyError
+from core.models import SAMPLE_RATE
 
 import sys
 from pathlib import Path as _Path

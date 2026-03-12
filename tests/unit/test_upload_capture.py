@@ -140,7 +140,7 @@ class TestUploadCaptureDecode:
 
         Our UploadEndRequest must use UPLOAD_DATA (0x6C), not UPLOAD_END (0x6D).
         """
-        from ko2_models import UploadEndRequest, SysExCmd
+        from core.models import UploadEndRequest, SysExCmd
 
         chunks = [p for p in capture_payloads if len(p) >= 2 and p[0] == 0x02 and p[1] == 0x01]
         last = chunks[-1]
@@ -164,7 +164,7 @@ class TestUploadCaptureDecode:
         Observed: official app also sends a trailing empty (0-byte) chunk after the
         last data chunk, as a sentinel. This is not required by our implementation.
         """
-        from ko2_models import UPLOAD_CHUNK_SIZE
+        from core.models import UPLOAD_CHUNK_SIZE
 
         chunks = [p for p in capture_payloads if len(p) >= 2 and p[0] == 0x02 and p[1] == 0x01]
         data_chunks = [c for c in chunks if len(c) > 4]   # non-empty PCM

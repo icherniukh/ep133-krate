@@ -23,11 +23,11 @@ import cli.cmd_slots
 import cli.cmd_audio
 import cli.cmd_system
 import core.ops
-from ko2_client import EP133Client, SlotEmptyError
+from core.client import EP133Client, SlotEmptyError
 from core.ops import backup_copy, optimize_sample
-from ko2_display import View
-from ko2_client import EP133Error, SlotEmptyError
-from ko2_operations import UploadTransaction
+from cli.display import View
+from core.client import EP133Error, SlotEmptyError
+from core.operations import UploadTransaction
 
 
 # ---------------------------------------------------------------------------
@@ -234,7 +234,7 @@ class _UploadFakeClient:
         self.calls = []
 
     def _send_and_wait_msg(self, msg, timeout=2.0, expect_resp_cmd=None, seq=None):
-        from ko2_models import UploadInitRequest, UploadEndRequest
+        from core.models import UploadInitRequest, UploadEndRequest
         self.calls.append(("send_and_wait", type(msg).__name__))
         if isinstance(msg, UploadInitRequest) and not self._init_response:
             return None  # Simulates no ACK / timeout after PUT_INIT
@@ -243,7 +243,7 @@ class _UploadFakeClient:
         return SimpleNamespace(status=0)
 
     def _send_msg(self, msg, seq=None):
-        from ko2_models import UploadChunkRequest
+        from core.models import UploadChunkRequest
         self._chunk_call_count += 1
         self.calls.append(("send_msg", type(msg).__name__, self._chunk_call_count))
         if (
@@ -298,7 +298,7 @@ def test_upload_transaction_no_chunks_sent_when_init_fails(tmp_path):
 def test_upload_transaction_raises_on_chunk_send_error(tmp_path):
     """Exception during _send_msg on the 2nd chunk must propagate out of execute()."""
     # Use enough frames to guarantee at least 2 chunks
-    from ko2_models import UPLOAD_CHUNK_SIZE
+    from core.models import UPLOAD_CHUNK_SIZE
     # Each frame = 2 bytes; we need > UPLOAD_CHUNK_SIZE bytes of audio
     frames_needed = (UPLOAD_CHUNK_SIZE // 2) + 100
     wav = _make_wav_path(tmp_path, frames=frames_needed)
@@ -312,7 +312,7 @@ def test_upload_transaction_raises_on_chunk_send_error(tmp_path):
 
 def test_upload_transaction_first_chunk_sent_before_failure(tmp_path):
     """At least the first chunk is sent before the mid-upload error (chunk 2 fails)."""
-    from ko2_models import UPLOAD_CHUNK_SIZE
+    from core.models import UPLOAD_CHUNK_SIZE
     frames_needed = (UPLOAD_CHUNK_SIZE // 2) + 100
     wav = _make_wav_path(tmp_path, frames=frames_needed)
 
@@ -382,7 +382,7 @@ class _ErrorStatusClient:
         self.calls = []
 
     def _send_and_wait_msg(self, msg, timeout=2.0, expect_resp_cmd=None, seq=None):
-        from ko2_models import UploadInitRequest
+        from core.models import UploadInitRequest
         self.calls.append(type(msg).__name__)
         # For PUT_INIT return an object with a non-zero status
         if isinstance(msg, UploadInitRequest):
@@ -423,7 +423,7 @@ def test_upload_transaction_continues_after_nok_init_status(tmp_path):
 
 def test_upload_transaction_uses_correct_slot_in_init(tmp_path):
     """PUT_INIT request must be constructed with the correct slot number."""
-    from ko2_models import UploadInitRequest
+    from core.models import UploadInitRequest
 
     wav = _make_wav_path(tmp_path)
     client = _UploadFakeClient(init_response=True)

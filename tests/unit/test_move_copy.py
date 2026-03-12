@@ -6,10 +6,10 @@ import cli.cmd_slots
 import cli.cmd_audio
 import cli.cmd_system
 import core.ops
-from ko2_client import EP133Client, SlotEmptyError
+from core.client import EP133Client, SlotEmptyError
 from core.ops import backup_copy, optimize_sample
-from ko2_display import TerminalView
-from ko2_client import SlotEmptyError
+from cli.display import TerminalView
+from core.client import SlotEmptyError
 
 
 class FakeClient:

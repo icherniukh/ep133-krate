@@ -12,7 +12,7 @@ from textual.screen import ModalScreen
 from textual.widgets import Button, Input, Label, Checkbox, Static
 
 from .state import SlotRow
-from ko2_display import SampleFormat
+from cli.display import SampleFormat
 
 # Rich hex colour palette per size band — parallel to TerminalRenderer._ANSI_PALETTE
 _RICH_PALETTE: list[list[str]] = [

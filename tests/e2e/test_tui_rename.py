@@ -2,8 +2,8 @@ import asyncio
 
 import pytest
 
-from ko2_tui.app import TUIApp
-from ko2_tui.ui import TextInputModal
+from tui.app import TUIApp
+from tui.ui import TextInputModal
 
 
 pytestmark = pytest.mark.e2e

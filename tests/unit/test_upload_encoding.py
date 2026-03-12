@@ -10,7 +10,7 @@ import wave
 import tempfile
 from pathlib import Path
 
-from ko2_operations import UploadTransaction
+from core.operations import UploadTransaction
 
 
 def _write_known_wav(path: Path) -> bytes:
@@ -65,7 +65,7 @@ def test_upload_sends_le_pcm_unchanged():
         tx.execute()
 
         # Collect all UploadChunkRequest data payloads
-        from ko2_models import UploadChunkRequest
+        from core.models import UploadChunkRequest
         chunk_calls = [c for c in client.calls if isinstance(c, UploadChunkRequest)]
         assert chunk_calls, "No UploadChunkRequests were sent"
 

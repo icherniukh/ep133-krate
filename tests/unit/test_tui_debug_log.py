@@ -1,7 +1,7 @@
 import json
 
-from ko2_models import FileListRequest
-from ko2_tui.debug_log import DebugLogger
+from core.models import FileListRequest
+from tui.debug_log import DebugLogger
 
 
 def test_debug_logger_writes_jsonl(tmp_path):

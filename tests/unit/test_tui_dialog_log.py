@@ -1,4 +1,4 @@
-from ko2_tui.dialog_log import DialogLogger
+from tui.dialog_log import DialogLogger
 
 
 def test_dialog_logger_writes_lines(tmp_path):

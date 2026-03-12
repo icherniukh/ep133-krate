@@ -1,11 +1,11 @@
 import re
 import json
 
-from ko2_client import EP133Client
-from ko2_models import MAX_SLOTS, decode_14bit, decode_node_id
-from ko2_display import View, SampleFormat
-from ko2_parser import parse_range
-from ko2_parser import parse_page
+from core.client import EP133Client
+from core.models import MAX_SLOTS, decode_14bit, decode_node_id
+from cli.display import View, SampleFormat
+from cli.parser import parse_range
+from cli.parser import parse_page
 from cli.formatters import short_text as _short
 from cli.formatters import sanitize_field as _sanitize_field
 from cli.formatters import format_bar as _format_bar

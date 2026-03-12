@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import pytest
-from ko2_tui.waveform_widget import WaveformWidget
+from tui.waveform_widget import WaveformWidget
 
 
 def _make_widget() -> WaveformWidget:

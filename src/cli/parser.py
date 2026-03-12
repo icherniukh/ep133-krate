@@ -1,5 +1,5 @@
 """
-ko2_parser.py - Argument parser construction for the ko2 CLI.
+cli.parser.py - Argument parser construction for the ko2 CLI.
 
 Exports:
     build_parser()    -> argparse.ArgumentParser
@@ -10,9 +10,9 @@ import argparse
 import re
 
 try:
-    from ko2_models import MAX_SLOTS
+    from core.models import MAX_SLOTS
 except ImportError as e:
-    raise ImportError(f"ko2_parser: could not import ko2_models: {e}") from e
+    raise ImportError(f"cli.parser: could not import core.models: {e}") from e
 
 
 def validate_slot(slot) -> int:

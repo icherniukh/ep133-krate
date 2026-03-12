@@ -1,10 +1,10 @@
 import tempfile
 from pathlib import Path
 
-from ko2_client import EP133Client, SlotEmptyError, EP133Error, SampleInfo
-from ko2_models import MAX_SLOTS, SAMPLE_RATE
-from ko2_display import View
-from ko2_parser import parse_range
+from core.client import EP133Client, SlotEmptyError, EP133Error, SampleInfo
+from core.models import MAX_SLOTS, SAMPLE_RATE
+from cli.display import View
+from cli.parser import parse_range
 
 from core.ops import (
     backup_copy,
@@ -14,12 +14,12 @@ from core.ops import (
     squash_scan,
     squash_process,
 )
-from ko2_parser import parse_page
+from cli.parser import parse_page
 from cli.naming import choose_display_name
 from cli.prompts import confirm
 
-from ko2_client import SampleInfo
-from ko2_models import SAMPLE_RATE
+from core.client import SampleInfo
+from core.models import SAMPLE_RATE
 def empty_sample(slot: int) -> SampleInfo:
     return SampleInfo(slot=slot, name='...', samplerate=SAMPLE_RATE, channels=0, size_bytes=0)
 

@@ -4,7 +4,7 @@ from pathlib import Path
 import pytest
 
 from cli.sysinfo import extract_total_memory as _extract_total_memory
-from ko2_client import EP133Error
+from core.client import EP133Error
 
 from tests.helpers import create_test_wav
 

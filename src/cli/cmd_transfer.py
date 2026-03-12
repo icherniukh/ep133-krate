@@ -1,8 +1,8 @@
 from pathlib import Path
 
-from ko2_client import EP133Client, SlotEmptyError, EP133Error
-from ko2_display import View
-from ko2_parser import validate_slot
+from core.client import EP133Client, SlotEmptyError, EP133Error
+from cli.display import View
+from cli.parser import validate_slot
 from cli.prompts import confirm
 
 def cmd_get(args, view: View):

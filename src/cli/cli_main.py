@@ -1,9 +1,9 @@
 import sys
 import importlib
 
-from ko2_client import find_device
-from ko2_display import View, JsonView, SilentView, TerminalView
-from ko2_parser import build_parser
+from core.client import find_device
+from cli.display import View, JsonView, SilentView, TerminalView
+from cli.parser import build_parser
 
 from .cmd_slots import (
     cmd_ls,
@@ -26,7 +26,7 @@ from .cmd_audio import (
 
 def cmd_tui(args, view: View):
     try:
-        module = importlib.import_module("ko2_tui.app")
+        module = importlib.import_module("tui.app")
         app_cls = getattr(module, "TUIApp")
     except ImportError:
         view.error("TUI dependencies are missing. Install `textual` and try again.")

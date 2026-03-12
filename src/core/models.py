@@ -2,7 +2,7 @@
 EP-133 KO-II Protocol Layer
 
 Defines the "Language" of the device using a Descriptor-based DSL.
-Depends only on ko2_types.py for primitive types.
+Depends only on core.types.py for primitive types.
 """
 
 from enum import IntEnum

@@ -1,6 +1,6 @@
 import struct
 
-from ko2_client import _detect_channels
+from core.client import _detect_channels
 
 
 def _pcm_bytes(samples: list[int]) -> bytes:

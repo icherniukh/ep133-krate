@@ -9,11 +9,11 @@ expected exception.
 Functions under test
 --------------------
 1. parse_file_list_response(payload: bytes) -> list[dict]
-   Location: ko2_models.py
+   Location: core.models.py
    Contract: returns a (possibly empty) list; never crashes on malformed input.
 
 2. _parse_json_tolerant(data: bytes) -> dict | None
-   Location: ko2_client.py
+   Location: core.client.py
    Contract: returns a dict or None; never crashes on malformed input.
 
 hypothesis is not installed; tests use @pytest.mark.parametrize with a curated
@@ -24,8 +24,8 @@ partial JSON, and random binary-like patterns.
 
 import pytest
 
-from ko2_models import parse_file_list_response
-from ko2_client import _parse_json_tolerant
+from core.models import parse_file_list_response
+from core.client import _parse_json_tolerant
 
 
 # ---------------------------------------------------------------------------

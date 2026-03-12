@@ -3,8 +3,8 @@ from pathlib import Path
 
 import pytest
 
-from ko2_client import SlotEmptyError
-from ko2_models import MAX_SLOTS
+from core.client import SlotEmptyError
+from core.models import MAX_SLOTS
 
 
 pytestmark = pytest.mark.e2e

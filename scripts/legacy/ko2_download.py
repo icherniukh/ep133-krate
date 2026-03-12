@@ -24,7 +24,7 @@ except ImportError:
     print("Error: mido library not installed")
     sys.exit(1)
 
-from ko2_models import (
+from core.models import (
     SysExCmd, RspCmd,
     END, DeviceId, FileOp, GetType, MetaType,
     PAT_META_REQ, E_EMPTY,

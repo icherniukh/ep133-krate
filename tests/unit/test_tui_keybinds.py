@@ -14,9 +14,9 @@ import asyncio
 
 import pytest
 
-from ko2_tui.app import TUIApp
-from ko2_tui.ui import ConfirmModal, HelpModal, TextInputModal
-from ko2_tui.worker import WorkerEvent
+from tui.app import TUIApp
+from tui.ui import ConfirmModal, HelpModal, TextInputModal
+from tui.worker import WorkerEvent
 
 
 class StubWorker:
@@ -58,7 +58,7 @@ def _make_ready(app: TUIApp) -> None:
 
 def test_question_mark_opens_help_modal(monkeypatch):
     """Pressing ? must push HelpModal onto the screen stack."""
-    monkeypatch.setattr("ko2_tui.app.DeviceWorker", StubWorker)
+    monkeypatch.setattr("tui.app.DeviceWorker", StubWorker)
 
     async def _run():
         app = TUIApp(device_name="EP-133", debug=False)
@@ -74,7 +74,7 @@ def test_question_mark_opens_help_modal(monkeypatch):
 
 def test_escape_dismisses_help_modal(monkeypatch):
     """Pressing Escape while HelpModal is open must dismiss it."""
-    monkeypatch.setattr("ko2_tui.app.DeviceWorker", StubWorker)
+    monkeypatch.setattr("tui.app.DeviceWorker", StubWorker)
 
     async def _run():
         app = TUIApp(device_name="EP-133", debug=False)
@@ -94,7 +94,7 @@ def test_escape_dismisses_help_modal(monkeypatch):
 
 def test_help_modal_does_not_submit_worker_request(monkeypatch):
     """Opening and closing HelpModal must not enqueue any worker request."""
-    monkeypatch.setattr("ko2_tui.app.DeviceWorker", StubWorker)
+    monkeypatch.setattr("tui.app.DeviceWorker", StubWorker)
 
     async def _run():
         app = TUIApp(device_name="EP-133", debug=False)
@@ -119,7 +119,7 @@ def test_help_modal_does_not_submit_worker_request(monkeypatch):
 
 def test_optimize_all_key_opens_confirm_modal(monkeypatch):
     """Pressing O (uppercase) must open a ConfirmModal for optimize-all."""
-    monkeypatch.setattr("ko2_tui.app.DeviceWorker", StubWorker)
+    monkeypatch.setattr("tui.app.DeviceWorker", StubWorker)
 
     async def _run():
         app = TUIApp(device_name="EP-133", debug=False)
@@ -135,7 +135,7 @@ def test_optimize_all_key_opens_confirm_modal(monkeypatch):
 
 def test_optimize_all_confirm_submits_request(monkeypatch):
     """Confirming the optimize-all dialog must submit an optimize_all worker request."""
-    monkeypatch.setattr("ko2_tui.app.DeviceWorker", StubWorker)
+    monkeypatch.setattr("tui.app.DeviceWorker", StubWorker)
 
     async def _run():
         app = TUIApp(device_name="EP-133", debug=False)
@@ -156,7 +156,7 @@ def test_optimize_all_confirm_submits_request(monkeypatch):
 
 def test_optimize_all_cancel_skips_request(monkeypatch):
     """Cancelling the optimize-all dialog must NOT submit any worker request."""
-    monkeypatch.setattr("ko2_tui.app.DeviceWorker", StubWorker)
+    monkeypatch.setattr("tui.app.DeviceWorker", StubWorker)
 
     async def _run():
         app = TUIApp(device_name="EP-133", debug=False)
@@ -185,7 +185,7 @@ def test_optimize_all_cancel_skips_request(monkeypatch):
 
 def test_d_key_opens_download_modal(monkeypatch):
     """Pressing d (download) must push a TextInputModal for the output path."""
-    monkeypatch.setattr("ko2_tui.app.DeviceWorker", StubWorker)
+    monkeypatch.setattr("tui.app.DeviceWorker", StubWorker)
 
     async def _run():
         app = TUIApp(device_name="EP-133", debug=False)
@@ -201,7 +201,7 @@ def test_d_key_opens_download_modal(monkeypatch):
 
 def test_d_key_download_modal_dismiss_submits_request(monkeypatch):
     """Confirming a path in the download modal must submit a download worker request."""
-    monkeypatch.setattr("ko2_tui.app.DeviceWorker", StubWorker)
+    monkeypatch.setattr("tui.app.DeviceWorker", StubWorker)
 
     async def _run():
         app = TUIApp(device_name="EP-133", debug=False)
@@ -222,7 +222,7 @@ def test_d_key_download_modal_dismiss_submits_request(monkeypatch):
 
 def test_d_key_download_modal_cancel_skips_request(monkeypatch):
     """Cancelling the download modal (dismiss with None) must not submit a request."""
-    monkeypatch.setattr("ko2_tui.app.DeviceWorker", StubWorker)
+    monkeypatch.setattr("tui.app.DeviceWorker", StubWorker)
 
     async def _run():
         app = TUIApp(device_name="EP-133", debug=False)
@@ -249,7 +249,7 @@ def test_d_key_download_modal_cancel_skips_request(monkeypatch):
 
 def test_backspace_key_opens_delete_confirm(monkeypatch):
     """Pressing backspace on an occupied slot must push a ConfirmModal."""
-    monkeypatch.setattr("ko2_tui.app.DeviceWorker", StubWorker)
+    monkeypatch.setattr("tui.app.DeviceWorker", StubWorker)
 
     async def _run():
         app = TUIApp(device_name="EP-133", debug=False)
@@ -265,7 +265,7 @@ def test_backspace_key_opens_delete_confirm(monkeypatch):
 
 def test_backspace_confirm_submits_delete(monkeypatch):
     """Confirming the delete dialog must submit a delete worker request."""
-    monkeypatch.setattr("ko2_tui.app.DeviceWorker", StubWorker)
+    monkeypatch.setattr("tui.app.DeviceWorker", StubWorker)
 
     async def _run():
         app = TUIApp(device_name="EP-133", debug=False)
@@ -286,7 +286,7 @@ def test_backspace_confirm_submits_delete(monkeypatch):
 
 def test_backspace_cancel_skips_delete(monkeypatch):
     """Cancelling the delete dialog must not submit any delete request."""
-    monkeypatch.setattr("ko2_tui.app.DeviceWorker", StubWorker)
+    monkeypatch.setattr("tui.app.DeviceWorker", StubWorker)
 
     async def _run():
         app = TUIApp(device_name="EP-133", debug=False)
@@ -312,7 +312,7 @@ def test_backspace_cancel_skips_delete(monkeypatch):
 
 def test_escape_in_move_mode_cancels_move(monkeypatch):
     """Pressing Escape while in move mode must cancel the move (moving_src → None)."""
-    monkeypatch.setattr("ko2_tui.app.DeviceWorker", StubWorker)
+    monkeypatch.setattr("tui.app.DeviceWorker", StubWorker)
 
     async def _run():
         app = TUIApp(device_name="EP-133", debug=False)
@@ -340,7 +340,7 @@ def test_audition_started_event_initializes_playback_state(monkeypatch):
     """_handle_event('audition_started') calls _start_playback_animation."""
     import time
 
-    monkeypatch.setattr("ko2_tui.app.DeviceWorker", StubWorker)
+    monkeypatch.setattr("tui.app.DeviceWorker", StubWorker)
 
     async def _run():
         app = TUIApp(device_name="test", debug=False)

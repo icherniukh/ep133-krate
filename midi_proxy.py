@@ -116,7 +116,7 @@ def _log_sysex(
         payload = msg_data[7:]
         if payload[:1] == b"\x05":
             try:
-                from ko2_types import Packed7
+                from core.types import Packed7
             except Exception:
                 Packed7 = None
             if Packed7:
@@ -698,7 +698,7 @@ def _iter_raw_entries(fp):
 def pretty_print(
     path: Path, color: bool = True, limit: int | None = None, raw: bool = False
 ) -> None:
-    from ko2_types import Packed7
+    from core.types import Packed7
 
     count = 0
     if raw:

@@ -16,8 +16,8 @@ from .debug_log import DebugLogger
 from .dialog_log import DialogLogger
 from .waveform_store import WaveformStore
 from .waveform_widget import WaveformWidget
-from ko2_display import SampleFormat
-from ko2_models import SAMPLE_RATE
+from cli.display import SampleFormat
+from core.models import SAMPLE_RATE
 from .selectors import parse_selector
 from .state import SlotRow, TuiState
 from .ui import ConfirmModal, DetailsWidget, HelpModal, OptimizeModal, TextInputModal, UploadModal, table_row_values

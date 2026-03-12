@@ -11,8 +11,8 @@ import json
 import sys
 from typing import Protocol, runtime_checkable
 
-from ko2_client import SampleInfo
-from ko2_models import SAMPLE_RATE
+from core.client import SampleInfo
+from core.models import SAMPLE_RATE
 
 # Size-band thresholds (bytes).  Both CLI and TUI share these so colour
 # gradients stay consistent across rendering targets.

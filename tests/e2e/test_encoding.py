@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from ko2_models import SAMPLE_RATE, BIT_DEPTH, CHANNELS
+from core.models import SAMPLE_RATE, BIT_DEPTH, CHANNELS
 
 
 pytestmark = pytest.mark.e2e
@@ -41,7 +41,7 @@ def _read_wav_samples(path: Path) -> array.array:
 class TestAudioEncoding:
     def test_upload_download_roundtrip(self, ep133_client):
         """Exact sample-level roundtrip: upload LE s16, download, compare."""
-        from ko2_client import EP133Error, SlotEmptyError
+        from core.client import EP133Error, SlotEmptyError
 
         # Pre-flight: skip if slot is already occupied
         try:

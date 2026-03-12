@@ -4,8 +4,8 @@ from pathlib import Path
 from queue import Queue
 from types import SimpleNamespace
 
-from ko2_tui import actions
-from ko2_tui.worker import DeviceWorker
+from tui import actions
+from tui.worker import DeviceWorker
 
 
 class FakeClient:
@@ -230,8 +230,8 @@ def test_worker_optimize_emits_slot_refresh(monkeypatch, tmp_path):
     def _fake_backup_copy(path, slot=None, name_hint=None):
         return tmp_path / "noop.wav"
 
-    monkeypatch.setattr("ko2_tui.worker.optimize_sample", _fake_optimize_sample)
-    monkeypatch.setattr("ko2_tui.worker.backup_copy", _fake_backup_copy)
+    monkeypatch.setattr("tui.worker.optimize_sample", _fake_optimize_sample)
+    monkeypatch.setattr("tui.worker.backup_copy", _fake_backup_copy)
 
     req_q: Queue = Queue()
     evt_q: Queue = Queue()
@@ -448,8 +448,8 @@ def test_worker_optimize_all_skips_mono_slots(monkeypatch, tmp_path):
     def _fake_backup_copy(path, slot=None, name_hint=None):
         return tmp_path / "backup.wav"
 
-    monkeypatch.setattr("ko2_tui.worker.optimize_sample", _fake_optimize_sample)
-    monkeypatch.setattr("ko2_tui.worker.backup_copy", _fake_backup_copy)
+    monkeypatch.setattr("tui.worker.optimize_sample", _fake_optimize_sample)
+    monkeypatch.setattr("tui.worker.backup_copy", _fake_backup_copy)
 
     req_q: Queue = Queue()
     evt_q: Queue = Queue()

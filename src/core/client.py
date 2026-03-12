@@ -471,7 +471,7 @@ class EP133Client:
             if not resp:
                 break
             _status, payload = resp
-            from ko2_models import parse_file_list_response
+            from core.models import parse_file_list_response
             entries = parse_file_list_response(payload)
             if not entries:
                 break
@@ -595,7 +595,7 @@ class EP133Client:
         self.set_node_metadata(node_id, {"name": new_name})
 
     def get(self, slot: int, output_path: Optional[Path] = None, debug: bool = False) -> Path:
-        from ko2_models import SAMPLE_RATE
+        from core.models import SAMPLE_RATE
         info = self.info(slot)
         if info.is_empty or info.size_bytes == 0:
             raise SlotEmptyError(f"Slot {slot} is empty or has no size")
@@ -736,7 +736,7 @@ class EP133Client:
         import wave
         with wave.open(str(output_path), "wb") as wav:
             wav.setnchannels(channels)
-            from ko2_models import BIT_DEPTH
+            from core.models import BIT_DEPTH
             wav.setsampwidth(BIT_DEPTH // 8)
             wav.setframerate(samplerate)
             if data: wav.writeframes(data)

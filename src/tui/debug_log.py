@@ -7,7 +7,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from ko2_types import Packed7
+from core.types import Packed7
 
 
 @dataclass

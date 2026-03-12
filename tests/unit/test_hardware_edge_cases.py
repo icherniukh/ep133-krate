@@ -1,6 +1,6 @@
 import pytest
-from ko2_models import FileListResponse
-from ko2_types import Packed7, WireDataError, TruncatedMessageError
+from core.models import FileListResponse
+from core.types import Packed7, WireDataError, TruncatedMessageError
 
 
 def test_file_list_response_handles_invalid_file_payload():

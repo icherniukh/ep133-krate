@@ -17,7 +17,7 @@ from typing import Optional
 
 import mido
 
-from ko2_models import (
+from core.models import (
     CMD_FILE,
     DEVICE_FAMILY,
     FileOp,
@@ -28,7 +28,7 @@ from ko2_models import (
     SysExCmd,
     TE_MFG_ID,
 )
-from ko2_types import Packed7, U14LE
+from core.types import Packed7, U14LE
 
 
 DOWNLOAD_CHUNK_SIZE = 433

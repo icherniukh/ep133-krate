@@ -129,7 +129,7 @@ def emulator_device(pytestconfig):
     mido.open_ioport = backend.open_ioport
     mido.get_output_names = backend.get_output_names
     mido.get_input_names = backend.get_input_names
-    from ko2_emulator import EP133Emulator
+    from tests.emulator import EP133Emulator
 
     emu = EP133Emulator(port_name="EP-133 Emulator")
     emu.start()
@@ -158,7 +158,7 @@ def device_name(pytestconfig, emulator_device):
 
 @pytest.fixture(scope="session")
 def ep133_client(device_name):
-    from ko2_client import EP133Client, DeviceNotFoundError
+    from core.client import EP133Client, DeviceNotFoundError
 
     try:
         with EP133Client(device_name) as c:  # device_name=None triggers auto-detect

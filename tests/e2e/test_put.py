@@ -12,8 +12,8 @@ class TestPut:
         from pathlib import Path
         import tempfile
 
-        from ko2_models import MAX_SLOTS, SAMPLE_RATE
-        from ko2_client import EP133Error, SlotEmptyError
+        from core.models import MAX_SLOTS, SAMPLE_RATE
+        from core.client import EP133Error, SlotEmptyError
         from tests.helpers import create_test_wav
 
         # Find an empty slot to use for testing

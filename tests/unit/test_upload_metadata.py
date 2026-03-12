@@ -1,4 +1,4 @@
-from ko2_client import EP133Client
+from core.client import EP133Client
 
 
 def test_build_upload_metadata_includes_loop_fields_when_small():

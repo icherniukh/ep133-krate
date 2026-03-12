@@ -1,4 +1,4 @@
-from ko2_tui.waveform_store import WaveformStore
+from tui.waveform_store import WaveformStore
 import json
 
 

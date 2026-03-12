@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Mapping
 
-from ko2_models import MAX_SLOTS, SAMPLE_RATE
+from core.models import MAX_SLOTS, SAMPLE_RATE
 
 
 @dataclass

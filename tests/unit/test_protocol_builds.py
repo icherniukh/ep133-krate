@@ -1,7 +1,7 @@
 import pytest
-from ko2_models import CMD_FILE, FileOp, MetaType, UPLOAD_PARENT_NODE
-from ko2_types import Packed7
-from ko2_models import (
+from core.models import CMD_FILE, FileOp, MetaType, UPLOAD_PARENT_NODE
+from core.types import Packed7
+from core.models import (
     MetadataGetLegacyRequest, DeleteRequest, DownloadInitRequest, 
     DownloadChunkRequest, FileListRequest, MetadataGetRequest, UploadInitRequest
 )

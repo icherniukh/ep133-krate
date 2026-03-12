@@ -3,13 +3,13 @@ import hashlib
 import tempfile
 from pathlib import Path
 
-from ko2_client import EP133Client, SlotEmptyError, EP133Error
-from ko2_display import View, SampleFormat
-from ko2_parser import validate_slot
+from core.client import EP133Client, SlotEmptyError, EP133Error
+from cli.display import View, SampleFormat
+from cli.parser import validate_slot
 
 from core.ops import optimize_sample, backup_copy
 from cli.prompts import confirm
-from ko2_models import SAMPLE_RATE
+from core.models import SAMPLE_RATE
 
 def cmd_optimize(args, view: View):
     slot = args.slot
@@ -263,7 +263,7 @@ def _slot_signature(name: str, size_bytes: int, channels: int, samplerate: int) 
     }
 
 def cmd_fingerprint(args, view: View):
-    from ko2_tui.waveform_store import WaveformStore
+    from tui.waveform_store import WaveformStore
 
     action = str(getattr(args, "fp_action", "") or "").strip().lower()
     if action not in {"write", "read", "verify"}:

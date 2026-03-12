@@ -11,9 +11,9 @@ Slot is BE16 at bytes [2:4]. Confirmed range: 1–808.
 """
 import pytest
 from unittest.mock import Mock, patch
-from ko2_models import AuditionRequest, UPLOAD_PARENT_NODE
-from ko2_types import Packed7
-from ko2_display import View
+from core.models import AuditionRequest, UPLOAD_PARENT_NODE
+from core.types import Packed7
+from cli.display import View
 
 
 # ---------------------------------------------------------------------------
@@ -94,7 +94,7 @@ def test_audition_request_payload_structure_high_slot():
 
 def test_audition_request_opcode():
     """AuditionRequest uses SysExCmd.LIST_FILES (0x6A) — fixed FILE devid."""
-    from ko2_models import SysExCmd
+    from core.models import SysExCmd
     assert AuditionRequest.opcode == SysExCmd.LIST_FILES
 
 
@@ -155,7 +155,7 @@ def test_cmd_audition_high_slot():
 
 
 def test_cmd_audition_ep133error_returns_rc1():
-    from ko2_client import EP133Error
+    from core.client import EP133Error
     client = FakeClient()
     rc, view = _run_cmd_audition(slot=1, fake_client=client, error=EP133Error("no response"))
     assert rc == 1
@@ -163,7 +163,7 @@ def test_cmd_audition_ep133error_returns_rc1():
 
 
 def test_cmd_audition_ep133error_message_forwarded():
-    from ko2_client import EP133Error
+    from core.client import EP133Error
     client = FakeClient()
     rc, view = _run_cmd_audition(slot=2, fake_client=client, error=EP133Error("Audition failed: status=0x01"))
     view.error.assert_called_once()
@@ -185,8 +185,8 @@ def test_cmd_audition_step_called_before_success():
 def test_worker_emits_audition_started():
     """Worker should emit audition_started with slot and duration_s after ACK."""
     import pytest
-    from ko2_tui.worker import DeviceWorker, WorkerEvent
-    from ko2_tui.actions import WorkerRequest
+    from tui.worker import DeviceWorker, WorkerEvent
+    from tui.actions import WorkerRequest
     from queue import Queue
 
     events: list[WorkerEvent] = []

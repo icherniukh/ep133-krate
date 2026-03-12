@@ -1,4 +1,4 @@
-from ko2_models import parse_file_list_response, slot_from_sound_entry
+from core.models import parse_file_list_response, slot_from_sound_entry
 
 
 def test_parse_file_list_response_parses_files_and_dirs():

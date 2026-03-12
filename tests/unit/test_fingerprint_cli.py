@@ -9,10 +9,10 @@ import cli.cmd_slots
 import cli.cmd_audio
 import cli.cmd_system
 import core.ops
-from ko2_client import EP133Client, SlotEmptyError
+from core.client import EP133Client, SlotEmptyError
 from core.ops import backup_copy, optimize_sample
-from ko2_display import View
-from ko2_tui.waveform_store import WaveformStore
+from cli.display import View
+from tui.waveform_store import WaveformStore
 from tests.helpers import create_test_wav
 
 

@@ -1,7 +1,7 @@
 import pytest
 
-from ko2_client import SlotEmptyError
-from ko2_models import MAX_SLOTS, SAMPLE_RATE
+from core.client import SlotEmptyError
+from core.models import MAX_SLOTS, SAMPLE_RATE
 
 
 pytestmark = pytest.mark.e2e

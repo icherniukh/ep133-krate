@@ -1,7 +1,7 @@
 import json
 
-from ko2_emulator import EP133Emulator, DOWNLOAD_CHUNK_SIZE
-from ko2_models import (
+from tests.emulator import EP133Emulator, DOWNLOAD_CHUNK_SIZE
+from core.models import (
     DeleteRequest,
     DownloadChunkRequest,
     DownloadInitRequest,
@@ -15,8 +15,8 @@ from ko2_models import (
     parse_file_list_response,
     slot_from_sound_entry,
 )
-from ko2_types import Packed7, U14LE
-from ko2_client import _extract_download_file_size
+from core.types import Packed7, U14LE
+from core.client import _extract_download_file_size
 
 
 def _decode_file_response(raw: bytes) -> tuple[int, int, int, bytes]:
