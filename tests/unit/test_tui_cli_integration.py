@@ -1,7 +1,15 @@
+import cli.cli_main
 import importlib
 import types
 
-import ko2
+import cli.cmd_transfer
+import cli.cmd_slots
+import cli.cmd_audio
+import cli.cmd_system
+import core.ops
+import cli.helpers
+from ko2_client import EP133Client, SlotEmptyError
+from core.ops import backup_copy, optimize_sample
 
 
 class _FakeApp:
@@ -19,10 +27,10 @@ def test_tui_command_dispatch(monkeypatch):
 
     fake_module = types.SimpleNamespace(TUIApp=_FakeApp)
     monkeypatch.setattr(importlib, "import_module", lambda name: fake_module)
-    monkeypatch.setattr(ko2, "find_device", lambda: "EP-133")
+    monkeypatch.setattr("cli.cli_main.find_device", lambda: "EP-133")
     monkeypatch.setattr("sys.argv", ["ko2.py", "tui"])
 
-    rc = ko2.main()
+    rc = cli.cli_main.main()
 
     assert rc == 0
     assert _FakeApp.ran is True
@@ -36,7 +44,7 @@ def test_tui_command_passes_debug_flags(monkeypatch):
 
     fake_module = types.SimpleNamespace(TUIApp=_FakeApp)
     monkeypatch.setattr(importlib, "import_module", lambda name: fake_module)
-    monkeypatch.setattr(ko2, "find_device", lambda: "EP-133")
+    monkeypatch.setattr("cli.cli_main.find_device", lambda: "EP-133")
     monkeypatch.setattr("sys.argv", [
         "ko2.py",
         "tui",
@@ -44,7 +52,7 @@ def test_tui_command_passes_debug_flags(monkeypatch):
         "captures/test.jsonl",
     ])
 
-    rc = ko2.main()
+    rc = cli.cli_main.main()
 
     assert rc == 0
     assert _FakeApp.ran is True
@@ -59,7 +67,7 @@ def test_tui_command_passes_dialog_log_flag(monkeypatch):
 
     fake_module = types.SimpleNamespace(TUIApp=_FakeApp)
     monkeypatch.setattr(importlib, "import_module", lambda name: fake_module)
-    monkeypatch.setattr(ko2, "find_device", lambda: "EP-133")
+    monkeypatch.setattr("cli.cli_main.find_device", lambda: "EP-133")
     monkeypatch.setattr("sys.argv", [
         "ko2.py",
         "tui",
@@ -69,7 +77,7 @@ def test_tui_command_passes_dialog_log_flag(monkeypatch):
         "captures/dialog.log",
     ])
 
-    rc = ko2.main()
+    rc = cli.cli_main.main()
 
     assert rc == 0
     assert _FakeApp.ran is True
@@ -81,10 +89,10 @@ def test_tui_import_error_is_user_friendly(monkeypatch, capsys):
         raise ImportError("missing textual")
 
     monkeypatch.setattr(importlib, "import_module", _raise)
-    monkeypatch.setattr(ko2, "find_device", lambda: "EP-133")
+    monkeypatch.setattr("cli.cli_main.find_device", lambda: "EP-133")
     monkeypatch.setattr("sys.argv", ["ko2.py", "tui"])
 
-    rc = ko2.main()
+    rc = cli.cli_main.main()
     out = capsys.readouterr().out
 
     assert rc == 1

@@ -10,7 +10,14 @@ from unittest.mock import Mock, call
 
 import pytest
 
-import ko2
+import cli.cmd_transfer
+import cli.cmd_slots
+import cli.cmd_audio
+import cli.cmd_system
+import core.ops
+import cli.helpers
+from ko2_client import EP133Client, SlotEmptyError
+from core.ops import backup_copy, optimize_sample
 from ko2_display import View
 from ko2_client import SlotEmptyError, EP133Error
 
@@ -84,11 +91,14 @@ def test_cmd_get_success(monkeypatch, tmp_path):
     sounds = {5: {"name": "kick.wav", "size": 1000}}
     log = []
     client = FakeClient(sounds, log)
-    monkeypatch.setattr(ko2, "EP133Client", lambda *a, **k: client)
+    monkeypatch.setattr(cli.cmd_slots, "EP133Client", lambda *a, **k: client)
+    monkeypatch.setattr(cli.cmd_transfer, "EP133Client", lambda *a, **k: client)
+    monkeypatch.setattr(cli.cmd_audio, "EP133Client", lambda *a, **k: client)
+        #, lambda *a, **k: client)
 
     output = tmp_path / "kick.wav"
     view = make_view()
-    rc = ko2.cmd_get(_args(slot=5, output=str(output)), view)
+    rc = cli.cmd_transfer.cmd_get(_args(slot=5, output=str(output)), view)
 
     assert rc == 0
     view.success.assert_called_once()
@@ -98,10 +108,13 @@ def test_cmd_get_success(monkeypatch, tmp_path):
 
 def test_cmd_get_empty_slot(monkeypatch):
     client = FakeClient(sounds={})
-    monkeypatch.setattr(ko2, "EP133Client", lambda *a, **k: client)
+    monkeypatch.setattr(cli.cmd_slots, "EP133Client", lambda *a, **k: client)
+    monkeypatch.setattr(cli.cmd_transfer, "EP133Client", lambda *a, **k: client)
+    monkeypatch.setattr(cli.cmd_audio, "EP133Client", lambda *a, **k: client)
+        #, lambda *a, **k: client)
 
     view = make_view()
-    rc = ko2.cmd_get(_args(slot=99, output=None), view)
+    rc = cli.cmd_transfer.cmd_get(_args(slot=99, output=None), view)
 
     assert rc == 1
     view.error.assert_called_once()
@@ -118,10 +131,13 @@ def test_cmd_put_success(monkeypatch, tmp_path):
     wav.write_bytes(b"RIFF\x00\x00\x00\x00WAVEfmt ")
     log = []
     client = FakeClient(sounds={}, log=log)
-    monkeypatch.setattr(ko2, "EP133Client", lambda *a, **k: client)
+    monkeypatch.setattr(cli.cmd_slots, "EP133Client", lambda *a, **k: client)
+    monkeypatch.setattr(cli.cmd_transfer, "EP133Client", lambda *a, **k: client)
+    monkeypatch.setattr(cli.cmd_audio, "EP133Client", lambda *a, **k: client)
+        #, lambda *a, **k: client)
 
     view = make_view()
-    rc = ko2.cmd_put(_args(file=str(wav), slot=10, name=None, pitch=0.0), view)
+    rc = cli.cmd_transfer.cmd_put(_args(file=str(wav), slot=10, name=None, pitch=0.0), view)
 
     assert rc == 0
     view.success.assert_called_once()
@@ -130,10 +146,13 @@ def test_cmd_put_success(monkeypatch, tmp_path):
 
 
 def test_cmd_put_missing_file(monkeypatch, tmp_path):
-    monkeypatch.setattr(ko2, "EP133Client", lambda *a, **k: FakeClient())
+    monkeypatch.setattr(cli.cmd_slots, "EP133Client", lambda *a, **k: client)
+    monkeypatch.setattr(cli.cmd_transfer, "EP133Client", lambda *a, **k: client)
+    monkeypatch.setattr(cli.cmd_audio, "EP133Client", lambda *a, **k: client)
+        #, lambda *a, **k: FakeClient())
 
     view = make_view()
-    rc = ko2.cmd_put(_args(file=str(tmp_path / "missing.wav"), slot=10, name=None, pitch=0.0), view)
+    rc = cli.cmd_transfer.cmd_put(_args(file=str(tmp_path / "missing.wav"), slot=10, name=None, pitch=0.0), view)
 
     assert rc == 1
     view.error.assert_called_once()
@@ -148,11 +167,14 @@ def test_cmd_move_to_empty(monkeypatch):
     sounds = {1: {"name": "001.pcm", "node_id": 1, "size": 100}}
     log = []
     client = FakeClient(sounds, log)
-    monkeypatch.setattr(ko2, "EP133Client", lambda *a, **k: client)
-    monkeypatch.setattr(ko2, "backup_copy", lambda *a, **k: None)
+    monkeypatch.setattr(cli.cmd_slots, "EP133Client", lambda *a, **k: client)
+    monkeypatch.setattr(cli.cmd_transfer, "EP133Client", lambda *a, **k: client)
+    monkeypatch.setattr(cli.cmd_audio, "EP133Client", lambda *a, **k: client)
+        #, lambda *a, **k: client)
+    monkeypatch.setattr("core.ops.backup_copy", lambda *a, **k: None)
 
     view = make_view()
-    rc = ko2.cmd_move(_args(src=1, dst=2, raw=True), view)
+    rc = cli.cmd_slots.cmd_move(_args(src=1, dst=2, raw=True), view)
 
     assert rc == 0
     view.success.assert_called_once()
@@ -163,10 +185,13 @@ def test_cmd_move_to_empty(monkeypatch):
 
 def test_cmd_move_empty_source(monkeypatch):
     client = FakeClient(sounds={})
-    monkeypatch.setattr(ko2, "EP133Client", lambda *a, **k: client)
+    monkeypatch.setattr(cli.cmd_slots, "EP133Client", lambda *a, **k: client)
+    monkeypatch.setattr(cli.cmd_transfer, "EP133Client", lambda *a, **k: client)
+    monkeypatch.setattr(cli.cmd_audio, "EP133Client", lambda *a, **k: client)
+        #, lambda *a, **k: client)
 
     view = make_view()
-    rc = ko2.cmd_move(_args(src=5, dst=10, raw=True), view)
+    rc = cli.cmd_slots.cmd_move(_args(src=5, dst=10, raw=True), view)
 
     assert rc == 1
     view.error.assert_called_once()
@@ -181,11 +206,14 @@ def test_cmd_copy_to_empty(monkeypatch):
     sounds = {1: {"name": "001.pcm", "node_id": 1, "size": 100}}
     log = []
     client = FakeClient(sounds, log)
-    monkeypatch.setattr(ko2, "EP133Client", lambda *a, **k: client)
-    monkeypatch.setattr(ko2, "backup_copy", lambda *a, **k: None)
+    monkeypatch.setattr(cli.cmd_slots, "EP133Client", lambda *a, **k: client)
+    monkeypatch.setattr(cli.cmd_transfer, "EP133Client", lambda *a, **k: client)
+    monkeypatch.setattr(cli.cmd_audio, "EP133Client", lambda *a, **k: client)
+        #, lambda *a, **k: client)
+    monkeypatch.setattr("core.ops.backup_copy", lambda *a, **k: None)
 
     view = make_view()
-    rc = ko2.cmd_copy(_args(src=1, dst=3, raw=True), view)
+    rc = cli.cmd_slots.cmd_copy(_args(src=1, dst=3, raw=True), view)
 
     assert rc == 0
     view.success.assert_called_once()
@@ -194,10 +222,13 @@ def test_cmd_copy_to_empty(monkeypatch):
 
 def test_cmd_copy_empty_source(monkeypatch):
     client = FakeClient(sounds={})
-    monkeypatch.setattr(ko2, "EP133Client", lambda *a, **k: client)
+    monkeypatch.setattr(cli.cmd_slots, "EP133Client", lambda *a, **k: client)
+    monkeypatch.setattr(cli.cmd_transfer, "EP133Client", lambda *a, **k: client)
+    monkeypatch.setattr(cli.cmd_audio, "EP133Client", lambda *a, **k: client)
+        #, lambda *a, **k: client)
 
     view = make_view()
-    rc = ko2.cmd_copy(_args(src=5, dst=10, raw=True), view)
+    rc = cli.cmd_slots.cmd_copy(_args(src=5, dst=10, raw=True), view)
 
     assert rc == 1
     view.error.assert_called_once()
@@ -211,10 +242,13 @@ def test_cmd_delete_success(monkeypatch):
     sounds = {7: {"name": "snare.pcm", "size": 500}}
     log = []
     client = FakeClient(sounds, log)
-    monkeypatch.setattr(ko2, "EP133Client", lambda *a, **k: client)
+    monkeypatch.setattr(cli.cmd_slots, "EP133Client", lambda *a, **k: client)
+    monkeypatch.setattr(cli.cmd_transfer, "EP133Client", lambda *a, **k: client)
+    monkeypatch.setattr(cli.cmd_audio, "EP133Client", lambda *a, **k: client)
+        #, lambda *a, **k: client)
 
     view = make_view()
-    rc = ko2.cmd_delete(_args(slot=7), view)
+    rc = cli.cmd_slots.cmd_delete(_args(slot=7), view)
 
     assert rc == 0
     view.success.assert_called_once()
@@ -224,10 +258,13 @@ def test_cmd_delete_success(monkeypatch):
 
 def test_cmd_delete_empty_slot(monkeypatch):
     client = FakeClient(sounds={})
-    monkeypatch.setattr(ko2, "EP133Client", lambda *a, **k: client)
+    monkeypatch.setattr(cli.cmd_slots, "EP133Client", lambda *a, **k: client)
+    monkeypatch.setattr(cli.cmd_transfer, "EP133Client", lambda *a, **k: client)
+    monkeypatch.setattr(cli.cmd_audio, "EP133Client", lambda *a, **k: client)
+        #, lambda *a, **k: client)
 
     view = make_view()
-    rc = ko2.cmd_delete(_args(slot=7), view)
+    rc = cli.cmd_slots.cmd_delete(_args(slot=7), view)
 
     assert rc == 1
     view.success.assert_not_called()
@@ -241,11 +278,14 @@ def test_cmd_rename_success(monkeypatch, tmp_path):
     sounds = {10: {"name": "old.pcm", "size": 100}}
     log = []
     client = FakeClient(sounds, log)
-    monkeypatch.setattr(ko2, "EP133Client", lambda *a, **k: client)
-    monkeypatch.setattr(ko2, "backup_copy", lambda *a, **k: tmp_path / "backup.wav")
+    monkeypatch.setattr(cli.cmd_slots, "EP133Client", lambda *a, **k: client)
+    monkeypatch.setattr(cli.cmd_transfer, "EP133Client", lambda *a, **k: client)
+    monkeypatch.setattr(cli.cmd_audio, "EP133Client", lambda *a, **k: client)
+        #, lambda *a, **k: client)
+    monkeypatch.setattr("core.ops.backup_copy", lambda *a, **k: tmp_path / "backup.wav")
 
     view = make_view()
-    rc = ko2.cmd_rename(_args(slot=10, name="new name"), view)
+    rc = cli.cmd_slots.cmd_rename(_args(slot=10, name="new name"), view)
 
     assert rc == 0
     view.success.assert_called_once()
@@ -255,10 +295,13 @@ def test_cmd_rename_success(monkeypatch, tmp_path):
 
 def test_cmd_rename_empty_slot(monkeypatch):
     client = FakeClient(sounds={})
-    monkeypatch.setattr(ko2, "EP133Client", lambda *a, **k: client)
+    monkeypatch.setattr(cli.cmd_slots, "EP133Client", lambda *a, **k: client)
+    monkeypatch.setattr(cli.cmd_transfer, "EP133Client", lambda *a, **k: client)
+    monkeypatch.setattr(cli.cmd_audio, "EP133Client", lambda *a, **k: client)
+        #, lambda *a, **k: client)
 
     view = make_view()
-    rc = ko2.cmd_rename(_args(slot=99, name="x"), view)
+    rc = cli.cmd_slots.cmd_rename(_args(slot=99, name="x"), view)
 
     assert rc == 1
     view.error.assert_called_once()
@@ -284,15 +327,18 @@ def test_cmd_optimize_success(monkeypatch, tmp_path):
     client = FakeClient(sounds, log)
     client.get = lambda slot, path=None: (make_wav(path, 2, 48000), log.append(("get", slot)))[1]
 
-    monkeypatch.setattr(ko2, "EP133Client", lambda *a, **k: client)
-    monkeypatch.setattr(ko2, "backup_copy", lambda *a, **k: tmp_path / "bak.wav")
+    monkeypatch.setattr(cli.cmd_slots, "EP133Client", lambda *a, **k: client)
+    monkeypatch.setattr(cli.cmd_transfer, "EP133Client", lambda *a, **k: client)
+    monkeypatch.setattr(cli.cmd_audio, "EP133Client", lambda *a, **k: client)
+        #, lambda *a, **k: client)
+    monkeypatch.setattr("core.ops.backup_copy", lambda *a, **k: tmp_path / "bak.wav")
     monkeypatch.setattr(
-        ko2, "optimize_sample",
+        cli.cmd_audio, "optimize_sample",
         lambda p, **kw: (True, "optimized with sox", 20 * 1024, 10 * 1024),
     )
 
     view = make_view()
-    rc = ko2.cmd_optimize(_args(slot=3, rate=None, speed=None, pitch=0.0, keep_stereo=False), view)
+    rc = cli.cmd_audio.cmd_optimize(_args(slot=3, rate=None, speed=None, pitch=0.0, keep_stereo=False), view)
 
     assert rc == 0
     view.success.assert_called()
@@ -314,15 +360,18 @@ def test_cmd_optimize_already_optimal(monkeypatch, tmp_path):
     client = FakeClient(sounds, log)
     client.get = lambda slot, path=None: (make_wav(path), log.append(("get", slot)))[1]
 
-    monkeypatch.setattr(ko2, "EP133Client", lambda *a, **k: client)
-    monkeypatch.setattr(ko2, "backup_copy", lambda *a, **k: None)
+    monkeypatch.setattr(cli.cmd_slots, "EP133Client", lambda *a, **k: client)
+    monkeypatch.setattr(cli.cmd_transfer, "EP133Client", lambda *a, **k: client)
+    monkeypatch.setattr(cli.cmd_audio, "EP133Client", lambda *a, **k: client)
+        #, lambda *a, **k: client)
+    monkeypatch.setattr("core.ops.backup_copy", lambda *a, **k: None)
     monkeypatch.setattr(
-        ko2, "optimize_sample",
+        cli.cmd_audio, "optimize_sample",
         lambda p, **kw: (True, "already optimal", 1000, 1000),
     )
 
     view = make_view()
-    rc = ko2.cmd_optimize(_args(slot=5, rate=None, speed=None, pitch=0.0, keep_stereo=False), view)
+    rc = cli.cmd_audio.cmd_optimize(_args(slot=5, rate=None, speed=None, pitch=0.0, keep_stereo=False), view)
 
     assert rc == 0
     view.success.assert_called_once()
@@ -331,10 +380,13 @@ def test_cmd_optimize_already_optimal(monkeypatch, tmp_path):
 
 def test_cmd_optimize_empty_slot(monkeypatch):
     client = FakeClient(sounds={})
-    monkeypatch.setattr(ko2, "EP133Client", lambda *a, **k: client)
+    monkeypatch.setattr(cli.cmd_slots, "EP133Client", lambda *a, **k: client)
+    monkeypatch.setattr(cli.cmd_transfer, "EP133Client", lambda *a, **k: client)
+    monkeypatch.setattr(cli.cmd_audio, "EP133Client", lambda *a, **k: client)
+        #, lambda *a, **k: client)
 
     view = make_view()
-    rc = ko2.cmd_optimize(_args(slot=99, rate=None, speed=None, pitch=0.0, keep_stereo=False), view)
+    rc = cli.cmd_audio.cmd_optimize(_args(slot=99, rate=None, speed=None, pitch=0.0, keep_stereo=False), view)
 
     assert rc == 1
     view.error.assert_called_once()
@@ -354,10 +406,13 @@ def test_cmd_optimize_empty_slot(monkeypatch):
 def test_cmd_get_empty_slot_parametrized(monkeypatch, slot, extra_args):
     """cmd_get with an empty slot must return rc=1 and call view.error."""
     client = FakeClient(sounds={})
-    monkeypatch.setattr(ko2, "EP133Client", lambda *a, **k: client)
+    monkeypatch.setattr(cli.cmd_slots, "EP133Client", lambda *a, **k: client)
+    monkeypatch.setattr(cli.cmd_transfer, "EP133Client", lambda *a, **k: client)
+    monkeypatch.setattr(cli.cmd_audio, "EP133Client", lambda *a, **k: client)
+        #, lambda *a, **k: client)
 
     view = make_view()
-    rc = ko2.cmd_get(_args(slot=slot, **extra_args), view)
+    rc = cli.cmd_transfer.cmd_get(_args(slot=slot, **extra_args), view)
 
     assert rc == 1
     view.error.assert_called_once()
@@ -372,10 +427,13 @@ def test_cmd_get_empty_slot_parametrized(monkeypatch, slot, extra_args):
 def test_cmd_rename_empty_slot_parametrized(monkeypatch, slot, name):
     """cmd_rename with an empty slot must return rc=1 and call view.error."""
     client = FakeClient(sounds={})
-    monkeypatch.setattr(ko2, "EP133Client", lambda *a, **k: client)
+    monkeypatch.setattr(cli.cmd_slots, "EP133Client", lambda *a, **k: client)
+    monkeypatch.setattr(cli.cmd_transfer, "EP133Client", lambda *a, **k: client)
+    monkeypatch.setattr(cli.cmd_audio, "EP133Client", lambda *a, **k: client)
+        #, lambda *a, **k: client)
 
     view = make_view()
-    rc = ko2.cmd_rename(_args(slot=slot, name=name), view)
+    rc = cli.cmd_slots.cmd_rename(_args(slot=slot, name=name), view)
 
     assert rc == 1
     view.error.assert_called_once()
@@ -389,10 +447,13 @@ def test_cmd_rename_empty_slot_parametrized(monkeypatch, slot, name):
 def test_cmd_move_empty_source_parametrized(monkeypatch, src, dst):
     """cmd_move with an empty source slot must return rc=1 and call view.error."""
     client = FakeClient(sounds={})
-    monkeypatch.setattr(ko2, "EP133Client", lambda *a, **k: client)
+    monkeypatch.setattr(cli.cmd_slots, "EP133Client", lambda *a, **k: client)
+    monkeypatch.setattr(cli.cmd_transfer, "EP133Client", lambda *a, **k: client)
+    monkeypatch.setattr(cli.cmd_audio, "EP133Client", lambda *a, **k: client)
+        #, lambda *a, **k: client)
 
     view = make_view()
-    rc = ko2.cmd_move(_args(src=src, dst=dst, raw=True), view)
+    rc = cli.cmd_slots.cmd_move(_args(src=src, dst=dst, raw=True), view)
 
     assert rc == 1
     view.error.assert_called_once()
@@ -407,10 +468,13 @@ def test_cmd_move_empty_source_parametrized(monkeypatch, src, dst):
 def test_cmd_copy_empty_source_parametrized(monkeypatch, src, dst):
     """cmd_copy with an empty source slot must return rc=1 and call view.error."""
     client = FakeClient(sounds={})
-    monkeypatch.setattr(ko2, "EP133Client", lambda *a, **k: client)
+    monkeypatch.setattr(cli.cmd_slots, "EP133Client", lambda *a, **k: client)
+    monkeypatch.setattr(cli.cmd_transfer, "EP133Client", lambda *a, **k: client)
+    monkeypatch.setattr(cli.cmd_audio, "EP133Client", lambda *a, **k: client)
+        #, lambda *a, **k: client)
 
     view = make_view()
-    rc = ko2.cmd_copy(_args(src=src, dst=dst, raw=True), view)
+    rc = cli.cmd_slots.cmd_copy(_args(src=src, dst=dst, raw=True), view)
 
     assert rc == 1
     view.error.assert_called_once()

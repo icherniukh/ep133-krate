@@ -1,7 +1,14 @@
 from pathlib import Path
 from types import SimpleNamespace
 
-import ko2
+import cli.cmd_transfer
+import cli.cmd_slots
+import cli.cmd_audio
+import cli.cmd_system
+import core.ops
+import cli.helpers
+from ko2_client import EP133Client, SlotEmptyError
+from core.ops import backup_copy, optimize_sample
 from ko2_display import SilentView
 
 
@@ -88,10 +95,10 @@ def test_squash_execute_moves_gapped_slots(monkeypatch):
         3: {"name": "snare.pcm", "node_id": 3, "size": 100},
         7: {"name": "hat.pcm", "node_id": 7, "size": 100},
     }
-    monkeypatch.setattr(ko2, "EP133Client", lambda *_a, **_kw: FakeClient(sounds, log))
-    monkeypatch.setattr(ko2, "backup_copy", lambda *a, **k: None)
+    monkeypatch.setattr(cli.cmd_slots, "EP133Client", lambda *_a, **_kw: FakeClient(sounds, log))
+    monkeypatch.setattr("core.ops.backup_copy", lambda *a, **k: None)
 
-    rc = ko2.cmd_squash(_args(execute=True), SilentView())
+    rc = cli.cmd_slots.cmd_squash(_args(execute=True), SilentView())
 
     assert rc == 0
     # slot 1 stays — must not be touched
@@ -113,10 +120,10 @@ def test_squash_execute_order_within_each_move(monkeypatch):
     sounds = {
         2: {"name": "bass.pcm", "node_id": 2, "size": 100},
     }
-    monkeypatch.setattr(ko2, "EP133Client", lambda *_a, **_kw: FakeClient(sounds, log))
-    monkeypatch.setattr(ko2, "backup_copy", lambda *a, **k: None)
+    monkeypatch.setattr(cli.cmd_slots, "EP133Client", lambda *_a, **_kw: FakeClient(sounds, log))
+    monkeypatch.setattr("core.ops.backup_copy", lambda *a, **k: None)
 
-    ko2.cmd_squash(_args(execute=True), SilentView())
+    cli.cmd_slots.cmd_squash(_args(execute=True), SilentView())
 
     # slot 2 → 1: get then delete then put
     assert log.index(("get", 2)) < log.index(("delete", 2))
@@ -130,10 +137,10 @@ def test_squash_dry_run_fires_no_operations(monkeypatch):
         2: {"name": "bass.pcm", "node_id": 2, "size": 100},
         5: {"name": "pad.pcm", "node_id": 5, "size": 100},
     }
-    monkeypatch.setattr(ko2, "EP133Client", lambda *_a, **_kw: FakeClient(sounds, log))
-    monkeypatch.setattr(ko2, "backup_copy", lambda *a, **k: None)
+    monkeypatch.setattr(cli.cmd_slots, "EP133Client", lambda *_a, **_kw: FakeClient(sounds, log))
+    monkeypatch.setattr("core.ops.backup_copy", lambda *a, **k: None)
 
-    rc = ko2.cmd_squash(_args(execute=False), SilentView())
+    rc = cli.cmd_slots.cmd_squash(_args(execute=False), SilentView())
 
     assert rc == 0
     assert log == []
@@ -147,9 +154,9 @@ def test_squash_already_compact_exits_early(monkeypatch):
         2: {"name": "b.pcm", "node_id": 2, "size": 100},
         3: {"name": "c.pcm", "node_id": 3, "size": 100},
     }
-    monkeypatch.setattr(ko2, "EP133Client", lambda *_a, **_kw: FakeClient(sounds, log))
+    monkeypatch.setattr(cli.cmd_slots, "EP133Client", lambda *_a, **_kw: FakeClient(sounds, log))
 
-    rc = ko2.cmd_squash(_args(execute=True), SilentView())
+    rc = cli.cmd_slots.cmd_squash(_args(execute=True), SilentView())
 
     assert rc == 0
     assert log == []

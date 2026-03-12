@@ -121,14 +121,14 @@ def _make_view():
 
 
 def _run_cmd_audition(slot, fake_client, error=None):
-    from ko2 import cmd_audition
+    from cli.cmd_audio import cmd_audition
     if error:
         fake_client._error = error
     args = Mock()
     args.slot = slot
     args.device = "fake"
     view = _make_view()
-    with patch("ko2.EP133Client", return_value=fake_client):
+    with patch("cli.cmd_audio.EP133Client", return_value=fake_client):
         rc = cmd_audition(args, view)
     return rc, view
 

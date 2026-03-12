@@ -6,7 +6,14 @@ from types import SimpleNamespace
 
 import pytest
 
-import ko2
+import cli.cmd_transfer
+import cli.cmd_slots
+import cli.cmd_audio
+import cli.cmd_system
+import core.ops
+import cli.helpers
+from ko2_client import EP133Client, SlotEmptyError
+from core.ops import backup_copy, optimize_sample
 from ko2_display import SilentView
 from ko2_models import SAMPLE_RATE
 from tests.helpers import create_test_wav
@@ -46,7 +53,7 @@ def test_optimize_sample_downmixes_stereo_preserves_rate(tmp_path):
     create_stereo_wav(input_wav, framerate=44100)
 
     output_wav = tmp_path / "out.wav"
-    success, msg, orig_size, opt_size = ko2.optimize_sample(input_wav, output_path=output_wav)
+    success, msg, orig_size, opt_size = optimize_sample(input_wav, output_path=output_wav)
 
     assert success, f"optimize_sample failed: {msg}"
     assert output_wav.exists()
@@ -66,7 +73,7 @@ def test_optimize_sample_downsamples_above_native_rate(tmp_path):
     create_stereo_wav(input_wav, framerate=96000)
 
     output_wav = tmp_path / "out.wav"
-    success, _, _, _ = ko2.optimize_sample(input_wav, output_path=output_wav)
+    success, _, _, _ = optimize_sample(input_wav, output_path=output_wav)
 
     assert success
     with wave.open(str(output_wav)) as w:
@@ -80,7 +87,7 @@ def test_optimize_sample_stereo_produces_smaller_file(tmp_path):
     create_stereo_wav(input_wav, framerate=44100, duration_sec=1.0)
 
     output_wav = tmp_path / "out.wav"
-    success, _, orig_size, opt_size = ko2.optimize_sample(input_wav, output_path=output_wav)
+    success, _, orig_size, opt_size = optimize_sample(input_wav, output_path=output_wav)
 
     assert success
     assert opt_size < orig_size
@@ -92,7 +99,7 @@ def test_optimize_sample_already_optimal_returns_early(tmp_path):
     input_wav = tmp_path / "mono44k.wav"
     create_test_wav(input_wav)  # creates mono, 46875 Hz, 16-bit — already optimal
 
-    success, msg, orig_size, opt_size = ko2.optimize_sample(input_wav)
+    success, msg, orig_size, opt_size = optimize_sample(input_wav)
 
     assert success
     assert msg == "already optimal"
@@ -106,7 +113,7 @@ def test_optimize_sample_reports_correct_sizes(tmp_path):
     create_stereo_wav(input_wav)
 
     output_wav = tmp_path / "out.wav"
-    success, _, orig_size, opt_size = ko2.optimize_sample(input_wav, output_path=output_wav)
+    success, _, orig_size, opt_size = optimize_sample(input_wav, output_path=output_wav)
 
     assert success
     assert orig_size == input_wav.stat().st_size
@@ -147,15 +154,15 @@ def test_cmd_optimize_downloads_then_uploads_when_savings_large(monkeypatch):
     """
     log = []
 
-    monkeypatch.setattr(ko2, "EP133Client", lambda *_a, **_kw: _fake_client_class(log)())
-    monkeypatch.setattr(ko2, "backup_copy", lambda *a, **k: None)
+    monkeypatch.setattr(cli.cmd_audio, "EP133Client", lambda *_a, **_kw: _fake_client_class(log)())
+    monkeypatch.setattr("core.ops.backup_copy", lambda *a, **k: None)
     monkeypatch.setattr(
-        ko2, "optimize_sample",
+        cli.cmd_audio, "optimize_sample",
         # Return sizes based on the actual downloaded file so savings are consistent.
         lambda p, **kw: (True, "optimized with sox", p.stat().st_size, p.stat().st_size - 20 * 1024),
     )
 
-    rc = ko2.cmd_optimize(_args(slot=7), SilentView())
+    rc = cli.cmd_audio.cmd_optimize(_args(slot=7), SilentView())
 
     assert rc == 0
     assert ("get", 7) in log
@@ -168,14 +175,14 @@ def test_cmd_optimize_skips_upload_when_savings_below_threshold(monkeypatch):
     """
     log = []
 
-    monkeypatch.setattr(ko2, "EP133Client", lambda *_a, **_kw: _fake_client_class(log)())
-    monkeypatch.setattr(ko2, "backup_copy", lambda *a, **k: None)
+    monkeypatch.setattr(cli.cmd_audio, "EP133Client", lambda *_a, **_kw: _fake_client_class(log)())
+    monkeypatch.setattr("core.ops.backup_copy", lambda *a, **k: None)
     monkeypatch.setattr(
-        ko2, "optimize_sample",
+        cli.cmd_audio, "optimize_sample",
         lambda p, **kw: (True, "optimized with sox", p.stat().st_size, p.stat().st_size - 1024),  # 1 KB
     )
 
-    rc = ko2.cmd_optimize(_args(slot=7), SilentView())
+    rc = cli.cmd_audio.cmd_optimize(_args(slot=7), SilentView())
 
     assert rc == 0
     assert ("get", 7) in log
@@ -200,11 +207,11 @@ def test_cmd_optimize_skips_entirely_when_already_optimal(monkeypatch):
             create_test_wav(path)  # must be a valid WAV — cmd_optimize calls wave.open after get
         def put(self, path, slot, name=None, progress=False, pitch=0.0): log.append(("put", slot, name))
 
-    monkeypatch.setattr(ko2, "EP133Client", lambda *_a, **_kw: OptimalFakeClient())
-    monkeypatch.setattr(ko2, "optimize_sample", lambda p, **kw: (True, "already optimal", p.stat().st_size, p.stat().st_size))
-    monkeypatch.setattr(ko2, "backup_copy", lambda *a, **k: None)
+    monkeypatch.setattr(cli.cmd_audio, "EP133Client", lambda *_a, **_kw: OptimalFakeClient())
+    monkeypatch.setattr(cli.cmd_audio, "optimize_sample", lambda p, **kw: (True, "already optimal", p.stat().st_size, p.stat().st_size))
+    monkeypatch.setattr("core.ops.backup_copy", lambda *a, **k: None)
 
-    rc = ko2.cmd_optimize(_args(slot=3), SilentView())
+    rc = cli.cmd_audio.cmd_optimize(_args(slot=3), SilentView())
 
     assert rc == 0
     assert ("get", 3) in log                      # download happens

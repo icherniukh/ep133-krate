@@ -18,7 +18,14 @@ from unittest.mock import Mock, call, patch
 
 import pytest
 
-import ko2
+import cli.cmd_transfer
+import cli.cmd_slots
+import cli.cmd_audio
+import cli.cmd_system
+import core.ops
+import cli.helpers
+from ko2_client import EP133Client, SlotEmptyError
+from core.ops import backup_copy, optimize_sample
 from ko2_display import View
 from ko2_client import EP133Error, SlotEmptyError
 from ko2_operations import UploadTransaction
@@ -88,10 +95,10 @@ class _FakeClientRaises:
 
 def test_cmd_put_missing_file_returns_rc1(monkeypatch, tmp_path):
     """cmd_put must return rc=1 and call view.error when the file does not exist."""
-    monkeypatch.setattr(ko2, "EP133Client", lambda *a, **k: _FakeClientOK())
+    monkeypatch.setattr(cli.cmd_transfer, "EP133Client", lambda *a, **k: _FakeClientOK())
 
     view = make_view()
-    rc = ko2.cmd_put(_args(file=str(tmp_path / "nonexistent.wav"), slot=5), view)
+    rc = cli.cmd_transfer.cmd_put(_args(file=str(tmp_path / "nonexistent.wav"), slot=5), view)
 
     assert rc == 1
     view.error.assert_called_once()
@@ -100,11 +107,11 @@ def test_cmd_put_missing_file_returns_rc1(monkeypatch, tmp_path):
 
 def test_cmd_put_missing_file_error_message_contains_filename(monkeypatch, tmp_path):
     """The error message must mention the missing filename."""
-    monkeypatch.setattr(ko2, "EP133Client", lambda *a, **k: _FakeClientOK())
+    monkeypatch.setattr(cli.cmd_transfer, "EP133Client", lambda *a, **k: _FakeClientOK())
 
     missing = tmp_path / "ghost.wav"
     view = make_view()
-    ko2.cmd_put(_args(file=str(missing), slot=5), view)
+    cli.cmd_transfer.cmd_put(_args(file=str(missing), slot=5), view)
 
     error_msg = view.error.call_args[0][0]
     assert "ghost.wav" in error_msg
@@ -120,10 +127,10 @@ def test_cmd_put_ep133error_returns_rc1(monkeypatch, tmp_path):
     _write_valid_wav(wav)
 
     exc = EP133Error("Upload init failed: No response")
-    monkeypatch.setattr(ko2, "EP133Client", lambda *a, **k: _FakeClientRaises(exc))
+    monkeypatch.setattr(cli.cmd_transfer, "EP133Client", lambda *a, **k: _FakeClientRaises(exc))
 
     view = make_view()
-    rc = ko2.cmd_put(_args(file=str(wav), slot=10), view)
+    rc = cli.cmd_transfer.cmd_put(_args(file=str(wav), slot=10), view)
 
     assert rc == 1
     view.error.assert_called_once()
@@ -136,12 +143,12 @@ def test_cmd_put_ep133error_message_propagates_to_view(monkeypatch, tmp_path):
     _write_valid_wav(wav)
 
     monkeypatch.setattr(
-        ko2, "EP133Client",
+        "cli.cmd_transfer.EP133Client",
         lambda *a, **k: _FakeClientRaises(EP133Error("Upload init failed: No response"))
     )
 
     view = make_view()
-    ko2.cmd_put(_args(file=str(wav), slot=10), view)
+    cli.cmd_transfer.cmd_put(_args(file=str(wav), slot=10), view)
 
     error_msg = view.error.call_args[0][0]
     assert "Upload init failed" in error_msg
@@ -154,12 +161,12 @@ def test_cmd_put_ep133error_various_slots(monkeypatch, tmp_path, slot):
     _write_valid_wav(wav)
 
     monkeypatch.setattr(
-        ko2, "EP133Client",
+        "cli.cmd_transfer.EP133Client",
         lambda *a, **k: _FakeClientRaises(EP133Error("timeout"))
     )
 
     view = make_view()
-    rc = ko2.cmd_put(_args(file=str(wav), slot=slot), view)
+    rc = cli.cmd_transfer.cmd_put(_args(file=str(wav), slot=slot), view)
 
     assert rc == 1
     view.error.assert_called_once()
@@ -175,12 +182,12 @@ def test_cmd_put_invalid_wav_returns_rc1(monkeypatch, tmp_path):
     bad.write_bytes(b"this is not a wav file at all")
 
     monkeypatch.setattr(
-        ko2, "EP133Client",
+        "cli.cmd_transfer.EP133Client",
         lambda *a, **k: _FakeClientRaises(ValueError("not a WAV file"))
     )
 
     view = make_view()
-    rc = ko2.cmd_put(_args(file=str(bad), slot=7), view)
+    rc = cli.cmd_transfer.cmd_put(_args(file=str(bad), slot=7), view)
 
     assert rc == 1
     view.error.assert_called_once()
@@ -196,10 +203,10 @@ def test_cmd_put_success_calls_view_success(monkeypatch, tmp_path):
     wav = tmp_path / "drum.wav"
     _write_valid_wav(wav)
     log = []
-    monkeypatch.setattr(ko2, "EP133Client", lambda *a, **k: _FakeClientOK(log))
+    monkeypatch.setattr(cli.cmd_transfer, "EP133Client", lambda *a, **k: _FakeClientOK(log))
 
     view = make_view()
-    rc = ko2.cmd_put(_args(file=str(wav), slot=3), view)
+    rc = cli.cmd_transfer.cmd_put(_args(file=str(wav), slot=3), view)
 
     assert rc == 0
     view.success.assert_called_once()
@@ -350,13 +357,13 @@ def test_cmd_put_no_temp_files_after_error(monkeypatch, tmp_path):
     _write_valid_wav(wav)
 
     monkeypatch.setattr(
-        ko2, "EP133Client",
+        "cli.cmd_transfer.EP133Client",
         lambda *a, **k: _FakeClientRaises(EP133Error("init failed"))
     )
 
     before = set(tmp_path.iterdir())
     view = make_view()
-    ko2.cmd_put(_args(file=str(wav), slot=8), view)
+    cli.cmd_transfer.cmd_put(_args(file=str(wav), slot=8), view)
     after = set(tmp_path.iterdir())
 
     # Only the input wav should exist; no new files created

@@ -1,8 +1,16 @@
 from types import SimpleNamespace
 from pathlib import Path
 
-import ko2
-from ko2_display import SilentView
+import cli.cmd_transfer
+import cli.cmd_slots
+import cli.cmd_audio
+import cli.cmd_system
+import core.ops
+import cli.helpers
+from ko2_client import EP133Client, SlotEmptyError
+from core.ops import backup_copy, optimize_sample
+from ko2_display import TerminalView
+from ko2_client import SlotEmptyError
 
 
 class FakeClient:
@@ -18,6 +26,13 @@ class FakeClient:
 
     def list_sounds(self):
         return self._sounds
+
+    
+    def info(self, slot, include_size=False):
+        if slot not in self._sounds:
+            raise SlotEmptyError(f"slot {slot} empty")
+        e = self._sounds[slot]
+        return SimpleNamespace(name=e.get("name"), size_bytes=e.get("size"))
 
     def get(self, slot, path: Path):
         path.write_bytes(b"dummy")
@@ -42,10 +57,10 @@ def _args(**kwargs):
 def test_move_to_empty(monkeypatch):
     log = []
     sounds = {1: {"name": "001.pcm", "node_id": 1, "size": 100}}
-    monkeypatch.setattr(ko2, "EP133Client", lambda *_args, **_kw: FakeClient(sounds, log))
-    monkeypatch.setattr(ko2, "backup_copy", lambda *a, **k: None)
+    monkeypatch.setattr(cli.cmd_slots, "EP133Client", lambda *_args, **_kw: FakeClient(sounds, log))
+    monkeypatch.setattr("core.ops.backup_copy", lambda *a, **k: None)
 
-    rc = ko2.cmd_move(_args(src=1, dst=2), SilentView())
+    rc = cli.cmd_slots.cmd_move(_args(src=1, dst=2), TerminalView())
     assert rc == 0
     assert log == [("get", 1), ("put", 2, "001.pcm"), ("delete", 1)]
 
@@ -56,10 +71,10 @@ def test_move_swap(monkeypatch):
         1: {"name": "001.pcm", "node_id": 1, "size": 100},
         2: {"name": "002.pcm", "node_id": 2, "size": 120},
     }
-    monkeypatch.setattr(ko2, "EP133Client", lambda *_args, **_kw: FakeClient(sounds, log))
-    monkeypatch.setattr(ko2, "backup_copy", lambda *a, **k: None)
+    monkeypatch.setattr(cli.cmd_slots, "EP133Client", lambda *_args, **_kw: FakeClient(sounds, log))
+    monkeypatch.setattr("core.ops.backup_copy", lambda *a, **k: None)
 
-    rc = ko2.cmd_move(_args(src=1, dst=2), SilentView())
+    rc = cli.cmd_slots.cmd_move(_args(src=1, dst=2), TerminalView())
     assert rc == 0
     assert log == [
         ("get", 1),
@@ -72,10 +87,10 @@ def test_move_swap(monkeypatch):
 def test_copy_to_empty(monkeypatch):
     log = []
     sounds = {1: {"name": "001.pcm", "node_id": 1, "size": 100}}
-    monkeypatch.setattr(ko2, "EP133Client", lambda *_args, **_kw: FakeClient(sounds, log))
-    monkeypatch.setattr(ko2, "backup_copy", lambda *a, **k: None)
+    monkeypatch.setattr(cli.cmd_slots, "EP133Client", lambda *_args, **_kw: FakeClient(sounds, log))
+    monkeypatch.setattr("core.ops.backup_copy", lambda *a, **k: None)
 
-    rc = ko2.cmd_copy(_args(src=1, dst=3), SilentView())
+    rc = cli.cmd_slots.cmd_copy(_args(src=1, dst=3), TerminalView())
     assert rc == 0
     assert log == [("get", 1), ("put", 3, "001.pcm")]
 
@@ -86,10 +101,10 @@ def test_copy_overwrite(monkeypatch):
         1: {"name": "001.pcm", "node_id": 1, "size": 100},
         3: {"name": "003.pcm", "node_id": 3, "size": 90},
     }
-    monkeypatch.setattr(ko2, "EP133Client", lambda *_args, **_kw: FakeClient(sounds, log))
-    monkeypatch.setattr(ko2, "backup_copy", lambda *a, **k: None)
+    monkeypatch.setattr(cli.cmd_slots, "EP133Client", lambda *_args, **_kw: FakeClient(sounds, log))
+    monkeypatch.setattr("core.ops.backup_copy", lambda *a, **k: None)
 
-    rc = ko2.cmd_copy(_args(src=1, dst=3), SilentView())
+    rc = cli.cmd_slots.cmd_copy(_args(src=1, dst=3), TerminalView())
     assert rc == 0
     assert log == [
         ("get", 1),

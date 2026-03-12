@@ -4,7 +4,14 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
 
-import ko2
+import cli.cmd_transfer
+import cli.cmd_slots
+import cli.cmd_audio
+import cli.cmd_system
+import core.ops
+import cli.helpers
+from ko2_client import EP133Client, SlotEmptyError
+from core.ops import backup_copy, optimize_sample
 from ko2_display import View
 from ko2_tui.waveform_store import WaveformStore
 from tests.helpers import create_test_wav
@@ -24,7 +31,7 @@ class FingerprintClient:
 
     def info(self, slot: int, include_size: bool = True):
         if int(slot) != self.slot:
-            raise ko2.SlotEmptyError(f"slot {slot} empty")
+            raise SlotEmptyError(f"slot {slot} empty")
         return SimpleNamespace(
             slot=self.slot,
             name="afterparty kick",
@@ -37,7 +44,7 @@ class FingerprintClient:
 
     def get(self, slot: int, output_path: Path):
         if int(slot) != self.slot:
-            raise ko2.SlotEmptyError(f"slot {slot} empty")
+            raise SlotEmptyError(f"slot {slot} empty")
         Path(output_path).write_bytes(self.wav_path.read_bytes())
         return Path(output_path)
 
@@ -54,7 +61,7 @@ def test_fingerprint_write_populates_kv_and_metadata(monkeypatch, tmp_path):
     source_wav = tmp_path / "src.wav"
     create_test_wav(source_wav, duration_sec=0.15)
     fake = FingerprintClient(source_wav, slot=7)
-    monkeypatch.setattr(ko2, "EP133Client", lambda *a, **k: fake)
+    monkeypatch.setattr(cli.cmd_audio, "EP133Client", lambda *a, **k: fake)
 
     store_path = tmp_path / "waveform-kv.json"
     args = SimpleNamespace(
@@ -67,7 +74,7 @@ def test_fingerprint_write_populates_kv_and_metadata(monkeypatch, tmp_path):
         file=None,
     )
     view = _view()
-    rc = ko2.cmd_fingerprint(args, view)
+    rc = cli.cmd_audio.cmd_fingerprint(args, view)
 
     assert rc == 0
     assert fake.meta_patches
@@ -91,7 +98,7 @@ def test_fingerprint_read_uses_cached_entry(monkeypatch, tmp_path):
     source_wav = tmp_path / "src.wav"
     create_test_wav(source_wav, duration_sec=0.1)
     fake = FingerprintClient(source_wav, slot=7)
-    monkeypatch.setattr(ko2, "EP133Client", lambda *a, **k: fake)
+    monkeypatch.setattr(cli.cmd_audio, "EP133Client", lambda *a, **k: fake)
 
     store_path = tmp_path / "waveform-kv.json"
     store = WaveformStore(path=store_path)
@@ -119,7 +126,7 @@ def test_fingerprint_read_uses_cached_entry(monkeypatch, tmp_path):
         store=str(store_path),
     )
     view = _view()
-    rc = ko2.cmd_fingerprint(args, view)
+    rc = cli.cmd_audio.cmd_fingerprint(args, view)
 
     assert rc == 0
     view.section.assert_called_once()
@@ -131,7 +138,7 @@ def test_fingerprint_verify_success(monkeypatch, tmp_path):
     source_wav = tmp_path / "src.wav"
     create_test_wav(source_wav, duration_sec=0.1)
     fake = FingerprintClient(source_wav, slot=7)
-    monkeypatch.setattr(ko2, "EP133Client", lambda *a, **k: fake)
+    monkeypatch.setattr(cli.cmd_audio, "EP133Client", lambda *a, **k: fake)
 
     store_path = tmp_path / "waveform-kv.json"
     write_args = SimpleNamespace(
@@ -143,7 +150,7 @@ def test_fingerprint_verify_success(monkeypatch, tmp_path):
         no_meta=True,
         file=None,
     )
-    assert ko2.cmd_fingerprint(write_args, _view()) == 0
+    assert cli.cmd_audio.cmd_fingerprint(write_args, _view()) == 0
 
     verify_args = SimpleNamespace(
         device="EP-133",
@@ -154,6 +161,6 @@ def test_fingerprint_verify_success(monkeypatch, tmp_path):
         file=str(source_wav),
     )
     view = _view()
-    rc = ko2.cmd_fingerprint(verify_args, view)
+    rc = cli.cmd_audio.cmd_fingerprint(verify_args, view)
     assert rc == 0
     view.success.assert_called_once()
