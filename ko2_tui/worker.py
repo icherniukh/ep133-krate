@@ -17,6 +17,26 @@ from typing import Any, Callable
 from ko2_client import EP133Client, SlotEmptyError
 from ko2_models import SAMPLE_RATE
 
+import sys
+from pathlib import Path as _Path
+_src = str(_Path(__file__).resolve().parent.parent / "src")
+if _src not in sys.path:
+    sys.path.insert(0, _src)
+
+from core.audio import (
+    extract_waveform_bins as _extract_waveform_bins_from_wav_bytes,
+    extract_fingerprint as _extract_fingerprint_from_wav_bytes,
+)
+from core.ops import (
+    backup_copy,
+    copy_slot,
+    move_slot,
+    optimize_sample,
+    resolve_transfer_name,
+    squash_scan,
+    squash_process,
+)
+
 from .actions import WorkerRequest
 from .debug_log import DebugLogger
 
@@ -176,28 +196,22 @@ class DeviceWorker(threading.Thread):
     def _handle_copy(self, req: WorkerRequest, client: EP133Client, phases: dict[str, float], t_start: float) -> None:
         src = int(req.payload["src"])
         dst = int(req.payload["dst"])
-        self._emit_progress(req.op, 1, 3, f"Copying {src:03d} -> {dst:03d}")
-        info = self._timed("device.info", phases, client.info, src, include_size=False)
-        name = info.name
 
-        with tempfile.TemporaryDirectory() as td:
-            temp_path = Path(td) / f"slot{src:03d}.wav"
-            self._emit("busy", op=f"Copying {src:03d} -> {dst:03d}")
-            self._timed("device.get", phases, client.get, src, temp_path)
+        def _progress(curr: int, total: int, msg: str) -> None:
+            self._emit_progress(req.op, curr, total, msg)
 
-            dst_info = None
-            try:
-                dst_info = self._timed("device.info", phases, client.info, dst, include_size=False)
-            except SlotEmptyError:
-                pass
-
-            if dst_info:
-                self._timed("device.delete", phases, client.delete, dst)
-
-            self._timed("device.put", phases, client.put, temp_path, dst, name=name, progress=False)
-
-        self._emit_success(f"Copied slot {src:03d} to {dst:03d}", started_at=t_start)
-        self._emit_inventory(client, hydrate_slots={src, dst}, phases=phases)
+        try:
+            msg = self._timed(
+                "local.copy_slot",
+                phases,
+                copy_slot,
+                client, src, dst, progress=_progress
+            )
+            self._emit_success(msg, started_at=t_start)
+        except Exception as exc:
+            self._emit("error", op=req.op, message=str(exc))
+        finally:
+            self._emit_inventory(client, hydrate_slots={dst}, phases=phases)
 
     def _handle_move(self, req: WorkerRequest, client: EP133Client, phases: dict[str, float], t_start: float) -> None:
         src = int(req.payload["src"])
@@ -206,89 +220,58 @@ class DeviceWorker(threading.Thread):
             self._emit_success("Move skipped (same slot)", started_at=t_start)
             return
 
-        self._emit_progress(req.op, 1, 3, f"Moving {src:03d} -> {dst:03d}")
-        src_info = self._timed("device.info", phases, client.info, src, include_size=False)
-        src_name = src_info.name
+        def _progress(curr: int, total: int, msg: str) -> None:
+            self._emit_progress(req.op, curr, total, msg)
 
-        dst_info = None
         try:
-            dst_info = self._timed("device.info", phases, client.info, dst, include_size=False)
-        except SlotEmptyError:
-            pass
-
-        with tempfile.TemporaryDirectory() as td:
-            temp_path = Path(td)
-            src_wav = temp_path / f"slot{src:03d}.wav"
-            self._emit("busy", op=f"Moving {src:03d} -> {dst:03d}")
-            self._timed("device.get", phases, client.get, src, src_wav)
-
-            if dst_info:
-                dst_wav = temp_path / f"slot{dst:03d}.wav"
-                self._timed("device.get", phases, client.get, dst, dst_wav)
-                self._timed("device.put", phases, client.put, src_wav, dst, name=src_name, progress=False)
-                self._timed("device.put", phases, client.put, dst_wav, src, name=dst_info.name, progress=False)
-                self._emit_success(f"Swapped {src:03d} ↔ {dst:03d}", started_at=t_start)
-            else:
-                self._timed("device.put", phases, client.put, src_wav, dst, name=src_name, progress=False)
-                self._timed("device.delete", phases, client.delete, src)
-                self._emit_success(f"Moved {src:03d} → {dst:03d}", started_at=t_start)
-
-        self._emit_inventory(client, hydrate_slots={src, dst}, phases=phases)
+            msg = self._timed(
+                "local.move_slot",
+                phases,
+                move_slot,
+                client, src, dst, progress=_progress
+            )
+            self._emit_success(msg, started_at=t_start)
+        except Exception as exc:
+            self._emit("error", op=req.op, message=str(exc))
+        finally:
+            self._emit_inventory(client, hydrate_slots={src, dst}, phases=phases)
 
     def _handle_squash(self, req: WorkerRequest, client: EP133Client, phases: dict[str, float], t_start: float) -> None:
         start = int(req.payload.get("start", 1))
         end = int(req.payload.get("end", 999))
         sounds = self._timed("device.list_sounds", phases, client.list_sounds)
-        used_slots = [s for s in sorted(sounds.keys()) if start <= s <= end]
-
-        mapping = {}
-        target_slot = start
-        for slot in used_slots:
-            if slot != target_slot:
-                mapping[slot] = target_slot
-            target_slot += 1
+        
+        mapping = squash_scan(sounds, start, end)
 
         if not mapping:
             self._emit_success("Already compacted", started_at=t_start)
             return
 
         total = len(mapping)
-        done = 0
-        for old_slot, new_slot in mapping.items():
-            self._emit_progress(req.op, done + 1, total, f"Squashing {old_slot:03d} -> {new_slot:03d}")
-            info = self._timed("device.info", phases, client.info, old_slot, include_size=False)
-            name = info.name
 
-            with tempfile.TemporaryDirectory() as td:
-                temp_path = Path(td) / f"slot{old_slot:03d}.wav"
-                self._emit("busy", op=f"Squashing ({done}/{total}): {old_slot:03d} -> {new_slot:03d}")
-                self._timed("device.get", phases, client.get, old_slot, temp_path)
+        def _progress(curr: int, total: int, msg: str) -> None:
+            self._emit_progress(req.op, curr, total, msg)
 
-                deleted = False
-                try:
-                    self._timed("device.delete", phases, client.delete, old_slot)
-                    deleted = True
-                    self._timed("device.put", phases, client.put, temp_path, new_slot, name=name, progress=False)
-                except Exception:
-                    if deleted:
-                        try:
-                            self._timed("device.put", phases, client.put, temp_path, old_slot, name=name, progress=False)
-                        except Exception as rollback_exc:
-                            self._emit("error", op=req.op, message=f"Rollback failed for slot {old_slot:03d}: {rollback_exc}")
-                    raise
-            done += 1
-
-        self._emit_success(f"Squashed {total} slots", started_at=t_start)
-        changed = set(mapping.keys()) | set(mapping.values())
-        self._emit_inventory(client, hydrate_slots=changed, phases=phases)
+        try:
+            self._emit("busy", op=f"Squashing {total} slots...")
+            self._timed(
+                "local.squash_process",
+                phases,
+                squash_process,
+                mapping, sounds, client, raw=False, progress=_progress
+            )
+            self._emit_success(f"Squashed {total} slots", started_at=t_start)
+        except Exception as exc:
+            self._emit("error", op=req.op, message=f"Squash failed: {exc}")
+        finally:
+            changed = set(mapping.keys()) | set(mapping.values())
+            self._emit_inventory(client, hydrate_slots=changed, phases=phases)
 
     def _handle_optimize(self, req: WorkerRequest, client: EP133Client, phases: dict[str, float], t_start: float) -> None:
         slots = req.payload["slots"]
         rate = req.payload.get("rate")
         speed = req.payload.get("speed")
         pitch = req.payload.get("pitch", 0.0)
-
-        from ko2 import backup_copy, optimize_sample
 
         total = len(slots)
         done = 0
@@ -364,7 +347,6 @@ class DeviceWorker(threading.Thread):
     def _handle_optimize_all(self, req: WorkerRequest, client: EP133Client, phases: dict[str, float], t_start: float) -> None:
         min_size = int(req.payload.get("min_size", 0))
 
-        from ko2 import backup_copy, optimize_sample
 
         self._emit_progress(req.op, 0, 1, "Scanning for stereo samples...")
         sounds = self._timed("device.list_sounds", phases, client.list_sounds)
@@ -771,91 +753,6 @@ def _sampleinfo_to_dict(info: Any) -> dict[str, Any]:
         "duration": float(getattr(info, "duration", 0.0) or 0.0),
         "is_empty": bool(getattr(info, "is_empty", False)),
     }
-
-
-def _extract_waveform_bins_from_wav_bytes(wav_bytes: bytes, width: int) -> dict[str, Any] | None:
-    width = max(64, min(1024, int(width)))
-    with wave.open(io.BytesIO(wav_bytes), "rb") as wf:
-        channels = max(1, int(wf.getnchannels() or 1))
-        sample_width = int(wf.getsampwidth() or 2)
-        n_frames = int(wf.getnframes() or 0)
-        if n_frames <= 0:
-            return None
-        raw = wf.readframes(n_frames)
-
-    samples = _decode_samples(raw, sample_width)
-    if not samples:
-        return None
-
-    mins = [1.0] * width
-    maxs = [-1.0] * width
-
-    frame_count = min(n_frames, len(samples) // channels)
-    if frame_count <= 0:
-        return None
-    for frame in range(frame_count):
-        idx = frame * channels
-        total = 0.0
-        for c in range(channels):
-            total += samples[idx + c]
-        value = total / channels
-        bucket = min(width - 1, (frame * width) // max(1, frame_count))
-        if value < mins[bucket]:
-            mins[bucket] = value
-        if value > maxs[bucket]:
-            maxs[bucket] = value
-
-    for i in range(width):
-        if mins[i] > maxs[i]:
-            mins[i] = 0.0
-            maxs[i] = 0.0
-
-    mins_q = [int(max(-127, min(127, round(v * 127.0)))) for v in mins]
-    maxs_q = [int(max(-127, min(127, round(v * 127.0)))) for v in maxs]
-    return {"mins": mins_q, "maxs": maxs_q, "width": width}
-
-
-def _extract_fingerprint_from_wav_bytes(wav_bytes: bytes) -> dict[str, Any] | None:
-    try:
-        with wave.open(io.BytesIO(wav_bytes), "rb") as wf:
-            channels = max(1, int(wf.getnchannels() or 1))
-            sample_width = int(wf.getsampwidth() or 2)
-            samplerate = int(wf.getframerate() or 0)
-            n_frames = int(wf.getnframes() or 0)
-            pcm = wf.readframes(n_frames)
-    except Exception:
-        return None
-
-    if not pcm:
-        return None
-
-    sha256 = hashlib.sha256(pcm).hexdigest()
-    duration_s = (n_frames / samplerate) if samplerate > 0 else 0.0
-    return {
-        "sha256": sha256,
-        "frames": n_frames,
-        "channels": channels,
-        "samplerate": samplerate,
-        "sample_width": sample_width,
-        "duration_s": duration_s,
-    }
-
-
-def _decode_samples(raw: bytes, sample_width: int) -> list[float]:
-    if sample_width == 2:
-        pcm = array.array("h")
-        pcm.frombytes(raw)
-        # WAV data is little-endian PCM.
-        if pcm.itemsize == 2 and array.array("H", [1]).tobytes() != b"\x01\x00":
-            pcm.byteswap()
-        scale = 32768.0
-        return [max(-1.0, min(1.0, sample / scale)) for sample in pcm]
-
-    if sample_width == 1:
-        return [((b - 128) / 128.0) for b in raw]
-
-    # Unsupported/rare sample widths in this app path.
-    return []
 
 
 def _env_mode(name: str, default: str) -> str:

@@ -230,8 +230,8 @@ def test_worker_optimize_emits_slot_refresh(monkeypatch, tmp_path):
     def _fake_backup_copy(path, slot=None, name_hint=None):
         return tmp_path / "noop.wav"
 
-    monkeypatch.setattr("ko2.optimize_sample", _fake_optimize_sample)
-    monkeypatch.setattr("ko2.backup_copy", _fake_backup_copy)
+    monkeypatch.setattr("ko2_tui.worker.optimize_sample", _fake_optimize_sample)
+    monkeypatch.setattr("ko2_tui.worker.backup_copy", _fake_backup_copy)
 
     req_q: Queue = Queue()
     evt_q: Queue = Queue()
@@ -255,7 +255,16 @@ def test_worker_optimize_emits_slot_refresh(monkeypatch, tmp_path):
 def test_worker_move_swap_is_destination_first():
     req_q: Queue = Queue()
     evt_q: Queue = Queue()
-    fake = FakeClient()
+    
+    class SwapClient(FakeClient):
+        def list_sounds(self):
+            self.calls.append("list_sounds")
+            return {
+                1: {"name": "001 kick", "size": 1234, "node_id": 1001},
+                2: {"name": "002 snare", "size": 1000},
+            }
+
+    fake = SwapClient()
 
     worker = DeviceWorker(
         device_name="EP-133",
@@ -279,8 +288,8 @@ def test_worker_move_swap_is_destination_first():
     assert normalized == [
         ("get", 1),
         ("get", 2),
-        ("put", 2, "kick", False),
-        ("put", 1, "kick", False),
+        ("put", 2, "afterparty kick", False),
+        ("put", 1, "002 snare", False),
     ]
 
 
@@ -439,8 +448,8 @@ def test_worker_optimize_all_skips_mono_slots(monkeypatch, tmp_path):
     def _fake_backup_copy(path, slot=None, name_hint=None):
         return tmp_path / "backup.wav"
 
-    monkeypatch.setattr("ko2.optimize_sample", _fake_optimize_sample)
-    monkeypatch.setattr("ko2.backup_copy", _fake_backup_copy)
+    monkeypatch.setattr("ko2_tui.worker.optimize_sample", _fake_optimize_sample)
+    monkeypatch.setattr("ko2_tui.worker.backup_copy", _fake_backup_copy)
 
     req_q: Queue = Queue()
     evt_q: Queue = Queue()

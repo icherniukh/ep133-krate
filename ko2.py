@@ -39,6 +39,18 @@ try:
     )
     from ko2_backup import backup_copy
     from ko2_models import SAMPLE_RATE, MAX_SLOTS, decode_node_id, decode_14bit
+
+    import sys
+    from pathlib import Path as _Path
+    _src = str(_Path(__file__).resolve().parent / "src")
+    if _src not in sys.path:
+        sys.path.insert(0, _src)
+    from core.ops import (
+        optimize_sample,
+        resolve_transfer_name as _resolve_transfer_name,
+        squash_scan as _squash_scan,
+        squash_process as _squash_process,
+    )
     from ko2_display import View, TerminalView, SilentView, JsonView, SampleFormat
     from ko2_parser import build_parser, validate_slot, parse_range
 except ImportError as e:
@@ -348,35 +360,7 @@ def _sanitize_field(text: str) -> str:
     return str(text).replace("\t", " ").replace("\n", " ").replace("\r", " ")
 
 
-def _resolve_transfer_name(
-    client: EP133Client, slot: int, entry: dict | None, raw: bool
-) -> str:
-    fs_name = str(entry.get("name") if entry else f"{slot:03d}.pcm")
-    if raw:
-        return fs_name
-
-    node_name = None
-    node_id = int(entry.get("node_id") or 0) if entry else 0
-    if node_id:
-        try:
-            node_meta = client.get_node_metadata(node_id)
-        except Exception:
-            node_meta = None
-        if node_meta:
-            node_name = node_meta.get("name") or node_meta.get("sym")
-            if node_name:
-                return str(node_name)
-
-    try:
-        meta = client.info(
-            slot, include_size=False, node_entry=entry
-        )
-        if meta.name:
-            return meta.name
-    except Exception:
-        pass
-
-    return fs_name
+# _resolve_transfer_name imported from core.ops above
 
 
 def _format_bar(used: int, total: int, width: int = 28) -> str:
@@ -669,88 +653,7 @@ def cmd_audit(args, view: View):
     return 0
 
 
-def optimize_sample(
-    input_path: Path, output_path: Optional[Path] = None,
-    downsample_rate: Optional[int] = None, speed: Optional[float] = None,
-    mono: bool = True
-) -> tuple[bool, str, int, int]:
-    """
-    Optimize a WAV file for EP-133 using audio2ko2 or sox.
-
-    Downmixes stereo to mono, and downsamples only if rate > SAMPLE_RATE (46875 Hz).
-    The device stores samples below 46875 Hz at their original rate (firmware OS 2.0+),
-    so there is no reason to upsample.
-
-    Returns:
-        (success, message, original_size, optimized_size)
-    """
-    original_size = input_path.stat().st_size
-
-    if output_path is None:
-        output_path = input_path.with_suffix(".opt.wav")
-
-    with wave.open(str(input_path)) as w:
-        in_channels = w.getnchannels()
-        in_rate = w.getframerate()
-        in_depth = w.getsampwidth() * 8
-
-    target_rate = downsample_rate if downsample_rate else SAMPLE_RATE
-
-    needs_downmix = in_channels > 1 and mono
-    needs_resample = in_rate > target_rate
-    needs_requantize = in_depth > 16
-    needs_speed = speed is not None and speed != 1.0
-
-    if not needs_downmix and not needs_resample and not needs_requantize and not needs_speed:
-        return True, "already optimal", original_size, original_size
-
-    # Fall back to sox — only pass flags for what actually needs changing
-    # Since audio2ko2 does not support parameters like speed or arbitrary downsampling natively yet,
-    # we bypass it if any special parameter is set.
-    if not needs_speed and downsample_rate is None:
-        # Try audio2ko2 first
-        audio2ko2 = Path.home() / "proj" / "audio2ko2" / "audio2ko2"
-        if audio2ko2.exists():
-            try:
-                result = subprocess.run(
-                    [str(audio2ko2), str(input_path)],
-                    capture_output=True,
-                    text=True,
-                    timeout=30,
-                )
-                if result.returncode == 0:
-                    # audio2ko2 creates output with _ko2 suffix
-                    ko2_output = input_path.with_stem(input_path.stem + "_ko2")
-                    if ko2_output.exists():
-                        shutil.move(ko2_output, output_path)
-                        opt_size = output_path.stat().st_size
-                        return True, "optimized with audio2ko2", original_size, opt_size
-            except (subprocess.TimeoutExpired, FileNotFoundError):
-                pass
-
-    sox_args = ["sox", str(input_path)]
-    if needs_downmix:
-        sox_args += ["-c", "1"]
-    if needs_resample:
-        sox_args += ["-r", str(target_rate)]
-    if needs_requantize:
-        sox_args += ["-b", "16"]
-
-    sox_args.append(str(output_path))
-
-    if needs_speed:
-        sox_args += ["speed", str(speed)]
-
-    try:
-        subprocess.run(sox_args, capture_output=True, check=True, timeout=30)
-        opt_size = output_path.stat().st_size
-        return True, "optimized with sox", original_size, opt_size
-    except (
-        subprocess.CalledProcessError,
-        subprocess.TimeoutExpired,
-        FileNotFoundError,
-    ) as e:
-        return False, f"error: {e}", original_size, 0
+# optimize_sample imported from core.ops above
 
 
 def cmd_optimize(args, view: View):
@@ -1231,57 +1134,31 @@ def cmd_group(args, view: View):
     return 0
 
 
-def _squash_scan(sounds: dict, start: int, end: int) -> dict:
-    """Return mapping of old_slot -> new_slot for slots that need to move.
-
-    Slots already at the correct sequential position are excluded.
-    """
-    used_slots = [s for s in sorted(sounds.keys()) if start <= s <= end]
-    mapping = {}
-    target_slot = start
-    for slot in used_slots:
-        if slot != target_slot:
-            mapping[slot] = target_slot
-        target_slot += 1
-    return mapping
+# _squash_scan imported from core.ops above
 
 
-def _squash_process(
+def _squash_process_with_view(
     mapping: dict, sounds: dict, client, raw: bool, view: View
 ) -> None:
-    """Execute each move in mapping: get, backup, delete old, put new.
+    """Wrapper around core.ops.squash_process with view-based progress output."""
+    total = len(mapping)
+    done = [0]
 
-    On EP133Error mid-move, attempts to restore the old slot before re-raising.
-    """
+    def _progress(current: int, _total: int, message: str) -> None:
+        done[0] = current
+
+    try:
+        _squash_process(
+            mapping, sounds, client,
+            raw=raw,
+            progress=_progress,
+        )
+    except EP133Error as e:
+        view.error(f"Squash failed at step {done[0]}/{total}: {e}")
+        return
+
     for old_slot, new_slot in mapping.items():
-        try:
-            entry = sounds.get(old_slot)
-            name = _resolve_transfer_name(client, old_slot, entry, raw)
-            with tempfile.TemporaryDirectory(
-                prefix=f"ko2-move{old_slot:03d}-"
-            ) as td:
-                temp_path = Path(td) / f"slot{old_slot:03d}.wav"
-                client.get(old_slot, temp_path)
-                backup_copy(temp_path, slot=old_slot, name_hint=name)
-
-                deleted = False
-                try:
-                    client.delete(old_slot)
-                    deleted = True
-                    client.put(temp_path, new_slot, name=name, progress=False)
-                except EP133Error:
-                    if deleted:
-                        try:
-                            client.put(
-                                temp_path, old_slot, name=name, progress=False
-                            )
-                            view.warn(f"Restored slot {old_slot:03d} after failure")
-                        except Exception:
-                            pass
-                    raise
-            view.step(f"[{old_slot:03d} → {new_slot:03d}] ✓")
-        except EP133Error as e:
-            view.error(f"[{old_slot:03d} → {new_slot:03d}]: {e}")
+        view.step(f"[{old_slot:03d} → {new_slot:03d}] ✓")
 
 
 def _squash_report(mapping: dict, view: View) -> None:
@@ -1372,7 +1249,7 @@ def cmd_squash(args, view: View):
         view.section("Executing...")
         print()
 
-        _squash_process(mapping, sounds, client, raw, view)
+        _squash_process_with_view(mapping, sounds, client, raw, view)
         _squash_report(mapping, view)
 
     return 0
