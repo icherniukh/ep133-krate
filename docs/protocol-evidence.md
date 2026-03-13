@@ -103,8 +103,9 @@ Hunter summary after opening the official sample tool (no user actions):
 
 ### Device state after completed downloads (CONFIRMED 2026-03-06)
 After all download chunks are received, **the device remains in download mode** and silently
-drops the next command rather than processing it. Confirmed from `tui-2026-03-03-042744.jsonl`:
-both `DELETE TX` events in that capture are immediately followed by stale `op=GET` responses
+drops the next command rather than processing it. Confirmed from
+`captures/evidence-download-state-bug.jsonl` (excerpt from a 314 MB session log):
+both `DELETE TX` events are immediately followed by stale `op=GET` responses
 from the device (it echoes download data) instead of a `DELETE ACK`.
 
 **Consequence:** Any operation sent directly after `_download_data()` completes (delete, put,

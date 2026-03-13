@@ -19,6 +19,21 @@ tmp/
 *.pcm
 captures/
 !captures/*.wav
+!captures/sniffer-upload21.jsonl
+!captures/sniffer-readmeta.jsonl
+!captures/sniffer-rename.jsonl
+!captures/sniffer-rename54-txrx.jsonl
+!captures/sniffer-slot26.jsonl
+!captures/sniffer-padtrim.jsonl
+!captures/sniffer-padmap-A.jsonl
+!captures/sniffer-padmap-B.bin
+!captures/sniffer-padmap-C.bin
+!captures/sniffer-delete-hi.bin
+!captures/sniffer-upload-clean-hi.bin
+!captures/sniffer-02-20-audit1.log
+!captures/2026-02-20-audit-001-099.jsonl
+!captures/2026-02-20-audit-100-199.jsonl
+!captures/evidence-download-state-bug.jsonl
 
 # Audit/debug dumps
 *.jsonl
