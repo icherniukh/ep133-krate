@@ -7,7 +7,8 @@ CLI/TUI features are all welcome.
 ## Development setup
 
 ```bash
-pip install mido[ports-rtmidi] textual
+python -m venv .venv && source .venv/bin/activate
+pip install -e .
 brew install sox  # macOS
 apt install sox   # Linux
 ```

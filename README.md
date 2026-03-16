@@ -1,7 +1,7 @@
 # ep133-krate
 
 The EP-133 KO-II has no public API and no documented protocol. Managing
-samples means using the official EP Sample Tool — there's no alternative.
+samples means using the official EP Sample Tool — until now.
 
 **krate** is a full sample manager for the EP-133 — CLI and terminal UI today,
 with native desktop and mobile apps on the roadmap. The MIDI SysEx protocol
@@ -13,6 +13,8 @@ community doesn't have to start from scratch.
 ---
 
 ## Install
+
+**Requires Python 3.11+ and sox.**
 
 ```bash
 git clone https://github.com/icherniukh/ep133-krate
@@ -27,9 +29,10 @@ Connect the EP-133 via USB, then verify it's visible:
 
 ```bash
 python -c "import mido; print(mido.get_input_names())"
+# e.g. ['EP-133 KO II MIDI 1']
 ```
 
-If the port name differs from the default, pass it explicitly with `--device`.
+If the port name differs, pass it explicitly: `krate --device "EP-133 KO II" ls`
 
 ---
 
@@ -145,10 +148,11 @@ Notable discoveries from the capture analysis:
 
 ### 7-bit encoding (Packed7)
 
-MIDI SysEx payloads cannot contain bytes with the high bit set. Binary data
-(PCM audio, JSON metadata) is encoded with a custom `Packed7` scheme: every
-8 bytes of input become 9 bytes of output, high bits packed into a leading
-byte. Implemented in `src/core/types.py`, round-trip verified in the test suite.
+MIDI SysEx is a 7-bit-clean channel — any byte with the high bit set ends the
+message. Binary data (PCM audio, JSON metadata) must be re-encoded before
+transmission. `Packed7` does this: every 8 bytes of input become 9 bytes of
+output, high bits packed into a leading byte. Implemented in
+`src/core/types.py`, round-trip verified in the test suite.
 
 ### Descriptor DSL for protocol messages
 
@@ -167,10 +171,9 @@ layer is completely isolated from encoding concerns.
 
 ### Testable CLI output (View protocol)
 
-All 16 CLI functions receive `view: View` as an injected parameter — a
-structural protocol with 10 domain-semantic methods: `section`, `step`,
-`success`, `error`, `warn`, `info`, `kv`, `progress`, `render_samples`,
-`sample_detail`.
+All CLI functions receive `view: View` as an injected parameter — a structural
+protocol with 10 domain-semantic methods: `section`, `step`, `success`,
+`error`, `warn`, `info`, `kv`, `progress`, `render_samples`, `sample_detail`.
 
 | Implementation | Use |
 |---|---|
@@ -196,7 +199,7 @@ cached, the MIDI round-trip is skipped entirely.
 - Capture-based protocol tests verify serialized bytes against real USB traffic
 - Encoding tests assert round-trip symmetry for `U7`, `BE16`, `Packed7`, and
   slot encoding variants
-- CLI tests cover all 16 command functions via `Mock(spec=View)`
+- CLI tests cover all command functions via `Mock(spec=View)`
 - Dedicated modules for waveform fingerprinting, squash algorithm, and
   optimize flow
 - Fuzz tests (`test_protocol_fuzz.py`) exercise response parsers against
@@ -206,7 +209,7 @@ cached, the MIDI round-trip is skipped entirely.
 
 ## Protocol Gaps
 
-Remaining unknowns, documented honestly:
+Remaining unknowns:
 
 1. **Playback (0x76)** — TX format, parameters, and device response all
    unknown. Audition uses a workaround; true playback triggering is not
@@ -250,8 +253,8 @@ Protocol reverse-engineering is ongoing. Useful contributions:
 - Tests and analysis for the protocol gaps listed above
 - CLI and TUI feature work
 
-The project uses beads for issue tracking <!-- TODO: link beads repo -->. After
-cloning, run `bd list` to see the backlog or `bd ready` for unblocked work.
+The project tracks issues with beads <!-- TODO: link beads repo -->. Core
+contributors: `bd list` for the full backlog, `bd ready` for unblocked work.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, capture
 instructions, and architecture decision log.
