@@ -23,11 +23,6 @@ from core.client import EP133Client
 
 FIXTURE_WAV = Path(__file__).parents[1] / "fixtures" / "kick-46875hz.wav"
 
-pytestmark = pytest.mark.skipif(
-    not FIXTURE_WAV.exists(),
-    reason="kick-46875hz.wav fixture not present",
-)
-
 
 class _FakeClient:
     def __init__(self):
