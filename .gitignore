@@ -19,6 +19,7 @@ tmp/
 *.pcm
 captures/
 !captures/*.wav
+!tests/fixtures/*.wav
 !captures/sniffer-upload21.jsonl
 !captures/sniffer-readmeta.jsonl
 !captures/sniffer-rename.jsonl
