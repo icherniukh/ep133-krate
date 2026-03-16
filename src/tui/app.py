@@ -9,7 +9,11 @@ from textual import events
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
-from textual.widgets import DataTable, Footer, RichLog, Static
+from textual.widgets import DataTable, Footer, Static, TextArea
+
+
+class _LogView(TextArea, can_focus=False):
+    """Read-only log pane that allows mouse text selection without stealing keyboard focus."""
 
 from . import actions
 from .debug_log import DebugLogger
@@ -153,6 +157,7 @@ class TUIApp(App[None]):
         self._waveform_store = WaveformStore()
         self._waveform_precalc_active: bool = False
         self._logs_visible: bool = True
+        self._log_lines: list[str] = []
 
         # Playback cursor animation
         self._play_slot: int | None = None
@@ -170,7 +175,7 @@ class TUIApp(App[None]):
             with Vertical(id="inspector"):
                 yield DetailsWidget(id="details")
                 yield WaveformWidget(id="waveform")
-        yield RichLog(id="logs", wrap=True, markup=False)
+        yield _LogView("", read_only=True, id="logs", show_line_numbers=False)
         yield Footer()
 
     def on_mount(self) -> None:
@@ -201,6 +206,7 @@ class TUIApp(App[None]):
         if self._dialog_logger and self._dialog_logger.path:
             self._log(f"Dialog log: {self._dialog_logger.path}")
         self._queue_request(actions.refresh_inventory())
+        self.query_one("#slots", DataTable).focus()
 
     def on_unmount(self) -> None:
         self._shutdown_worker()
@@ -582,7 +588,10 @@ class TUIApp(App[None]):
             status_bar.add_class("error")
 
     def _log(self, line: str) -> None:
-        self.query_one("#logs", RichLog).write(line)
+        self._log_lines.append(line)
+        ta = self.query_one("#logs", _LogView)
+        ta.load_text("\n".join(self._log_lines))
+        ta.move_cursor(ta.document.end, select=False)
         if self._dialog_logger:
             self._dialog_logger.record(line)
 
@@ -840,7 +849,7 @@ class TUIApp(App[None]):
         )
 
     def action_toggle_logs(self) -> None:
-        logs = self.query_one("#logs", RichLog)
+        logs = self.query_one("#logs", _LogView)
         self._logs_visible = not self._logs_visible
         if self._logs_visible:
             logs.remove_class("hidden")

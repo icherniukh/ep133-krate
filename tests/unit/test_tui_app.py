@@ -7,7 +7,8 @@ from unittest.mock import AsyncMock
 from tui.app import TUIApp, _waveform_signature
 from tui.ui import ConfirmModal, HelpModal, OptimizeModal, TextInputModal
 from tui.worker import WorkerEvent
-from textual.widgets import Checkbox, DataTable, RichLog, Static
+from textual.widgets import Checkbox, DataTable, Static, TextArea
+from tui.app import _LogView
 
 
 class StubWorker:
@@ -604,28 +605,28 @@ def test_log_view_toggle_hides_and_preserves_lines(monkeypatch):
         app = TUIApp(device_name="EP-133", debug=False)
         async with app.run_test() as pilot:
             _make_ready(app)
-            logs = app.query_one("#logs", RichLog)
+            logs = app.query_one("#logs", _LogView)
 
             app._log("line-a")
             await pilot.pause()
-            before = len(logs.lines)
+            before = len(logs.text.splitlines())
             assert before >= 1
             assert not logs.has_class("hidden")
 
             await pilot.press("l")
             await pilot.pause()
             assert logs.has_class("hidden")
-            assert len(logs.lines) == before
+            assert len(logs.text.splitlines()) == before
 
             app._log("line-b")
             await pilot.pause()
-            mid = len(logs.lines)
+            mid = len(logs.text.splitlines())
             assert mid == before + 1
 
             await pilot.press("l")
             await pilot.pause()
             assert not logs.has_class("hidden")
-            assert len(logs.lines) == mid
+            assert len(logs.text.splitlines()) == mid
 
     asyncio.run(_run())
 
