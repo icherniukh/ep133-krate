@@ -15,6 +15,7 @@ from __future__ import annotations
 import asyncio
 from pathlib import Path
 from queue import Queue
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -105,6 +106,7 @@ def test_pick_files_force_modal_false_still_uses_yazi(tmp_path):
     def fake_subprocess_run(cmd, **kwargs):
         chooser = Path(cmd[cmd.index("--chooser-file") + 1])
         chooser.write_text(f"{wav}\n")
+        return SimpleNamespace(returncode=0)
 
     async def _run():
         with patch("tui.file_picker._is_yazi_available", return_value=True), \
@@ -136,6 +138,7 @@ def test_pick_files_calls_yazi_and_parses_chooser_file(tmp_path):
         # Simulate yazi writing selected paths to the chooser file
         chooser = Path(cmd[cmd.index("--chooser-file") + 1])
         chooser.write_text(f"{wav_a}\n{wav_b}\n")
+        return SimpleNamespace(returncode=0)
 
     async def _run():
         with patch("tui.file_picker._is_yazi_available", return_value=True), \
@@ -159,6 +162,7 @@ def test_pick_files_returns_empty_when_yazi_chooser_file_empty(tmp_path):
         # yazi quit without selecting anything
         chooser = Path(cmd[cmd.index("--chooser-file") + 1])
         chooser.write_text("")
+        return SimpleNamespace(returncode=0)
 
     async def _run():
         with patch("tui.file_picker._is_yazi_available", return_value=True), \

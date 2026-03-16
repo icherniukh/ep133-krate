@@ -119,11 +119,20 @@ async def _pick_with_yazi(app, start_dir: Path | None) -> list[Path]:
         cmd = ["yazi", "--chooser-file", str(chooser_path)]
         if start_dir:
             cmd.append(str(start_dir))
+        app._log(f"[yazi] launching: {' '.join(cmd)}")
         async with app.suspend():
-            subprocess.run(cmd)
+            result = subprocess.run(cmd)
+        app._log(f"[yazi] exited with code {result.returncode}")
+        if not chooser_path.exists():
+            app._log("[yazi] chooser file missing after exit")
+            return []
         text = chooser_path.read_text().strip()
-        return [Path(p) for p in text.splitlines() if p.strip()]
-    except Exception:
+        app._log(f"[yazi] chooser file contents: {text!r}")
+        paths = [Path(p) for p in text.splitlines() if p.strip()]
+        app._log(f"[yazi] parsed {len(paths)} path(s)")
+        return paths
+    except Exception as exc:
+        app._log(f"[yazi] error: {exc!r}")
         return []
     finally:
         chooser_path.unlink(missing_ok=True)
