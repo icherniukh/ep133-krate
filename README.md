@@ -1,18 +1,14 @@
 # ep133-krate
 
-You have an EP-133 KO-II. You've loaded it with samples and want to reorganize
-them before a set — move a kick, pull something back to disk, swap in a new
-layer. The official EP Sample Tool is your only option.
+The EP-133 KO-II has no public API and no documented protocol. Managing
+samples means using the official EP Sample Tool — there's no alternative.
 
-There's no public API. No documented protocol. No third-party tooling.
-
-**krate** is built to change that. It's a full sample manager for the EP-133 —
-CLI and terminal UI today, with native desktop and mobile apps on the roadmap.
-To build it, the MIDI SysEx protocol had to be reverse-engineered from USB
-captures of the official app. The full specification is published in
-[PROTOCOL.md](PROTOCOL.md) — opcodes, byte layouts, session state machine,
-confirmed findings and honest gaps — so the community doesn't have to start
-from scratch.
+**krate** is a full sample manager for the EP-133 — CLI and terminal UI today,
+with native desktop and mobile apps on the roadmap. The MIDI SysEx protocol
+was reverse-engineered from USB captures of the official app. The full
+specification is published in [PROTOCOL.md](PROTOCOL.md) — opcodes, byte
+layouts, session state machine, confirmed findings and honest gaps — so the
+community doesn't have to start from scratch.
 
 ---
 
@@ -43,6 +39,8 @@ krate put kick.wav 43   # upload to slot 43
 krate get 43 kick.wav   # download slot 43
 ```
 
+<!-- TODO: demo.gif -->
+
 ---
 
 ## Terminal UI
@@ -54,6 +52,8 @@ krate tui
 Arrow keys navigate slots. `Enter` opens the action menu. `?` shows all
 keybindings. Waveforms are rendered in braille using a SHA-256 fingerprint
 cache — slots already loaded skip the MIDI round-trip on subsequent views.
+
+<!-- TODO: screenshot.png -->
 
 ---
 
@@ -246,6 +246,9 @@ Protocol reverse-engineering is ongoing. Useful contributions:
 - USB traffic captures from the official EP Sample Tool
 - Tests and analysis for the protocol gaps listed above
 - CLI and TUI feature work
+
+The project uses beads for issue tracking <!-- TODO: link beads repo -->. After
+cloning, run `bd list` to see the backlog or `bd ready` for unblocked work.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, capture
 instructions, and architecture decision log.
