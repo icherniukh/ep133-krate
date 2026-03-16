@@ -39,10 +39,8 @@ If the port name differs, pass it explicitly: `krate --device "EP-133 KO II" ls`
 ## Quick Start
 
 ```bash
-krate tui               # browse and manage samples interactively
-krate ls                # list slots 1–99
-krate put kick.wav 43   # upload to slot 43
-krate get 43 kick.wav   # download slot 43
+krate tui                               # interactive browser
+krate put kick.wav 43 --name "kick"     # upload to slot 43
 ```
 
 <!-- TODO: demo.gif -->
@@ -65,45 +63,31 @@ cache — slots already loaded skip the MIDI round-trip on subsequent views.
 
 ## CLI Reference
 
-All commands accept `--device <name>`, `--quiet`, and `--json`.
-Run `krate --help` for the full list.
-
-### Inspect
+All commands accept `--device <name>`, `--quiet`, and `--json`. Run `krate --help` for the full list.
 
 ```bash
-krate ls              # slots 1–99
-krate ls --page 2     # slots 100–199
-krate ls --all        # all 999 slots
-krate info 43         # name, size, duration
-krate info 1-50       # range
-```
+# inspect
+krate ls                                # slots 1–99
+krate ls --page 2                       # slots 100–199
+krate ls --all                          # all 999 slots
+krate info 43                           # name, size, duration
+krate info 1-50                         # range
 
-### Transfer
-
-```bash
+# transfer
 krate get 43 ./kick.wav
 krate put ./kick.wav 43
 krate put ./kick.wav 43 --name "afterparty kick"
-```
 
-### Manage
-
-```bash
+# manage
 krate mv 43 50
 krate cp 43 50
 krate rm 43
 krate rename 43 "new name"
-```
 
-### Optimize
-
-The EP-133 native sample rate is 46875 Hz (24 MHz ÷ 512, Cirrus Logic CS42L52).
-Stereo files and files above that rate use more flash than necessary.
-
-```bash
-krate optimize 43       # stereo → mono, downsample if needed
-krate optimize-all      # optimize every stereo sample in place
-krate squash            # dry run: show how slot gaps would be filled
+# optimize (native rate: 46875 Hz — stereo and higher-rate files waste flash)
+krate optimize 43                       # stereo → mono, downsample if needed
+krate optimize-all                      # optimize every stereo sample in place
+krate squash                            # dry run: show how gaps would be filled
 krate squash --execute
 ```
 

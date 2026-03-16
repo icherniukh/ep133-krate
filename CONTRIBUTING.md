@@ -35,20 +35,8 @@ pytest -m e2e --device "EP-133"
 
 ## Protocol gaps
 
-These are the remaining unknowns that require further reverse-engineering.
-See `docs/capture-wishlist.md` for capture scenarios and exact commands.
-
-1. **Playback/audition (0x76)** — TX format, parameters, and device response all unknown.
-   Blocking TUI audition (Tab key) and Phase 3.
-2. **Project listing (0x7C)** — switching is documented, listing available projects is not captured.
-3. **Memory statistics** — device returns `free_space_in_bytes` in a known RX payload,
-   but the TX command that triggers it is not identified. `cmd_status` falls back to 64 MB.
-4. **Pad mapping (Groups B/C/D)** — Group A fully captured (`9201–9212`).
-   Groups B/C/D partial. See `docs/capture-wishlist.md` for capture steps.
-5. **GET_META (0x75) reliability** — known to return stale data for deleted slots.
-   Runtime inventory now uses `/sounds` + node metadata instead. Retained for audit only.
-6. **Device info (0x77/0x78)** — `device_info()` always returns None. RX response is known
-   but TX request format is not confirmed.
+The authoritative gap list lives in [PROTOCOL.md § Known Issues](PROTOCOL.md#known-issues).
+See `docs/capture-wishlist.md` for capture scenarios and exact commands needed to fill them.
 
 ## Capturing protocol traffic
 
@@ -78,7 +66,7 @@ Three implementations:
 - `SilentView` — all no-ops, used for `--quiet` and as test double
 - `JsonView` — structured output for `--json`
 
-`main()` constructs the view from flags. All 16 `cmd_*` functions are unit-testable
+`main()` constructs the view from flags. All `cmd_*` functions are unit-testable
 via `Mock(spec=View)` — no stdout patching needed.
 
 ### Descriptor DSL for protocol messages (2026-02-24)
