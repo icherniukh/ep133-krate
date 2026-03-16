@@ -398,5 +398,11 @@ def build_parser() -> argparse.ArgumentParser:
             "(default: captures/tui-dialog-*.log)."
         ),
     )
+    tui_parser.add_argument(
+        "--alt-file-picker",
+        action="store_true",
+        default=False,
+        help="Use the built-in DirectoryTree file picker instead of yazi.",
+    )
 
     return parser

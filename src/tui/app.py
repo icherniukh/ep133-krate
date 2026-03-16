@@ -131,12 +131,14 @@ class TUIApp(App[None]):
         debug: bool = False,
         debug_log: str | None = None,
         dialog_log: str | None = None,
+        alt_file_picker: bool = False,
     ):
         super().__init__()
         self.device_name = device_name
         self.debug_enabled = bool(debug)
         self.debug_log = debug_log
         self.dialog_log = dialog_log
+        self.alt_file_picker = bool(alt_file_picker)
 
         self.state = TuiState()
         self._request_queue: Queue[actions.WorkerRequest] = Queue()
@@ -986,7 +988,7 @@ class TUIApp(App[None]):
 
     async def action_batch_upload(self) -> None:
         cursor_slot = self._current_slot()
-        files = await pick_files(self)
+        files = await pick_files(self, force_modal=self.alt_file_picker)
         if not files:
             return
         # Collect free slots starting from cursor position

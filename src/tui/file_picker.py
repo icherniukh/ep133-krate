@@ -129,13 +129,15 @@ async def _pick_with_yazi(app, start_dir: Path | None) -> list[Path]:
         chooser_path.unlink(missing_ok=True)
 
 
-async def pick_files(app, start_dir: Path | None = None) -> list[Path]:
+async def pick_files(
+    app, start_dir: Path | None = None, force_modal: bool = False
+) -> list[Path]:
     """Return a list of WAV files chosen by the user.
 
-    Uses yazi if available; falls back to DirectoryTreePickerModal.
-    Returns [] if the user cancels.
+    Uses yazi if available (and force_modal is False); falls back to
+    DirectoryTreePickerModal otherwise.  Returns [] if the user cancels.
     """
-    if _is_yazi_available():
+    if not force_modal and _is_yazi_available():
         return await _pick_with_yazi(app, start_dir)
     result = await app.push_screen_wait(DirectoryTreePickerModal(start_dir))
     return result or []

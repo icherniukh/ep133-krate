@@ -44,6 +44,7 @@ def cmd_tui(args, view: View):
         debug=debug_enabled,
         debug_log=debug_path,
         dialog_log=getattr(args, "dialog_log", None),
+        alt_file_picker=getattr(args, "alt_file_picker", False),
     )
     app.run()
     return 0
