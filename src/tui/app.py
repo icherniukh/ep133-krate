@@ -13,6 +13,7 @@ from textual.widgets import DataTable, Footer, RichLog, Static
 
 from . import actions
 from .debug_log import DebugLogger
+from .file_picker import pick_files
 from .dialog_log import DialogLogger
 from .waveform_store import WaveformStore
 from .waveform_widget import WaveformWidget
@@ -103,6 +104,7 @@ class TUIApp(App[None]):
         Binding("down", "cursor_down", "Down", show=False, priority=True),
         Binding("d", "download", "Download"),
         Binding("u", "upload", "Upload"),
+        Binding("U", "batch_upload", "Batch Upload"),
         Binding("c", "copy", "Copy"),
         Binding("m", "start_move", "Move"),
         Binding("r", "rename", "Rename"),
@@ -981,6 +983,20 @@ class TUIApp(App[None]):
             UploadModal(slot=slot),
             callback=lambda result: self._on_upload_modal(slot, result),
         )
+
+    async def action_batch_upload(self) -> None:
+        cursor_slot = self._current_slot()
+        files = await pick_files(self)
+        if not files:
+            return
+        # Collect free slots starting from cursor position
+        free = [s for s in range(cursor_slot, 1000) if not self.state.slots.get(s, SlotRow(s)).exists]
+        if len(free) < len(files):
+            self._log(f"Not enough free slots: need {len(files)}, found {len(free)} from slot {cursor_slot:03d}")
+            if not free:
+                return
+            files = files[: len(free)]
+        self._queue_request(actions.batch_upload(list(zip(files, free))))
 
     def action_copy(self) -> None:
         slot = self._current_slot()

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 
@@ -73,6 +74,13 @@ def waveform(slot: int, width: int = 320, height: int = 24) -> WorkerRequest:
 
 def audition(slot: int, duration_s: float = 0.0) -> WorkerRequest:
     return WorkerRequest(op="audition", payload={"slot": int(slot), "duration_s": float(duration_s)})
+
+
+def batch_upload(files_and_slots: list[tuple[Path | str, int]]) -> WorkerRequest:
+    return WorkerRequest(
+        op="batch_upload",
+        payload={"files_and_slots": [(str(p), int(s)) for p, s in files_and_slots]},
+    )
 
 
 def stop() -> WorkerRequest:

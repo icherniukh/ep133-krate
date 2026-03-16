@@ -158,6 +158,21 @@ class DeviceWorker(threading.Thread):
                     self._timed("device.delete", phases, client.delete, slot)
                 self._emit_success(f"Deleted {n} slot{'s' if n != 1 else ''}", started_at=t_start)
                 self._emit_inventory(client, hydrate_slots=set(slots), phases=phases)
+            elif req.op == "batch_upload":
+                pairs = [(Path(p), int(s)) for p, s in req.payload["files_and_slots"]]
+                n = len(pairs)
+                uploaded = 0
+                hydrate: set[int] = set()
+                for idx, (input_path, slot) in enumerate(pairs, start=1):
+                    if not input_path.exists():
+                        self._emit("log", message=f"Skipped {input_path.name}: file not found")
+                        continue
+                    self._emit_progress(req.op, idx, n, f"Uploading [{idx}/{n}] {input_path.name} → slot {slot:03d}")
+                    self._timed("device.put", phases, client.put, input_path, slot, progress=False)
+                    hydrate.add(slot)
+                    uploaded += 1
+                self._emit_success(f"Uploaded {uploaded} of {n} file{'s' if n != 1 else ''}", started_at=t_start)
+                self._emit_inventory(client, hydrate_slots=hydrate, phases=phases)
             elif req.op == "squash":
                 self._handle_squash(req, client, phases, t_start)
             elif req.op == "optimize":

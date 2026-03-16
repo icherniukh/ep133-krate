@@ -293,6 +293,7 @@ HELP_KEYBINDINGS: list[tuple[str, str]] = [
     ("Enter", "Load details for current slot"),
     ("d", "Download sample"),
     ("u", "Upload sample"),
+    ("U", "Batch upload (yazi / file picker)"),
     ("c", "Copy sample to another slot"),
     ("m", "Start move (navigate then Enter to drop)"),
     ("r", "Rename sample"),
