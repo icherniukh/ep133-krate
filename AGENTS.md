@@ -161,7 +161,7 @@ src/core/   — Core layer: client.py, models.py, types.py, operations.py,
               ops.py, audio.py, backup.py
 src/tui/    — TUI layer: app.py, ui.py, worker.py, waveform_widget.py,
               waveform_store.py, actions.py, selectors.py, state.py
-ko2.py      — thin entry-point shim → src/cli/cli_main.main()
+krate.py    — thin entry-point shim → src/cli/cli_main.main()
 ```
 
 ### View protocol for CLI output

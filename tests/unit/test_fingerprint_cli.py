@@ -78,7 +78,7 @@ def test_fingerprint_write_populates_kv_and_metadata(monkeypatch, tmp_path):
     assert rc == 0
     assert fake.meta_patches
     patch = fake.meta_patches[-1][1]
-    assert "ko2.fp.sha256" in patch
+    assert "krate.fp.sha256" in patch
 
     store = WaveformStore(path=store_path)
     entry = store.get_entry_for_slot(7)

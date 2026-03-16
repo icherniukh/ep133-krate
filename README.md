@@ -27,7 +27,7 @@ The device protocol is reverse-engineered. See [PROTOCOL.md](PROTOCOL.md) for th
 The TUI is the main interface for browsing and managing samples:
 
 ```bash
-python ko2.py tui
+krate tui
 ```
 
 Use arrow keys to navigate slots. Press `?` for keybindings.
@@ -35,42 +35,42 @@ Use arrow keys to navigate slots. Press `?` for keybindings.
 ## CLI
 
 All commands accept `--device <name>` to target a specific MIDI port.
-Run `python ko2.py --help` for the full list.
+Run `krate --help` for the full list.
 
 ### Listing and inspecting
 
 ```bash
-python ko2.py ls              # list first 99 slots
-python ko2.py ls --page 2     # slots 100–199
-python ko2.py ls --all        # all 999 slots
-python ko2.py info 43         # name, size, duration for slot 43
-python ko2.py info 1-50       # info for a range
+krate ls              # list first 99 slots
+krate ls --page 2     # slots 100–199
+krate ls --all        # all 999 slots
+krate info 43         # name, size, duration for slot 43
+krate info 1-50       # info for a range
 ```
 
 ### Transferring samples
 
 ```bash
-python ko2.py get 43 ./kick.wav          # download slot 43
-python ko2.py put ./kick.wav 43          # upload to slot 43
-python ko2.py put ./kick.wav 43 --name "afterparty kick"
+krate get 43 ./kick.wav          # download slot 43
+krate put ./kick.wav 43          # upload to slot 43
+krate put ./kick.wav 43 --name "afterparty kick"
 ```
 
 ### Managing slots
 
 ```bash
-python ko2.py mv 43 50        # move slot 43 to 50
-python ko2.py cp 43 50        # copy slot 43 to 50
-python ko2.py rm 43           # delete slot 43
-python ko2.py rename 43 "new name"
+krate mv 43 50        # move slot 43 to 50
+krate cp 43 50        # copy slot 43 to 50
+krate rm 43           # delete slot 43
+krate rename 43 "new name"
 ```
 
 ### Optimizing memory
 
 ```bash
-python ko2.py optimize 43     # convert slot 43 to mono / native sample rate
-python ko2.py optimize-all    # optimize all stereo samples
-python ko2.py squash          # dry run: show how gaps would be filled
-python ko2.py squash --execute
+krate optimize 43     # convert slot 43 to mono / native sample rate
+krate optimize-all    # optimize all stereo samples
+krate squash          # dry run: show how gaps would be filled
+krate squash --execute
 ```
 
 ## Troubleshooting
@@ -84,7 +84,7 @@ python -c "import mido; print(mido.get_input_names())"
 Then pass the port name explicitly:
 
 ```bash
-python ko2.py --device "EP-133" ls
+krate --device "EP-133" ls
 ```
 
 If uploaded audio sounds wrong on-device, verify the WAV parameters with `ffprobe`.

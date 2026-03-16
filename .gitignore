@@ -42,8 +42,8 @@ captures/
 # Experiments (scratch work)
 experiments/
 
-# Backups created by ko2 optimize/move/copy
-.ko2-backups/
+# Backups created by krate optimize/move/copy
+.krate-backups/
 
 # Virtual environments
 venv/

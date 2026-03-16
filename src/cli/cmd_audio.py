@@ -30,7 +30,7 @@ def cmd_optimize(args, view: View):
             return 0
 
         view.step("Downloading...")
-        with tempfile.TemporaryDirectory(prefix=f"ko2-slot{slot:03d}-") as td:
+        with tempfile.TemporaryDirectory(prefix=f"krate-slot{slot:03d}-") as td:
             temp_path = Path(td) / f"slot{slot:03d}.wav"
             try:
                 client.get(slot, temp_path)
@@ -126,7 +126,7 @@ def _optimize_all_process(candidates: list, client, view: View) -> tuple[int, in
     for i, info in enumerate(candidates, 1):
         view.section(f"[{i}/{len(candidates)}] Slot {info.slot}: {info.name}")
 
-        with tempfile.TemporaryDirectory(prefix=f"ko2-slot{info.slot:03d}-") as td:
+        with tempfile.TemporaryDirectory(prefix=f"krate-slot{info.slot:03d}-") as td:
             temp_path = Path(td) / f"slot{info.slot:03d}.wav"
             opt_path = temp_path.with_suffix(".opt.wav")
 
@@ -306,7 +306,7 @@ def cmd_fingerprint(args, view: View):
                 view.kv("Channels", str(int(fp.get("channels") or 0)))
             return 0
 
-        with tempfile.TemporaryDirectory(prefix=f"ko2-fp-{slot:03d}-") as td:
+        with tempfile.TemporaryDirectory(prefix=f"krate-fp-{slot:03d}-") as td:
             wav_path = Path(td) / f"slot{slot:03d}.wav"
             client.get(slot, wav_path)
             fp = _build_wav_fingerprint(wav_path, width=width)
@@ -376,13 +376,13 @@ def cmd_fingerprint(args, view: View):
 
             if not bool(getattr(args, "no_meta", False)):
                 patch = {
-                    "ko2.fp.v": 1,
-                    "ko2.fp.sha256": fp["sha256"],
-                    "ko2.fp.frames": int(fp["frames"]),
-                    "ko2.fp.channels": int(fp["channels"]),
-                    "ko2.fp.samplerate": int(fp["samplerate"]),
-                    "ko2.fp.duration_s": round(float(fp["duration_s"]), 6),
-                    "ko2.fp.width": int(width),
+                    "krate.fp.v": 1,
+                    "krate.fp.sha256": fp["sha256"],
+                    "krate.fp.frames": int(fp["frames"]),
+                    "krate.fp.channels": int(fp["channels"]),
+                    "krate.fp.samplerate": int(fp["samplerate"]),
+                    "krate.fp.duration_s": round(float(fp["duration_s"]), 6),
+                    "krate.fp.width": int(width),
                 }
                 try:
                     client.update_slot_metadata(slot, patch)

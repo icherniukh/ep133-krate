@@ -307,7 +307,6 @@ Convert to EP-133 format:
 sox input.wav -c 1 -r 46875 -b 16 output.wav
 ```
 
-Or use the `audio2ko2` tool.
 
 ## Sample Slots
 
@@ -342,16 +341,15 @@ Or use the `audio2ko2` tool.
 ### Convert audio:
 ```bash
 sox input.wav -c 1 -r 46875 -b 16 output.wav
-audio2ko2 input.mp3  # Creates properly formatted WAV
 ```
 
 ### Python tools (this repo):
 ```bash
-ko2.py info <slot>     # Get sample metadata
-ko2.py get <slot>      # Download sample
-ko2.py put <file>      # Upload sample (in progress)
-ko2.py rm <slot>       # Delete sample
-ko2.py ls              # List all samples
+krate info <slot>      # Get sample metadata
+krate get <slot>       # Download sample
+krate put <file>       # Upload sample
+krate rm <slot>        # Delete sample
+krate ls               # List all samples
 ```
 
 ## References

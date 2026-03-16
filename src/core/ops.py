@@ -26,7 +26,7 @@ def optimize_sample(
     downsample_rate: Optional[int] = None, speed: Optional[float] = None,
     mono: bool = True,
 ) -> tuple[bool, str, int, int]:
-    """Optimize a WAV file for EP-133 using audio2ko2 or sox.
+    """Optimize a WAV file for EP-133 using sox.
 
     Downmixes stereo to mono, and downsamples only if rate > SAMPLE_RATE (46875 Hz).
     The device stores samples below 46875 Hz at their original rate (firmware OS 2.0+),
@@ -55,27 +55,7 @@ def optimize_sample(
     if not needs_downmix and not needs_resample and not needs_requantize and not needs_speed:
         return True, "already optimal", original_size, original_size
 
-    # Try audio2ko2 first when no special parameters are set
-    if not needs_speed and downsample_rate is None:
-        audio2ko2 = Path.home() / "proj" / "audio2ko2" / "audio2ko2"
-        if audio2ko2.exists():
-            try:
-                result = subprocess.run(
-                    [str(audio2ko2), str(input_path)],
-                    capture_output=True,
-                    text=True,
-                    timeout=30,
-                )
-                if result.returncode == 0:
-                    ko2_output = input_path.with_stem(input_path.stem + "_ko2")
-                    if ko2_output.exists():
-                        shutil.move(ko2_output, output_path)
-                        opt_size = output_path.stat().st_size
-                        return True, "optimized with audio2ko2", original_size, opt_size
-            except (subprocess.TimeoutExpired, FileNotFoundError):
-                pass
-
-    # Fall back to sox
+    # Use sox for conversion
     sox_args = ["sox", str(input_path)]
     if needs_downmix:
         sox_args += ["-c", "1"]
@@ -153,7 +133,7 @@ def move_slot(
     src_name = resolve_transfer_name(client, src, src_entry, raw)
     dst_name = resolve_transfer_name(client, dst, dst_entry, raw) if dst_entry else ""
 
-    with tempfile.TemporaryDirectory(prefix="ko2-move-") as td:
+    with tempfile.TemporaryDirectory(prefix="krate-move-") as td:
         temp_dir = Path(td)
         src_path = temp_dir / f"slot{src:03d}.wav"
         dst_path = temp_dir / f"slot{dst:03d}.wav"
@@ -218,7 +198,7 @@ def copy_slot(
     src_name = resolve_transfer_name(client, src, src_entry, raw)
     dst_name = resolve_transfer_name(client, dst, dst_entry, raw) if dst_entry else ""
 
-    with tempfile.TemporaryDirectory(prefix="ko2-copy-") as td:
+    with tempfile.TemporaryDirectory(prefix="krate-copy-") as td:
         temp_dir = Path(td)
         src_path = temp_dir / f"slot{src:03d}.wav"
         dst_path = temp_dir / f"slot{dst:03d}.wav"
@@ -281,7 +261,7 @@ def squash_process(
         if progress:
             progress(idx + 1, total, f"Squashing {old_slot:03d} → {new_slot:03d}")
 
-        with tempfile.TemporaryDirectory(prefix=f"ko2-move{old_slot:03d}-") as td:
+        with tempfile.TemporaryDirectory(prefix=f"krate-move{old_slot:03d}-") as td:
             temp_path = Path(td) / f"slot{old_slot:03d}.wav"
             client.get(old_slot, temp_path)
             backup_copy(temp_path, slot=old_slot, name_hint=name)

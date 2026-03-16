@@ -1,5 +1,5 @@
 """
-cli.parser.py - Argument parser construction for the ko2 CLI.
+cli.parser.py - Argument parser construction for the krate CLI.
 
 Exports:
     build_parser()    -> argparse.ArgumentParser
@@ -57,9 +57,9 @@ def parse_page(arg: str) -> tuple[int, int] | None:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    """Build and return the ko2 CLI argument parser."""
+    """Build and return the krate CLI argument parser."""
     parser = argparse.ArgumentParser(
-        description="KO2 - EP-133 KO-II Command Line Tool",
+        description="krate - EP-133 KO-II Command Line Tool",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument(
@@ -338,7 +338,7 @@ def build_parser() -> argparse.ArgumentParser:
     fp_write.add_argument(
         "--no-meta",
         action="store_true",
-        help="Do not write ko2.fp.* hash fields into device metadata",
+        help="Do not write krate.fp.* hash fields into device metadata",
     )
 
     fp_read = fp_sub.add_parser("read", help="Read cached fingerprint info for slot")

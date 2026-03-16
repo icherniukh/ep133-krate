@@ -80,7 +80,7 @@ When corrected on an approach, fully internalize the correction. Do not revert i
 - `waveform_widget.py`, `waveform_store.py` — waveform rendering pipeline
 
 ### Entry point
-- `ko2.py` — thin shim, calls `src/cli/cli_main.main()`
+- `krate.py` — thin shim, calls `src/cli/cli_main.main()`
 
 **View protocol rule:** All CLI output goes through `view: View`. No bare `print()` in `cmd_*`.
 **TUI threading rule:** `EP133Client` is synchronous. Always `run_worker(fn, thread=True)`.

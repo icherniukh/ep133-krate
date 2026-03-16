@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-KO2 - EP-133 KO-II Command Line Tool Entrypoint
+krate - EP-133 KO-II Command Line Tool Entrypoint
 """
 import sys
 from pathlib import Path

@@ -5,7 +5,7 @@ import time
 from pathlib import Path
 
 
-DEFAULT_BACKUP_DIR = Path(".ko2-backups")
+DEFAULT_BACKUP_DIR = Path(".krate-backups")
 
 
 def sanitize_filename_part(name: str, max_len: int = 80) -> str:

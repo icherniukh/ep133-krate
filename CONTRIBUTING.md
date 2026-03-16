@@ -68,8 +68,8 @@ python midi_proxy.py --pretty captures/sniffer-<name>.jsonl
 
 ### View-oriented CLI output (2026-03-02)
 
-`ko2.py` commands receive `view: View` as an injected parameter. `View` is a protocol
-in `ko2_display.py` with 10 domain-semantic methods: `section`, `step`, `success`,
+`krate` commands receive `view: View` as an injected parameter. `View` is a protocol
+in `src/cli/display.py` with 10 domain-semantic methods: `section`, `step`, `success`,
 `error`, `warn`, `info`, `kv`, `progress`, `render_samples`, `sample_detail`.
 
 Three implementations:
@@ -83,9 +83,9 @@ via `Mock(spec=View)` — no stdout patching needed.
 ### Descriptor DSL for protocol messages (2026-02-24)
 
 Protocol messages are defined declaratively using field descriptors:
-- `ko2_types.py` — primitive types (`U7`, `BE16`, `Packed7`)
-- `ko2_models.py` — message structures using `U7Field`, `BE16Field`, `JsonField`
-- `ko2_operations.py` — stateful multi-step operations (e.g., `UploadTransaction`)
-- `ko2_client.py` — thin transport layer, knows nothing about `Packed7` or JSON packing
+- `src/core/types.py` — primitive types (`U7`, `BE16`, `Packed7`)
+- `src/core/models.py` — message structures using `U7Field`, `BE16Field`, `JsonField`
+- `src/core/operations.py` — stateful multi-step operations (e.g., `UploadTransaction`)
+- `src/core/client.py` — thin transport layer, knows nothing about `Packed7` or JSON packing
 
 This gives 100% serialization/deserialization symmetry with no transport leakage.
