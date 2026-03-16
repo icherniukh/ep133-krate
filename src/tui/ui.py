@@ -157,7 +157,7 @@ class UploadModal(ModalScreen[tuple[str, str | None] | None]):
     def compose(self) -> ComposeResult:
         with Vertical(id="modal"):
             yield Label(f"Upload to slot {self._slot:03d}", id="modal_title")
-            yield Input(placeholder="Path to WAV file", id="path")
+            yield Input(placeholder="Path to WAV files", id="path")
             yield Input(placeholder="Optional sample name", id="name")
             with Horizontal(id="modal_actions"):
                 yield Button("Cancel", id="cancel")
