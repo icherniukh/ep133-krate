@@ -120,7 +120,7 @@ async def _pick_with_yazi(app, start_dir: Path | None) -> list[Path]:
         if start_dir:
             cmd.append(str(start_dir))
         app._log(f"[yazi] launching: {' '.join(cmd)}")
-        async with app.suspend():
+        with app.suspend():
             result = subprocess.run(cmd)
         app._log(f"[yazi] exited with code {result.returncode}")
         if not chooser_path.exists():

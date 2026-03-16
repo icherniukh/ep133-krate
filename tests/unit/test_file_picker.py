@@ -98,10 +98,7 @@ def test_pick_files_force_modal_false_still_uses_yazi(tmp_path):
     wav.touch()
 
     mock_app = MagicMock()
-    mock_suspend = MagicMock()
-    mock_suspend.__aenter__ = AsyncMock(return_value=None)
-    mock_suspend.__aexit__ = AsyncMock(return_value=False)
-    mock_app.suspend.return_value = mock_suspend
+    mock_app.suspend.return_value = MagicMock()
 
     def fake_subprocess_run(cmd, **kwargs):
         chooser = Path(cmd[cmd.index("--chooser-file") + 1])
@@ -129,10 +126,7 @@ def test_pick_files_calls_yazi_and_parses_chooser_file(tmp_path):
     wav_b.touch()
 
     mock_app = MagicMock()
-    mock_suspend = MagicMock()
-    mock_suspend.__aenter__ = AsyncMock(return_value=None)
-    mock_suspend.__aexit__ = AsyncMock(return_value=False)
-    mock_app.suspend.return_value = mock_suspend
+    mock_app.suspend.return_value = MagicMock()
 
     def fake_subprocess_run(cmd, **kwargs):
         # Simulate yazi writing selected paths to the chooser file
@@ -153,10 +147,7 @@ def test_pick_files_calls_yazi_and_parses_chooser_file(tmp_path):
 
 def test_pick_files_returns_empty_when_yazi_chooser_file_empty(tmp_path):
     mock_app = MagicMock()
-    mock_suspend = MagicMock()
-    mock_suspend.__aenter__ = AsyncMock(return_value=None)
-    mock_suspend.__aexit__ = AsyncMock(return_value=False)
-    mock_app.suspend.return_value = mock_suspend
+    mock_app.suspend.return_value = MagicMock()
 
     def fake_subprocess_run(cmd, **kwargs):
         # yazi quit without selecting anything
