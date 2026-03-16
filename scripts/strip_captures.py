@@ -32,11 +32,54 @@ STRIP_TARGETS = [
 LEN_THRESHOLD = 300  # bytes; anything above is a bulk audio data chunk
 KEEP_EXAMPLES = 3    # examples to keep per contiguous run
 
+# Binary SysEx captures to strip. Large messages (> LEN_THRESHOLD) are reduced
+# to KEEP_EXAMPLES examples; the rest are dropped.
+BIN_STRIP_TARGETS = [
+    "sniffer-padmap-B.bin",      # 99 KB — pad mapping group B
+    "sniffer-padmap-C.bin",      # 46 KB — pad mapping group C
+]
+
 # Tui session excerpt
 TUI_SOURCE = CAPTURES / "tui-2026-03-03-042744.jsonl"
 TUI_EXTRACT = CAPTURES / "evidence-download-state-bug.jsonl"
 TUI_HITS = [302886, 649340]  # line indices of DELETE TX events
 TUI_WINDOW = 30              # lines of context on each side
+
+
+def strip_bin(path: Path, dry_run: bool) -> tuple[int, int]:
+    """
+    Parse SysEx messages (0xF0 ... 0xF7 boundaries) from a raw binary capture.
+    Keep all messages <= LEN_THRESHOLD bytes.
+    Keep the first KEEP_EXAMPLES messages above the threshold as format examples;
+    drop the rest.
+    Returns (original_message_count, new_message_count).
+    """
+    data = path.read_bytes()
+    msgs: list[bytes] = []
+    i = 0
+    while i < len(data):
+        if data[i] == 0xF0:
+            end = data.find(0xF7, i)
+            if end == -1:
+                break
+            msgs.append(data[i:end + 1])
+            i = end + 1
+        else:
+            i += 1
+
+    kept: list[bytes] = []
+    bulk_examples = 0
+    for msg in msgs:
+        if len(msg) <= LEN_THRESHOLD:
+            kept.append(msg)
+        elif bulk_examples < KEEP_EXAMPLES:
+            kept.append(msg)
+            bulk_examples += 1
+        # else: drop
+
+    if not dry_run:
+        path.write_bytes(b"".join(kept))
+    return len(msgs), len(kept)
 
 
 def backup():
@@ -160,6 +203,17 @@ def main():
 
     print("\nExtracting tui session evidence:")
     extract_tui(args.dry_run)
+
+    print("\nStripping bulk SysEx messages from binary captures:")
+    for name in BIN_STRIP_TARGETS:
+        path = CAPTURES / name
+        if not path.exists():
+            print(f"  {name}: not found — skipping")
+            continue
+        before, after = strip_bin(path, args.dry_run)
+        saved = before - after
+        action = "[dry-run]" if args.dry_run else "done"
+        print(f"  {name}: {before} → {after} messages (-{saved}) {action}")
 
     print("\nDone.")
 
