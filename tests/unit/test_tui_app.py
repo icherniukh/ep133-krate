@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import asyncio
+from pathlib import Path
+from unittest.mock import AsyncMock
 
 from tui.app import TUIApp, _waveform_signature
-from tui.ui import ConfirmModal, HelpModal, OptimizeModal, TextInputModal, UploadModal
+from tui.ui import ConfirmModal, HelpModal, OptimizeModal, TextInputModal
 from tui.worker import WorkerEvent
 from textual.widgets import Checkbox, DataTable, RichLog, Static
 
@@ -73,22 +75,20 @@ def test_download_key_opens_modal_and_submits_request(monkeypatch):
     asyncio.run(_run())
 
 
-def test_upload_key_opens_modal_and_submits_request(monkeypatch):
+def test_upload_single_file_to_occupied_slot_submits_request(monkeypatch):
+    """u key with one file selected on an occupied slot: confirm → upload queued."""
     monkeypatch.setattr("tui.app.DeviceWorker", StubWorker)
+    monkeypatch.setattr("tui.app.pick_files", AsyncMock(return_value=[Path("/tmp/input.wav")]))
 
     async def _run():
         app = TUIApp(device_name="EP-133", debug=False)
         async with app.run_test() as pilot:
             _make_ready(app)
-            # Slot 1 is occupied after _make_ready; dismiss the confirm dialog too.
+            assert app.state.slots[1].exists  # slot 1 is occupied
 
-            app.action_upload()
-            await pilot.pause()
-            assert isinstance(app.screen, UploadModal)
-            app.screen.dismiss(("/tmp/input.wav", "afterparty kick"))
+            await pilot.press("u")
             await pilot.pause()
 
-            # Slot 1 is occupied — overwrite confirm appears
             assert isinstance(app.screen, ConfirmModal)
             app.screen.dismiss(True)
             await pilot.pause()
@@ -921,37 +921,10 @@ def test_question_mark_key_opens_help_modal(monkeypatch):
     asyncio.run(_run())
 
 
-def test_upload_to_occupied_slot_shows_confirm_then_uploads(monkeypatch):
-    """Uploading to an occupied slot must show ConfirmModal; upload proceeds on confirm."""
+def test_upload_occupied_slot_aborts_on_cancel(monkeypatch):
+    """Cancelling the overwrite confirm must not queue any upload."""
     monkeypatch.setattr("tui.app.DeviceWorker", StubWorker)
-
-    async def _run():
-        app = TUIApp(device_name="EP-133", debug=False)
-        async with app.run_test() as pilot:
-            _make_ready(app)
-            # Slot 1 is already occupied (set up by _make_ready via inventory event)
-            assert app.state.slots[1].exists
-
-            app.action_upload()
-            await pilot.pause()
-            assert isinstance(app.screen, UploadModal)
-            app.screen.dismiss(("/tmp/new.wav", None))
-            await pilot.pause()
-
-            # Should now show ConfirmModal asking about overwrite
-            assert isinstance(app.screen, ConfirmModal)
-            app.screen.dismiss(True)  # user confirms overwrite
-            await pilot.pause()
-
-            ops = _request_ops(app)
-            assert "upload" in ops
-
-    asyncio.run(_run())
-
-
-def test_upload_to_occupied_slot_aborts_on_cancel(monkeypatch):
-    """Uploading to an occupied slot must NOT upload when the user cancels the confirm dialog."""
-    monkeypatch.setattr("tui.app.DeviceWorker", StubWorker)
+    monkeypatch.setattr("tui.app.pick_files", AsyncMock(return_value=[Path("/tmp/new.wav")]))
 
     async def _run():
         app = TUIApp(device_name="EP-133", debug=False)
@@ -959,14 +932,11 @@ def test_upload_to_occupied_slot_aborts_on_cancel(monkeypatch):
             _make_ready(app)
             assert app.state.slots[1].exists
 
-            app.action_upload()
-            await pilot.pause()
-            assert isinstance(app.screen, UploadModal)
-            app.screen.dismiss(("/tmp/new.wav", None))
+            await pilot.press("u")
             await pilot.pause()
 
             assert isinstance(app.screen, ConfirmModal)
-            app.screen.dismiss(False)  # user cancels
+            app.screen.dismiss(False)
             await pilot.pause()
 
             ops = _request_ops(app)
@@ -975,31 +945,54 @@ def test_upload_to_occupied_slot_aborts_on_cancel(monkeypatch):
     asyncio.run(_run())
 
 
-def test_upload_to_empty_slot_skips_confirm(monkeypatch):
-    """Uploading to an empty slot must skip the confirm dialog and queue upload directly."""
+def test_upload_empty_slot_skips_confirm(monkeypatch):
+    """Uploading to an empty slot must queue upload directly without a confirm dialog."""
     monkeypatch.setattr("tui.app.DeviceWorker", StubWorker)
+    monkeypatch.setattr("tui.app.pick_files", AsyncMock(return_value=[Path("/tmp/new.wav")]))
 
     async def _run():
         app = TUIApp(device_name="EP-133", debug=False)
         async with app.run_test() as pilot:
             _make_ready(app)
-            # Slot 2 is empty (only slot 1 is in the inventory)
             assert not app.state.slots[2].exists
 
             table = app.query_one("#slots", DataTable)
             table.move_cursor(row=1, animate=False)  # row index 1 = slot 2
             await pilot.pause()
 
-            app.action_upload()
-            await pilot.pause()
-            assert isinstance(app.screen, UploadModal)
-            app.screen.dismiss(("/tmp/new.wav", None))
+            await pilot.press("u")
             await pilot.pause()
 
-            # Should NOT show ConfirmModal — upload queued immediately
             assert not isinstance(app.screen, ConfirmModal)
             ops = _request_ops(app)
             assert "upload" in ops
+
+    asyncio.run(_run())
+
+
+def test_upload_multiple_files_queues_batch_upload(monkeypatch):
+    """Selecting multiple files must queue a batch_upload starting from the cursor slot."""
+    monkeypatch.setattr("tui.app.DeviceWorker", StubWorker)
+    monkeypatch.setattr(
+        "tui.app.pick_files",
+        AsyncMock(return_value=[Path("/tmp/a.wav"), Path("/tmp/b.wav")]),
+    )
+
+    async def _run():
+        app = TUIApp(device_name="EP-133", debug=False)
+        async with app.run_test() as pilot:
+            _make_ready(app)
+            # Slots 2+ are empty
+
+            table = app.query_one("#slots", DataTable)
+            table.move_cursor(row=1, animate=False)  # slot 2
+            await pilot.pause()
+
+            await pilot.press("u")
+            await pilot.pause()
+
+            ops = _request_ops(app)
+            assert "batch_upload" in ops
 
     asyncio.run(_run())
 

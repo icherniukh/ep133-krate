@@ -147,50 +147,6 @@ class TextInputModal(ModalScreen[str | None]):
         self._ok()
 
 
-class UploadModal(ModalScreen[tuple[str, str | None] | None]):
-    BINDINGS = [Binding("escape", "cancel", "Cancel")]
-
-    def __init__(self, slot: int):
-        super().__init__()
-        self._slot = slot
-
-    def compose(self) -> ComposeResult:
-        with Vertical(id="modal"):
-            yield Label(f"Upload to slot {self._slot:03d}", id="modal_title")
-            yield Input(placeholder="Path to WAV files", id="path")
-            yield Input(placeholder="Optional sample name", id="name")
-            with Horizontal(id="modal_actions"):
-                yield Button("Cancel", id="cancel")
-                yield Button("Upload", id="ok", variant="primary")
-
-    def on_mount(self) -> None:
-        self.query_one("#path", Input).focus()
-
-    def action_cancel(self) -> None:
-        self.dismiss(None)
-
-    @on(Button.Pressed, "#cancel")
-    def _cancel(self) -> None:
-        self.dismiss(None)
-
-    @on(Button.Pressed, "#ok")
-    def _ok(self) -> None:
-        path = self.query_one("#path", Input).value.strip()
-        name = self.query_one("#name", Input).value.strip()
-        if not path:
-            self.dismiss(None)
-            return
-        self.dismiss((path, name or None))
-
-    @on(Input.Submitted, "#path")
-    def _submit_path(self) -> None:
-        self.query_one("#name", Input).focus()
-
-    @on(Input.Submitted, "#name")
-    def _submit_name(self) -> None:
-        self._ok()
-
-
 class ConfirmModal(ModalScreen[bool]):
     BINDINGS = [
         Binding("escape", "cancel", "Cancel"),
@@ -292,8 +248,7 @@ HELP_KEYBINDINGS: list[tuple[str, str]] = [
     # Sample operations
     ("Enter", "Load details for current slot"),
     ("d", "Download sample"),
-    ("u", "Upload sample"),
-    ("U", "Batch upload (yazi / file picker)"),
+    ("u", "Upload sample(s) via file picker (yazi or built-in)"),
     ("c", "Copy sample to another slot"),
     ("m", "Start move (navigate then Enter to drop)"),
     ("r", "Rename sample"),

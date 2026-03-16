@@ -21,7 +21,7 @@ from cli.display import SampleFormat
 from core.models import SAMPLE_RATE
 from .selectors import parse_selector
 from .state import SlotRow, TuiState
-from .ui import ConfirmModal, DetailsWidget, HelpModal, OptimizeModal, TextInputModal, UploadModal, table_row_values
+from .ui import ConfirmModal, DetailsWidget, HelpModal, OptimizeModal, TextInputModal, table_row_values
 from .worker import DeviceWorker, WorkerEvent
 
 
@@ -104,7 +104,6 @@ class TUIApp(App[None]):
         Binding("down", "cursor_down", "Down", show=False, priority=True),
         Binding("d", "download", "Download"),
         Binding("u", "upload", "Upload"),
-        Binding("U", "batch_upload", "Batch Upload"),
         Binding("c", "copy", "Copy"),
         Binding("m", "start_move", "Move"),
         Binding("r", "rename", "Rename"),
@@ -979,26 +978,31 @@ class TUIApp(App[None]):
                 callback=lambda path: self._on_download_modal(slot, path),
             )
 
-    def action_upload(self) -> None:
-        slot = self._current_slot()
-        self.push_screen(
-            UploadModal(slot=slot),
-            callback=lambda result: self._on_upload_modal(slot, result),
-        )
-
-    async def action_batch_upload(self) -> None:
+    async def action_upload(self) -> None:
         cursor_slot = self._current_slot()
         files = await pick_files(self, force_modal=self.alt_file_picker)
         if not files:
             return
-        # Collect free slots starting from cursor position
-        free = [s for s in range(cursor_slot, 1000) if not self.state.slots.get(s, SlotRow(s)).exists]
-        if len(free) < len(files):
-            self._log(f"Not enough free slots: need {len(files)}, found {len(free)} from slot {cursor_slot:03d}")
+        if len(files) == 1:
+            input_path = files[0]
+            row = self.state.slots.get(cursor_slot)
+            if row and row.exists:
+                sample_name = row.name.strip() or f"Slot {cursor_slot:03d}"
+                self.push_screen(
+                    ConfirmModal(f"Slot {cursor_slot:03d} already has a sample ({sample_name}) — overwrite?"),
+                    callback=lambda ok: ok and self._queue_request(actions.upload(cursor_slot, str(input_path))),
+                )
+            else:
+                self._queue_request(actions.upload(cursor_slot, str(input_path)))
+        else:
+            free = [s for s in range(cursor_slot, 1000) if not self.state.slots.get(s, SlotRow(s)).exists]
             if not free:
+                self._log(f"No free slots from slot {cursor_slot:03d}")
                 return
-            files = files[: len(free)]
-        self._queue_request(actions.batch_upload(list(zip(files, free))))
+            if len(free) < len(files):
+                self._log(f"Not enough free slots: need {len(files)}, found {len(free)} from slot {cursor_slot:03d}")
+                files = files[: len(free)]
+            self._queue_request(actions.batch_upload(list(zip(files, free))))
 
     def action_copy(self) -> None:
         slot = self._current_slot()
@@ -1039,24 +1043,6 @@ class TUIApp(App[None]):
     def _on_download_modal(self, slot: int, path: str | None) -> None:
         if path:
             self._queue_request(actions.download(slot, path))
-
-    def _on_upload_modal(self, slot: int, result: tuple[str, str | None] | None) -> None:
-        if result is None:
-            return
-        path, name = result
-        row = self.state.slots.get(slot)
-        if row and row.exists:
-            sample_name = row.name.strip() or f"Slot {slot:03d}"
-            self.push_screen(
-                ConfirmModal(f"Slot {slot:03d} already has a sample ({sample_name}) — overwrite?"),
-                callback=lambda ok: self._on_upload_overwrite_confirm(slot, path, name, ok),
-            )
-        else:
-            self._queue_request(actions.upload(slot, path, name=name))
-
-    def _on_upload_overwrite_confirm(self, slot: int, path: str, name: str | None, confirmed: bool) -> None:
-        if confirmed:
-            self._queue_request(actions.upload(slot, path, name=name))
 
     def _on_rename_modal(self, slot: int, new_name: str | None) -> None:
         if new_name:
