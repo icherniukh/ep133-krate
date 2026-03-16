@@ -72,6 +72,51 @@ def test_pick_files_returns_empty_list_when_modal_cancelled(tmp_path):
 
 
 # ---------------------------------------------------------------------------
+# pick_files — force_modal=True bypasses yazi
+# ---------------------------------------------------------------------------
+
+def test_pick_files_force_modal_skips_yazi_even_when_available(tmp_path):
+    expected = [tmp_path / "a.wav"]
+    mock_app = MagicMock()
+    mock_app.push_screen_wait = AsyncMock(return_value=expected)
+
+    async def _run():
+        # yazi IS available, but force_modal=True must bypass it
+        with patch("tui.file_picker._is_yazi_available", return_value=True):
+            return await pick_files(mock_app, start_dir=tmp_path, force_modal=True)
+
+    result = asyncio.run(_run())
+    assert result == expected
+    mock_app.push_screen_wait.assert_called_once()
+    call_arg = mock_app.push_screen_wait.call_args[0][0]
+    assert isinstance(call_arg, DirectoryTreePickerModal)
+
+
+def test_pick_files_force_modal_false_still_uses_yazi(tmp_path):
+    wav = tmp_path / "a.wav"
+    wav.touch()
+
+    mock_app = MagicMock()
+    mock_suspend = MagicMock()
+    mock_suspend.__aenter__ = AsyncMock(return_value=None)
+    mock_suspend.__aexit__ = AsyncMock(return_value=False)
+    mock_app.suspend.return_value = mock_suspend
+
+    def fake_subprocess_run(cmd, **kwargs):
+        chooser = Path(cmd[cmd.index("--chooser-file") + 1])
+        chooser.write_text(f"{wav}\n")
+
+    async def _run():
+        with patch("tui.file_picker._is_yazi_available", return_value=True), \
+             patch("subprocess.run", side_effect=fake_subprocess_run):
+            return await pick_files(mock_app, start_dir=tmp_path, force_modal=False)
+
+    result = asyncio.run(_run())
+    assert result == [wav]
+    mock_app.push_screen_wait.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
 # pick_files — yazi path
 # ---------------------------------------------------------------------------
 
