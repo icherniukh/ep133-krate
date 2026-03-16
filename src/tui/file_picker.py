@@ -41,7 +41,7 @@ class DirectoryTreePickerModal(ModalScreen[list[Path] | None]):
     BINDINGS = [
         Binding("escape", "cancel", "Cancel"),
         Binding("space", "toggle_select", "Select/Deselect"),
-        Binding("enter", "confirm", "Confirm"),
+        Binding("enter", "confirm", "Confirm", priority=True),
     ]
 
     DEFAULT_CSS = """
