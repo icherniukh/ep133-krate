@@ -15,7 +15,9 @@ community doesn't have to start from scratch.
 ## Install
 
 ```bash
-pip install -r requirements.txt
+git clone https://github.com/<!-- TODO: your-username -->/ep133-krate
+cd ep133-krate
+pip install -e .
 brew install sox    # macOS
 apt install sox     # Linux
 ```
