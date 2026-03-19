@@ -15,7 +15,7 @@ import asyncio
 import pytest
 
 from tui.app import TUIApp
-from tui.ui import ConfirmModal, HelpModal, TextInputModal
+from tui.ui import ConfirmModal, HelpModal, OptimizeModal, TextInputModal
 from tui.worker import WorkerEvent
 
 
@@ -328,6 +328,321 @@ def test_escape_in_move_mode_cancels_move(monkeypatch):
             await pilot.press("escape")
             await pilot.pause()
             assert app.moving_src is None
+
+    asyncio.run(_run())
+
+
+# ---------------------------------------------------------------------------
+# s key → squash ConfirmModal
+# ---------------------------------------------------------------------------
+
+def test_s_key_opens_squash_confirm(monkeypatch):
+    monkeypatch.setattr("tui.app.DeviceWorker", StubWorker)
+
+    async def _run():
+        app = TUIApp(device_name="EP-133", debug=False)
+        async with app.run_test() as pilot:
+            _make_ready(app)
+            await pilot.press("s")
+            await pilot.pause()
+            assert isinstance(app.screen, ConfirmModal)
+
+    asyncio.run(_run())
+
+
+def test_s_key_squash_confirm_submits_request(monkeypatch):
+    monkeypatch.setattr("tui.app.DeviceWorker", StubWorker)
+
+    async def _run():
+        app = TUIApp(device_name="EP-133", debug=False)
+        async with app.run_test() as pilot:
+            _make_ready(app)
+            await pilot.press("s")
+            await pilot.pause()
+            app.screen.dismiss(True)
+            await pilot.pause()
+            assert "squash" in _request_ops(app)
+
+    asyncio.run(_run())
+
+
+def test_s_key_squash_cancel_skips_request(monkeypatch):
+    monkeypatch.setattr("tui.app.DeviceWorker", StubWorker)
+
+    async def _run():
+        app = TUIApp(device_name="EP-133", debug=False)
+        async with app.run_test() as pilot:
+            _make_ready(app)
+            before = list(_request_ops(app))
+            await pilot.press("s")
+            await pilot.pause()
+            app.screen.dismiss(False)
+            await pilot.pause()
+            assert _request_ops(app) == before
+
+    asyncio.run(_run())
+
+
+# ---------------------------------------------------------------------------
+# c key → copy TextInputModal (occupied slot)
+# ---------------------------------------------------------------------------
+
+def test_c_key_opens_copy_modal(monkeypatch):
+    monkeypatch.setattr("tui.app.DeviceWorker", StubWorker)
+
+    async def _run():
+        app = TUIApp(device_name="EP-133", debug=False)
+        async with app.run_test() as pilot:
+            _make_ready(app)
+            await pilot.press("c")
+            await pilot.pause()
+            assert isinstance(app.screen, TextInputModal)
+
+    asyncio.run(_run())
+
+
+def test_c_key_copy_confirm_submits_request(monkeypatch):
+    monkeypatch.setattr("tui.app.DeviceWorker", StubWorker)
+
+    async def _run():
+        app = TUIApp(device_name="EP-133", debug=False)
+        async with app.run_test() as pilot:
+            _make_ready(app)
+            await pilot.press("c")
+            await pilot.pause()
+            app.screen.dismiss("50")
+            await pilot.pause()
+            assert "copy" in _request_ops(app)
+
+    asyncio.run(_run())
+
+
+def test_c_key_copy_cancel_skips_request(monkeypatch):
+    monkeypatch.setattr("tui.app.DeviceWorker", StubWorker)
+
+    async def _run():
+        app = TUIApp(device_name="EP-133", debug=False)
+        async with app.run_test() as pilot:
+            _make_ready(app)
+            before = list(_request_ops(app))
+            await pilot.press("c")
+            await pilot.pause()
+            app.screen.dismiss(None)
+            await pilot.pause()
+            assert _request_ops(app) == before
+
+    asyncio.run(_run())
+
+
+# ---------------------------------------------------------------------------
+# r key → rename TextInputModal
+# ---------------------------------------------------------------------------
+
+def test_r_key_opens_rename_modal(monkeypatch):
+    monkeypatch.setattr("tui.app.DeviceWorker", StubWorker)
+
+    async def _run():
+        app = TUIApp(device_name="EP-133", debug=False)
+        async with app.run_test() as pilot:
+            _make_ready(app)
+            await pilot.press("r")
+            await pilot.pause()
+            assert isinstance(app.screen, TextInputModal)
+
+    asyncio.run(_run())
+
+
+def test_r_key_rename_confirm_submits_request(monkeypatch):
+    monkeypatch.setattr("tui.app.DeviceWorker", StubWorker)
+
+    async def _run():
+        app = TUIApp(device_name="EP-133", debug=False)
+        async with app.run_test() as pilot:
+            _make_ready(app)
+            await pilot.press("r")
+            await pilot.pause()
+            app.screen.dismiss("new-name")
+            await pilot.pause()
+            assert "rename" in _request_ops(app)
+
+    asyncio.run(_run())
+
+
+def test_r_key_rename_cancel_skips_request(monkeypatch):
+    monkeypatch.setattr("tui.app.DeviceWorker", StubWorker)
+
+    async def _run():
+        app = TUIApp(device_name="EP-133", debug=False)
+        async with app.run_test() as pilot:
+            _make_ready(app)
+            before = list(_request_ops(app))
+            await pilot.press("r")
+            await pilot.pause()
+            app.screen.dismiss(None)
+            await pilot.pause()
+            assert _request_ops(app) == before
+
+    asyncio.run(_run())
+
+
+# ---------------------------------------------------------------------------
+# o key → optimize OptimizeModal
+# ---------------------------------------------------------------------------
+
+def test_o_key_opens_optimize_modal(monkeypatch):
+    monkeypatch.setattr("tui.app.DeviceWorker", StubWorker)
+
+    async def _run():
+        app = TUIApp(device_name="EP-133", debug=False)
+        async with app.run_test() as pilot:
+            _make_ready(app)
+            await pilot.press("o")
+            await pilot.pause()
+            assert isinstance(app.screen, OptimizeModal)
+
+    asyncio.run(_run())
+
+
+def test_o_key_optimize_confirm_submits_request(monkeypatch):
+    monkeypatch.setattr("tui.app.DeviceWorker", StubWorker)
+
+    async def _run():
+        app = TUIApp(device_name="EP-133", debug=False)
+        async with app.run_test() as pilot:
+            _make_ready(app)
+            await pilot.press("o")
+            await pilot.pause()
+            app.screen.dismiss((True, None, None, 0.0))
+            await pilot.pause()
+            assert "optimize" in _request_ops(app)
+
+    asyncio.run(_run())
+
+
+def test_o_key_optimize_cancel_skips_request(monkeypatch):
+    monkeypatch.setattr("tui.app.DeviceWorker", StubWorker)
+
+    async def _run():
+        app = TUIApp(device_name="EP-133", debug=False)
+        async with app.run_test() as pilot:
+            _make_ready(app)
+            before = list(_request_ops(app))
+            await pilot.press("o")
+            await pilot.pause()
+            app.screen.dismiss(None)
+            await pilot.pause()
+            assert _request_ops(app) == before
+
+    asyncio.run(_run())
+
+
+# ---------------------------------------------------------------------------
+# l key → toggle log pane
+# ---------------------------------------------------------------------------
+
+def test_l_key_hides_log_pane(monkeypatch):
+    monkeypatch.setattr("tui.app.DeviceWorker", StubWorker)
+
+    async def _run():
+        app = TUIApp(device_name="EP-133", debug=False)
+        async with app.run_test() as pilot:
+            _make_ready(app)
+            assert app._logs_visible
+            await pilot.press("l")
+            await pilot.pause()
+            assert not app._logs_visible
+
+    asyncio.run(_run())
+
+
+def test_l_key_toggles_log_pane_back_on(monkeypatch):
+    monkeypatch.setattr("tui.app.DeviceWorker", StubWorker)
+
+    async def _run():
+        app = TUIApp(device_name="EP-133", debug=False)
+        async with app.run_test() as pilot:
+            _make_ready(app)
+            await pilot.press("l")
+            await pilot.pause()
+            await pilot.press("l")
+            await pilot.pause()
+            assert app._logs_visible
+
+    asyncio.run(_run())
+
+
+# ---------------------------------------------------------------------------
+# p key → audition (occupied slot submits request)
+# ---------------------------------------------------------------------------
+
+def test_p_key_queues_audition_request(monkeypatch):
+    monkeypatch.setattr("tui.app.DeviceWorker", StubWorker)
+
+    async def _run():
+        app = TUIApp(device_name="EP-133", debug=False)
+        async with app.run_test() as pilot:
+            _make_ready(app)
+            await pilot.press("p")
+            await pilot.pause()
+            assert "audition" in _request_ops(app)
+
+    asyncio.run(_run())
+
+
+# ---------------------------------------------------------------------------
+# ctrl+r → refresh inventory
+# ---------------------------------------------------------------------------
+
+def test_ctrl_r_queues_refresh(monkeypatch):
+    monkeypatch.setattr("tui.app.DeviceWorker", StubWorker)
+
+    async def _run():
+        app = TUIApp(device_name="EP-133", debug=False)
+        async with app.run_test() as pilot:
+            _make_ready(app)
+            before_count = len(_request_ops(app))
+            await pilot.press("ctrl+r")
+            await pilot.pause()
+            ops = _request_ops(app)
+            assert len(ops) > before_count
+            assert ops[-1] == "refresh_inventory"
+
+    asyncio.run(_run())
+
+
+# ---------------------------------------------------------------------------
+# space key → toggle slot selection
+# ---------------------------------------------------------------------------
+
+def test_space_key_selects_slot(monkeypatch):
+    monkeypatch.setattr("tui.app.DeviceWorker", StubWorker)
+
+    async def _run():
+        app = TUIApp(device_name="EP-133", debug=False)
+        async with app.run_test() as pilot:
+            _make_ready(app)
+            assert 1 not in app.state.selected_slots
+            await pilot.press("space")
+            await pilot.pause()
+            assert 1 in app.state.selected_slots
+
+    asyncio.run(_run())
+
+
+def test_space_key_deselects_slot(monkeypatch):
+    """Space on an already-selected slot removes it from the selection."""
+    monkeypatch.setattr("tui.app.DeviceWorker", StubWorker)
+
+    async def _run():
+        app = TUIApp(device_name="EP-133", debug=False)
+        async with app.run_test() as pilot:
+            _make_ready(app)
+            # Pre-select slot 1 and keep cursor there
+            app.state.selected_slots.add(1)
+            app.state.selected_slot = 1
+            await pilot.press("space")
+            await pilot.pause()
+            assert 1 not in app.state.selected_slots
 
     asyncio.run(_run())
 

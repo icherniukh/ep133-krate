@@ -172,6 +172,17 @@ def _optimize_all_report(optimized: int, total: int, total_savings: int, view: V
     print(f"  Optimized: {optimized}/{total} samples")
     print(f"  Total savings: {SampleFormat.size(total_savings)}")
 
+def _optimize_all_display_candidates(candidates: list, view: View) -> int:
+    """Print candidate table; return total original size in bytes."""
+    total_original = 0
+    for info in candidates:
+        total_original += info.size_bytes
+        print(
+            f"    Slot {info.slot:03d}: {info.name[:30]:<30} {SampleFormat.size(info.size_bytes)}"
+        )
+    return total_original
+
+
 def cmd_optimize_all(args, view: View):
     min_size = args.min * 1024 if args.min else 0
     slot_filter = getattr(args, "slot", None)
@@ -191,13 +202,7 @@ def cmd_optimize_all(args, view: View):
             return 0
 
         print(f"\n  Found {len(candidates)} stereo samples:\n")
-        total_original = 0
-        for info in candidates:
-            total_original += info.size_bytes
-            print(
-                f"    Slot {info.slot:03d}: {info.name[:30]:<30} {SampleFormat.size(info.size_bytes)}"
-            )
-
+        total_original = _optimize_all_display_candidates(candidates, view)
         print(f"\n  Total: {SampleFormat.size(total_original)}")
 
         assume_yes = bool(args.yes)

@@ -604,29 +604,31 @@ class EP133Client:
             name = info.sym or f"sample_{slot:03d}"
             output_path = Path(f"{name}_{slot:03d}.wav")
 
-        data = self._download_data(slot, debug=debug)
+        try:
+            data = self._download_data(slot, debug=debug)
 
-        # Metadata channels is unreliable for samples not uploaded by this tool
-        # (e.g. official TE app, on-device recordings have no JSON metadata).
-        # When metadata says mono, verify against the raw PCM before writing.
-        channels = max(1, int(info.channels or 1))
-        if channels == 1:
-            channels = _detect_channels(data)
+            # Metadata channels is unreliable for samples not uploaded by this tool
+            # (e.g. official TE app, on-device recordings have no JSON metadata).
+            # When metadata says mono, verify against the raw PCM before writing.
+            channels = max(1, int(info.channels or 1))
+            if channels == 1:
+                channels = _detect_channels(data)
 
-        self._save_wav(
-            data,
-            output_path,
-            channels=channels,
-            samplerate=int(info.samplerate or SAMPLE_RATE),
-        )
-
-        # Reset device state after download so subsequent commands (e.g. delete)
-        # are processed. Without this the device stays in download mode and
-        # silently ignores the next command. Confirmed from TUI capture analysis:
-        # DELETE sent immediately after _download_data receives stale GET responses
-        # instead of a DELETE ACK. put() has always called _initialize() for the
-        # same reason.
-        self._initialize()
+            self._save_wav(
+                data,
+                output_path,
+                channels=channels,
+                samplerate=int(info.samplerate or SAMPLE_RATE),
+            )
+        finally:
+            # Reset device state after download so subsequent commands (e.g. delete)
+            # are processed. Without this the device stays in download mode and
+            # silently ignores the next command. Confirmed from TUI capture analysis:
+            # DELETE sent immediately after _download_data receives stale GET responses
+            # instead of a DELETE ACK. put() has always called _initialize() for the
+            # same reason. Must fire on both success and exception paths to prevent
+            # partial-download state from causing silent drops on the next call.
+            self._initialize()
 
         return output_path
 

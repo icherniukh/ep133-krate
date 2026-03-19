@@ -102,7 +102,7 @@ def _ls_scan_slots(client, start: int, end: int, view: View) -> list:
     print()
     return samples
 
-def cmd_ls(args, view: View):
+def _ls_parse_range(args, view: View) -> tuple[int, int] | None:
     if args.range:
         range_spec = parse_range(args.range)
         if isinstance(range_spec, int):
@@ -113,17 +113,25 @@ def cmd_ls(args, view: View):
             start, end = end, start
         if start < 1 or end > MAX_SLOTS:
             view.error(f"Range must be within 1-{MAX_SLOTS}")
-            return 1
+            return None
+        return start, end
     elif args.page:
         page_range = parse_page(args.page)
         if page_range is None:
             view.error("Page must be 1-10")
-            return 1
-        start, end = page_range
+            return None
+        return page_range
     elif args.all:
-        start, end = 1, MAX_SLOTS
+        return 1, MAX_SLOTS
     else:
-        start, end = 1, 99
+        return 1, 99
+
+
+def cmd_ls(args, view: View):
+    result = _ls_parse_range(args, view)
+    if result is None:
+        return 1
+    start, end = result
 
     source = args.source
     name_source = args.name_source
@@ -353,12 +361,12 @@ def _squash_report(mapping: dict, view: View) -> None:
     view.success("Squash complete")
     view.step(f"Freed {len(mapping)} slots")
 
-def cmd_squash(args, view: View):
+def _squash_parse_range(args, view: View) -> tuple[int, int] | None:
     if args.page:
         page_range = parse_page(args.page)
         if page_range is None:
             view.error("Page must be 1-10")
-            return 1
+            return None
         start, end = page_range
     elif args.range:
         slot_spec = parse_range(args.range)
@@ -368,9 +376,23 @@ def cmd_squash(args, view: View):
             start, end = slot_spec
     else:
         start, end = 1, 99
-
     if start > end:
         start, end = end, start
+    return start, end
+
+
+def _squash_display_plan(mapping: dict, sounds: dict, client, raw: bool) -> None:
+    for old_slot, new_slot in mapping.items():
+        entry = sounds.get(old_slot)
+        name = resolve_transfer_name(client, old_slot, entry, raw)
+        print(f"    {old_slot:03d} → {new_slot:03d}  {name[:30]:<30}")
+
+
+def cmd_squash(args, view: View):
+    result = _squash_parse_range(args, view)
+    if result is None:
+        return 1
+    start, end = result
 
     dry_run = not args.execute
     raw = bool(args.raw)
@@ -396,10 +418,7 @@ def cmd_squash(args, view: View):
 
         view.info(f"Will move {len(mapping)} samples:")
         print()
-        for old_slot, new_slot in mapping.items():
-            entry = sounds.get(old_slot)
-            name = resolve_transfer_name(client, old_slot, entry, raw)
-            print(f"    {old_slot:03d} → {new_slot:03d}  {name[:30]:<30}")
+        _squash_display_plan(mapping, sounds, client, raw)
 
         if dry_run:
             print()
