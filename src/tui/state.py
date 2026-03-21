@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Mapping
 
-from core.models import MAX_SLOTS, SAMPLE_RATE
+from core.models import MAX_SLOTS, MAX_SAMPLE_RATE
 
 
 @dataclass
@@ -12,7 +12,7 @@ class SlotRow:
     name: str = "(empty)"
     size_bytes: int = 0
     channels: int = 0
-    samplerate: int = SAMPLE_RATE
+    samplerate: int = MAX_SAMPLE_RATE
     exists: bool = False
     loaded: bool = False
 
@@ -65,7 +65,7 @@ class TuiState:
 
             if prev.channels > 0:
                 row.channels = int(prev.channels)
-                row.samplerate = int(prev.samplerate or SAMPLE_RATE)
+                row.samplerate = int(prev.samplerate or MAX_SAMPLE_RATE)
 
             prev_name = str(prev.name or "")
             if prev_name and prev_name not in {"(empty)", fallback_name}:
@@ -102,7 +102,7 @@ class TuiState:
             if patch.get("channels") is not None:
                 row.channels = int(patch.get("channels") or 0)
             if patch.get("samplerate") is not None:
-                row.samplerate = int(patch.get("samplerate") or SAMPLE_RATE)
+                row.samplerate = int(patch.get("samplerate") or MAX_SAMPLE_RATE)
 
     def clear_slot(self, slot: int) -> None:
         if slot in self.slots:
@@ -116,7 +116,7 @@ class TuiState:
         if details.get("channels") is not None:
             row.channels = int(details.get("channels") or 0)
         if details.get("samplerate") is not None:
-            row.samplerate = int(details.get("samplerate") or SAMPLE_RATE)
+            row.samplerate = int(details.get("samplerate") or MAX_SAMPLE_RATE)
 
 
 def initial_slots(max_slots: int) -> dict[int, SlotRow]:

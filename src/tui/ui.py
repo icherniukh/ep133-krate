@@ -12,9 +12,9 @@ from textual.screen import ModalScreen
 from textual.widgets import Button, Input, Label, Checkbox, Static
 
 from .state import SlotRow
-from cli.display import SampleFormat
+from core.models import Sample
 
-# Rich hex colour palette per size band — parallel to TerminalRenderer._ANSI_PALETTE
+# Rich hex colour palette per size band — parallel to TerminalView._ANSI_PALETTE
 _RICH_PALETTE: list[list[str]] = [
     ["#113b11", "#155015"],
     ["#4a4511", "#665c14"],
@@ -27,7 +27,7 @@ _RICH_PALETTE: list[list[str]] = [
 
 def _rich_size_color(size_bytes: int) -> str:
     """Return a Rich markup background colour string based on file size."""
-    result = SampleFormat.size_band(size_bytes)
+    result = Sample.size_band_for(size_bytes)
     if result is None:
         return ""
     band_idx, ratio = result
@@ -49,21 +49,21 @@ def table_row_values(row: SlotRow, selected: bool = False) -> tuple[Any, ...]:
 
     # If it exists but channels is 0, we haven't loaded node metadata yet
     if row.channels == 0:
-        size_str = SampleFormat.size(row.size_bytes)
+        size_str = Sample.format_size(row.size_bytes)
         color_style = _rich_size_color(row.size_bytes)
         size_txt = Text(size_str, style=color_style, justify="right") if color_style else Text(size_str, justify="right")
         return (marker, slot_txt, name_txt, size_txt, Text("?", style="dim"), Text("?", style="dim"), Text("?", style="dim", justify="right"))
 
-    abbr = SampleFormat.channels_abbr(row.channels)
+    abbr = Sample.channels_label(row.channels)
     channels_txt = Text(abbr, style="bold red" if row.channels == 2 else "dim")
 
     rate_txt = Text(str(row.samplerate))
 
-    size_str = SampleFormat.size(row.size_bytes)
+    size_str = Sample.format_size(row.size_bytes)
     color_style = _rich_size_color(row.size_bytes)
     size_txt = Text(size_str, style=color_style, justify="right") if color_style else Text(size_str, justify="right")
 
-    dur_str = SampleFormat.duration(row.size_bytes, row.samplerate, row.channels)
+    dur_str = Sample.format_duration(row.size_bytes, row.samplerate, row.channels)
     dur_txt = Text(dur_str, justify="right")
 
     return (marker, slot_txt, name_txt, size_txt, channels_txt, rate_txt, dur_txt)

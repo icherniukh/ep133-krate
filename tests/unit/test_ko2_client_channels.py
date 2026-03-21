@@ -1,6 +1,6 @@
 import struct
 
-from core.client import _detect_channels
+from core.audio import detect_channels as _detect_channels
 
 
 def _pcm_bytes(samples: list[int]) -> bytes:

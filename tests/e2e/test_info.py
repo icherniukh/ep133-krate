@@ -1,7 +1,7 @@
 import pytest
 
 from core.client import SlotEmptyError
-from core.models import MAX_SLOTS, SAMPLE_RATE
+from core.models import MAX_SLOTS, MAX_SAMPLE_RATE
 
 
 pytestmark = pytest.mark.e2e
@@ -51,7 +51,7 @@ class TestInfo:
         for slot in range(1, 100):
             try:
                 info = ep133_client.info(slot)
-                assert info.samplerate in (44100, SAMPLE_RATE)
+                assert info.samplerate in (44100, MAX_SAMPLE_RATE)
                 break
             except SlotEmptyError:
                 continue

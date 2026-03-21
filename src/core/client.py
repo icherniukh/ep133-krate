@@ -22,10 +22,11 @@ except ImportError:
     sys.exit(1)
 
 from .models import (
-    SysExCmd, GetType, SAMPLE_RATE, BIT_DEPTH, CHANNELS, MAX_SLOTS,
+    Sample, SampleInfo,
+    SysExCmd, GetType, MAX_SAMPLE_RATE, BIT_DEPTH, CHANNELS, MAX_SLOTS,
     SYSEX_START, SYSEX_END, TE_MFG_ID, DEVICE_FAMILY, CMD_FILE,
     slot_from_sound_entry, decode_node_id,
-    SysExMessage, SysExResponse, 
+    SysExMessage, SysExResponse,
     DownloadInitRequest, DownloadChunkRequest,
     MetadataGetLegacyRequest, MetadataGetRequest, MetadataSetRequest,
     FileListRequest, InfoRequest, DeleteRequest, AuditionRequest
@@ -41,24 +42,6 @@ def find_device() -> Optional[str]:
             return port
     return None
 
-
-@dataclass
-class SampleInfo:
-    """Sample metadata from device."""
-    slot: int
-    name: str
-    sym: str = ""
-    samplerate: int = 46875
-    format: str = "s16"
-    channels: int = 1
-    channels_known: bool = False
-    size_bytes: int = 0
-    duration: float = 0.0
-    is_empty: bool = False
-
-    @classmethod
-    def empty(cls, slot: int) -> "SampleInfo":
-        return cls(slot=slot, name="(empty)", is_empty=True)
 
 
 class EP133Error(Exception):
@@ -76,7 +59,7 @@ class SlotEmptyError(EP133Error):
     pass
 
 
-from .audio import detect_channels as _detect_channels
+from .audio import detect_channels
 
 
 def _parse_json_tolerant(data: bytes) -> dict | None:
@@ -420,14 +403,14 @@ class EP133Client:
                 except: pass
         return None
 
-    def info(self, slot: int, include_size: bool = True, node_entry: dict | None = None) -> SampleInfo:
+    def info(self, slot: int, include_size: bool = True, node_entry: dict | None = None) -> Sample:
         if node_entry is not None:
             entry = node_entry
         else:
             sounds = self.list_sounds()
             entry = sounds.get(slot)
         
-        info = SampleInfo.empty(slot)
+        info = Sample.empty(slot)
         if entry:
             info.is_empty = False
             info.name = entry.get("name", info.name)
@@ -595,7 +578,7 @@ class EP133Client:
         self.set_node_metadata(node_id, {"name": new_name})
 
     def get(self, slot: int, output_path: Optional[Path] = None, debug: bool = False) -> Path:
-        from core.models import SAMPLE_RATE
+        from core.models import MAX_SAMPLE_RATE
         info = self.info(slot)
         if info.is_empty or info.size_bytes == 0:
             raise SlotEmptyError(f"Slot {slot} is empty or has no size")
@@ -612,13 +595,13 @@ class EP133Client:
             # When metadata says mono, verify against the raw PCM before writing.
             channels = max(1, int(info.channels or 1))
             if channels == 1:
-                channels = _detect_channels(data)
+                channels = detect_channels(data)
 
             self._save_wav(
                 data,
                 output_path,
                 channels=channels,
-                samplerate=int(info.samplerate or SAMPLE_RATE),
+                samplerate=int(info.samplerate or MAX_SAMPLE_RATE),
             )
         finally:
             # Reset device state after download so subsequent commands (e.g. delete)
@@ -696,7 +679,7 @@ class EP133Client:
         """Probe channel count and size via a single-chunk partial download.
 
         Sends DownloadInitRequest (to get file size) then one DownloadChunkRequest
-        (page 0). Runs _detect_channels on the decoded first chunk.
+        (page 0). Runs detect_channels on the decoded first chunk.
 
         Returns (channels, size_bytes).  channels is 1 or 2.  size_bytes is the
         raw PCM byte count from the init response, or 0 on failure.
@@ -729,7 +712,7 @@ class EP133Client:
         if not chunk_data:
             return 1, file_info["size"]
 
-        return _detect_channels(chunk_data), file_info["size"]
+        return detect_channels(chunk_data), file_info["size"]
 
     def _save_wav(self, data: bytes, output_path: Path, channels: int, samplerate: int) -> None:
         if len(data) >= 4 and data[:4] == b"RIFF":

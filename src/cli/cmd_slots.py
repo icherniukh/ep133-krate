@@ -1,11 +1,8 @@
 import tempfile
 from pathlib import Path
 
-from core.client import EP133Client, SlotEmptyError, EP133Error, SampleInfo
-from core.models import MAX_SLOTS, SAMPLE_RATE
-from cli.display import View
-from cli.parser import parse_range
-
+from core.client import EP133Client, SlotEmptyError, EP133Error
+from core.models import Sample, MAX_SLOTS, MAX_SAMPLE_RATE
 from core.ops import (
     backup_copy,
     resolve_transfer_name,
@@ -14,14 +11,11 @@ from core.ops import (
     squash_scan,
     squash_process,
 )
-from cli.parser import parse_page
+from cli.display import View
+from cli.parser import parse_range, parse_page
 from cli.naming import choose_display_name
 from cli.prompts import confirm
 
-from core.client import SampleInfo
-from core.models import SAMPLE_RATE
-def empty_sample(slot: int) -> SampleInfo:
-    return SampleInfo(slot=slot, name='...', samplerate=SAMPLE_RATE, channels=0, size_bytes=0)
 
 def _ls_scan_fs(client, start: int, end: int, name_source: str, view: View) -> tuple[list, bool]:
     view.step("Fetching /sounds listing...")
@@ -35,14 +29,14 @@ def _ls_scan_fs(client, start: int, end: int, name_source: str, view: View) -> t
             view.progress(idx, total_slots, f"(slot {slot})")
         e = sounds.get(slot)
         if not e:
-            samples.append(empty_sample(slot))
+            samples.append(Sample.empty(slot))
             continue
 
         size_bytes = int(e.get("size") or 0)
         fs_name = str(e.get("name", f"Slot {slot:03d}"))
         meta_name = None
         node_name = None
-        samplerate = SAMPLE_RATE
+        samplerate = MAX_SAMPLE_RATE
         channels = 0
 
         node_id = int(e.get("node_id") or 0)
@@ -56,7 +50,7 @@ def _ls_scan_fs(client, start: int, end: int, name_source: str, view: View) -> t
             if node_meta:
                 node_name = node_meta.get("name") or node_meta.get("sym")
                 if "samplerate" in node_meta:
-                    samplerate = int(node_meta.get("samplerate") or SAMPLE_RATE)
+                    samplerate = int(node_meta.get("samplerate") or MAX_SAMPLE_RATE)
                 if "channels" in node_meta:
                     channels = int(node_meta.get("channels") or 0)
 
@@ -64,7 +58,7 @@ def _ls_scan_fs(client, start: int, end: int, name_source: str, view: View) -> t
         if need_info:
             try:
                 meta = client.info(slot, include_size=False, node_entry=e)
-                samplerate = int(meta.samplerate or samplerate or SAMPLE_RATE)
+                samplerate = int(meta.samplerate or samplerate or MAX_SAMPLE_RATE)
                 channels = int(meta.channels or channels or 0)
                 meta_name = meta.name
             except Exception:
@@ -72,7 +66,7 @@ def _ls_scan_fs(client, start: int, end: int, name_source: str, view: View) -> t
 
         name = choose_display_name(fs_name, meta_name, node_name, slot, name_source)
         samples.append(
-            SampleInfo(
+            Sample(
                 slot=slot,
                 name=name,
                 samplerate=samplerate,
@@ -96,9 +90,9 @@ def _ls_scan_slots(client, start: int, end: int, view: View) -> list:
             if info.size_bytes:
                 samples.append(info)
             else:
-                samples.append(empty_sample(slot))
+                samples.append(Sample.empty(slot))
         except SlotEmptyError:
-            samples.append(empty_sample(slot))
+            samples.append(Sample.empty(slot))
     print()
     return samples
 

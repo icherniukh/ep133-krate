@@ -4,12 +4,11 @@ import tempfile
 from pathlib import Path
 
 from core.client import EP133Client, SlotEmptyError, EP133Error
-from cli.display import View, SampleFormat
-from cli.parser import validate_slot
-
+from core.models import Sample, MAX_SAMPLE_RATE
 from core.ops import optimize_sample, backup_copy
+from cli.display import View
+from cli.parser import validate_slot
 from cli.prompts import confirm
-from core.models import SAMPLE_RATE
 
 def cmd_optimize(args, view: View):
     slot = args.slot
@@ -47,7 +46,7 @@ def cmd_optimize(args, view: View):
 
             print(
                 f"  {in_channels}ch  {in_rate} Hz  {in_depth}-bit  "
-                f"{SampleFormat.size(original_size)}  {duration:.2f}s"
+                f"{Sample.format_size(original_size)}  {duration:.2f}s"
             )
 
             view.step("Optimizing...")
@@ -66,7 +65,7 @@ def cmd_optimize(args, view: View):
 
             backup_path = backup_copy(temp_path, slot=slot, name_hint=info.name)
             view.kv("Backup:", str(backup_path))
-            print(f"  {SampleFormat.size(original_size)} → {SampleFormat.size(opt_size)}  ({savings_pct:.1f}% saved)")
+            print(f"  {Sample.format_size(original_size)} → {Sample.format_size(opt_size)}  ({savings_pct:.1f}% saved)")
 
             if savings < 5 * 1024 and speed is None and downsample_rate is None:
                 view.warn("Savings too small (<5KB), skipping upload")
@@ -154,12 +153,12 @@ def _optimize_all_process(candidates: list, client, view: View) -> tuple[int, in
             savings = original_size - opt_size
 
             if savings < 5 * 1024:
-                print(f"  ⊘ Skipped (savings: {SampleFormat.size(savings)})")
+                print(f"  ⊘ Skipped (savings: {Sample.format_size(savings)})")
                 continue
 
             try:
                 client.put(opt_path, info.slot, name=info.name, progress=False)
-                view.success(f"Saved {SampleFormat.size(savings)} ({savings/original_size*100:.1f}%)")
+                view.success(f"Saved {Sample.format_size(savings)} ({savings/original_size*100:.1f}%)")
                 optimized += 1
                 total_savings += savings
             except EP133Error as e:
@@ -170,7 +169,7 @@ def _optimize_all_process(candidates: list, client, view: View) -> tuple[int, in
 def _optimize_all_report(optimized: int, total: int, total_savings: int, view: View) -> None:
     view.section("=" * 40)
     print(f"  Optimized: {optimized}/{total} samples")
-    print(f"  Total savings: {SampleFormat.size(total_savings)}")
+    print(f"  Total savings: {Sample.format_size(total_savings)}")
 
 def _optimize_all_display_candidates(candidates: list, view: View) -> int:
     """Print candidate table; return total original size in bytes."""
@@ -178,7 +177,7 @@ def _optimize_all_display_candidates(candidates: list, view: View) -> int:
     for info in candidates:
         total_original += info.size_bytes
         print(
-            f"    Slot {info.slot:03d}: {info.name[:30]:<30} {SampleFormat.size(info.size_bytes)}"
+            f"    Slot {info.slot:03d}: {info.name[:30]:<30} {Sample.format_size(info.size_bytes)}"
         )
     return total_original
 
@@ -203,7 +202,7 @@ def cmd_optimize_all(args, view: View):
 
         print(f"\n  Found {len(candidates)} stereo samples:\n")
         total_original = _optimize_all_display_candidates(candidates, view)
-        print(f"\n  Total: {SampleFormat.size(total_original)}")
+        print(f"\n  Total: {Sample.format_size(total_original)}")
 
         assume_yes = bool(args.yes)
         if not confirm(f"Optimize {len(candidates)} samples?", assume_yes):
@@ -239,7 +238,7 @@ def _build_wav_fingerprint(wav_path: Path, width: int) -> dict:
     with wave.open(str(wav_path), "rb") as wf:
         channels = int(wf.getnchannels() or 1)
         sample_width = int(wf.getsampwidth() or 2)
-        samplerate = int(wf.getframerate() or SAMPLE_RATE)
+        samplerate = int(wf.getframerate() or MAX_SAMPLE_RATE)
         frames = int(wf.getnframes() or 0)
         pcm_bytes = wf.readframes(frames)
 

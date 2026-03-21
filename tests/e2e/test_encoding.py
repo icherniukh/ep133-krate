@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from core.models import SAMPLE_RATE, BIT_DEPTH, CHANNELS
+from core.models import MAX_SAMPLE_RATE, BIT_DEPTH, CHANNELS
 
 
 pytestmark = pytest.mark.e2e
@@ -16,15 +16,15 @@ TEST_SLOT = 899
 
 def _make_test_wav(path: Path, freq_hz: float = 440.0, duration_sec: float = 0.2) -> array.array:
     """Create a sine-wave WAV and return the samples for comparison."""
-    n = int(SAMPLE_RATE * duration_sec)
+    n = int(MAX_SAMPLE_RATE * duration_sec)
     samples = array.array("h", (
-        int(16000 * math.sin(2 * math.pi * freq_hz * i / SAMPLE_RATE))
+        int(16000 * math.sin(2 * math.pi * freq_hz * i / MAX_SAMPLE_RATE))
         for i in range(n)
     ))
     with wave.open(str(path), "wb") as w:
         w.setnchannels(CHANNELS)
         w.setsampwidth(BIT_DEPTH // 8)
-        w.setframerate(SAMPLE_RATE)
+        w.setframerate(MAX_SAMPLE_RATE)
         w.writeframes(samples.tobytes())
     return samples
 

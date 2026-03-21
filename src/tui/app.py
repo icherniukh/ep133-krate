@@ -21,8 +21,7 @@ from .file_picker import pick_files
 from .dialog_log import DialogLogger
 from .waveform_store import WaveformStore
 from .waveform_widget import WaveformWidget
-from cli.display import SampleFormat
-from core.models import SAMPLE_RATE
+from core.models import Sample, MAX_SAMPLE_RATE
 from .selectors import parse_selector
 from .state import SlotRow, TuiState
 from .ui import ConfirmModal, DetailsWidget, HelpModal, OptimizeModal, TextInputModal, table_row_values
@@ -568,7 +567,7 @@ class TUIApp(App[None]):
         total_bytes = sum(row.size_bytes for row in self.state.slots.values() if row.exists)
         max_bytes = 64 * 1024 * 1024
         used_pct = int(100 * total_bytes / max_bytes) if max_bytes else 0
-        mem_suffix = f"  {SampleFormat.size(total_bytes)}/64.00M ({used_pct}%)"
+        mem_suffix = f"  {Sample.format_size(total_bytes)}/64.00M ({used_pct}%)"
         wf_suffix = "  ⟳ waveforms" if self._waveform_precalc_active and not is_active else ""
         debug_suffix = ""
         if self._debug_logger and self._debug_logger.path:
@@ -1062,7 +1061,7 @@ class TUIApp(App[None]):
         row = self.state.slots.get(slot)
         if not row or not row.exists:
             return
-        sr = row.samplerate or SAMPLE_RATE
+        sr = row.samplerate or MAX_SAMPLE_RATE
         ch = max(row.channels, 1)
         duration_s = row.size_bytes / (sr * ch * 2) if row.size_bytes > 0 else 0.0
         self._queue_request(actions.audition(slot, duration_s=duration_s))

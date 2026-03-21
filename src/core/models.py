@@ -5,6 +5,7 @@ Defines the "Language" of the device using a Descriptor-based DSL.
 Depends only on core.types.py for primitive types.
 """
 
+from dataclasses import dataclass
 from enum import IntEnum
 from typing import Any, Dict, Optional, Type, TypeVar, ClassVar
 from abc import ABC, abstractmethod
@@ -51,7 +52,8 @@ class MetaType(IntEnum):
     GET = 0x02
 
 # Device Constraints
-SAMPLE_RATE = 46875
+MAX_SAMPLE_RATE = 46875
+SAMPLE_RATE = MAX_SAMPLE_RATE  # backward-compat alias
 BIT_DEPTH = 16
 CHANNELS = 1
 MAX_SLOTS = 999
@@ -59,6 +61,96 @@ UPLOAD_CHUNK_SIZE = 433
 UPLOAD_PARENT_NODE = 1000
 UPLOAD_DELAY = 0.02
 CMD_FILE = 0x05
+
+# Size-band thresholds (bytes). All frontends share these so colour
+# gradients stay consistent across rendering targets.
+_SIZE_BANDS: list[tuple[int, int]] = [
+    (0,                  50 * 1024),
+    (50 * 1024,         200 * 1024),
+    (200 * 1024,        500 * 1024),
+    (500 * 1024,      1024 * 1024),
+    (1024 * 1024,   2 * 1024 * 1024),
+    (2 * 1024 * 1024, 10 * 1024 * 1024),
+]
+
+
+@dataclass
+class Sample:
+    """A sample in a slot on the EP-133."""
+    slot: int
+    name: str
+    sym: str = ""
+    samplerate: int = MAX_SAMPLE_RATE
+    format: str = "s16"
+    channels: int = 1
+    channels_known: bool = False
+    size_bytes: int = 0
+    duration: float = 0.0
+    is_empty: bool = False
+
+    @classmethod
+    def empty(cls, slot: int) -> "Sample":
+        return cls(slot=slot, name="(empty)", is_empty=True)
+
+    @property
+    def formatted_size(self) -> str:
+        return Sample.format_size(self.size_bytes)
+
+    @property
+    def duration_str(self) -> str:
+        return Sample.format_duration(self.size_bytes, self.samplerate, self.channels)
+
+    @property
+    def channels_abbr(self) -> str:
+        return Sample.channels_label(self.channels)
+
+    @property
+    def slot_id(self) -> str:
+        return f"{self.slot:03d}"
+
+    @property
+    def size_band(self) -> tuple[int, float] | None:
+        return Sample.size_band_for(self.size_bytes)
+
+    @staticmethod
+    def format_size(size_bytes: int) -> str:
+        if size_bytes <= 0:
+            return "-"
+        if size_bytes < 1024:
+            return f"{size_bytes:5}B"
+        if size_bytes < 1024 * 1024:
+            return f"{size_bytes / 1024:7.2f}K"
+        return f"{size_bytes / (1024 * 1024):7.2f}M"
+
+    @staticmethod
+    def format_duration(size_bytes: int, samplerate: int = MAX_SAMPLE_RATE, channels: int = 1) -> str:
+        if size_bytes <= 0 or samplerate <= 0 or channels <= 0:
+            return "-"
+        bytes_per_frame = 2 * channels
+        samples = size_bytes // bytes_per_frame
+        return f"{samples / samplerate:.3f}"
+
+    @staticmethod
+    def channels_label(n: int) -> str:
+        if n == 2:
+            return "S"
+        if n == 1:
+            return "M"
+        return "-"
+
+    @staticmethod
+    def size_band_for(size_bytes: int) -> tuple[int, float] | None:
+        if size_bytes <= 0:
+            return None
+        for i, (lo, hi) in enumerate(_SIZE_BANDS):
+            if size_bytes < hi:
+                return (i, (size_bytes - lo) / (hi - lo))
+        return (len(_SIZE_BANDS) - 1, 1.0)
+
+
+# Backward-compat alias
+SampleInfo = Sample
+
 
 # --- Descriptor DSL ---
 

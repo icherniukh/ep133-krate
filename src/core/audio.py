@@ -124,10 +124,3 @@ def decode_samples(raw: bytes, sample_width: int) -> list[float]:
 
     # Unsupported/rare sample widths in this app path.
     return []
-
-
-# Backward-compatible aliases used by existing code
-_detect_channels = detect_channels
-_extract_waveform_bins_from_wav_bytes = extract_waveform_bins
-_extract_fingerprint_from_wav_bytes = extract_fingerprint
-_decode_samples = decode_samples

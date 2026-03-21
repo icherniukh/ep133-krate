@@ -15,7 +15,7 @@ from queue import Empty, Queue
 from typing import Any, Callable
 
 from core.client import EP133Client, SlotEmptyError
-from core.models import SAMPLE_RATE
+from core.models import MAX_SAMPLE_RATE
 
 import sys
 from pathlib import Path as _Path
@@ -23,10 +23,7 @@ _src = str(_Path(__file__).resolve().parent.parent / "src")
 if _src not in sys.path:
     sys.path.insert(0, _src)
 
-from core.audio import (
-    extract_waveform_bins as _extract_waveform_bins_from_wav_bytes,
-    extract_fingerprint as _extract_fingerprint_from_wav_bytes,
-)
+from core.audio import extract_waveform_bins, extract_fingerprint
 from core.ops import (
     backup_copy,
     copy_slot,
@@ -565,7 +562,7 @@ class DeviceWorker(threading.Thread):
 
             # Preload details so the app can show them without waiting for user selection.
             size_bytes = int(entry.get("size") or 0)
-            sr = samplerate if samplerate > 0 else SAMPLE_RATE
+            sr = samplerate if samplerate > 0 else MAX_SAMPLE_RATE
             ch = channels if channels > 0 else 1
             duration = size_bytes / (sr * ch * 2) if size_bytes > 0 else 0.0
             self._emit(
@@ -615,10 +612,10 @@ class DeviceWorker(threading.Thread):
         wav_bytes = self._download_slot_wav_bytes(client, slot=slot, phases=phases)
         if not wav_bytes:
             return None
-        bins = _extract_waveform_bins_from_wav_bytes(wav_bytes, width=width)
+        bins = extract_waveform_bins(wav_bytes, width=width)
         if not bins:
             return None
-        fp = _extract_fingerprint_from_wav_bytes(wav_bytes)
+        fp = extract_fingerprint(wav_bytes)
         return {"bins": bins, "fp": fp}
 
     def _download_slot_wav_bytes(
@@ -680,15 +677,15 @@ class DeviceWorker(threading.Thread):
             return
 
         width = 320
-        fp = _extract_fingerprint_from_wav_bytes(wav_bytes)
+        fp = extract_fingerprint(wav_bytes)
         if self._waveform_render_pool is None:
-            bins = _extract_waveform_bins_from_wav_bytes(wav_bytes, width=width)
+            bins = extract_waveform_bins(wav_bytes, width=width)
             if bins:
                 self._emit("waveform", slot=slot, bins=bins, fp=fp)
             return
 
         future = self._waveform_render_pool.submit(
-            _extract_waveform_bins_from_wav_bytes,
+            extract_waveform_bins,
             wav_bytes,
             width,
         )

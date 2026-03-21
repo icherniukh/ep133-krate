@@ -22,7 +22,7 @@ from core.models import (
     DEVICE_FAMILY,
     FileOp,
     MetaType,
-    SAMPLE_RATE,
+    MAX_SAMPLE_RATE,
     SYSEX_END,
     SYSEX_START,
     SysExCmd,
@@ -356,7 +356,7 @@ class EP133Emulator:
             return {
                 "name": f"slot {node_id:03d}",
                 "channels": 1,
-                "samplerate": SAMPLE_RATE,
+                "samplerate": MAX_SAMPLE_RATE,
                 "format": "s16",
             }
 
@@ -468,7 +468,7 @@ class EP133Emulator:
             "name": name,
             "sym": f"S{slot:03d}",
             "channels": 1,
-            "samplerate": SAMPLE_RATE,
+            "samplerate": MAX_SAMPLE_RATE,
             "format": "s16",
             "sound.playmode": "oneshot",
             "sound.rootnote": 60,
@@ -481,11 +481,11 @@ class EP133Emulator:
 
     @staticmethod
     def _make_pcm(slot: int, duration_sec: float = 0.22) -> bytes:
-        frames = int(SAMPLE_RATE * duration_sec)
+        frames = int(MAX_SAMPLE_RATE * duration_sec)
         freq = 110.0 + (slot % 24) * 11.0
         out = bytearray()
         for i in range(frames):
-            val = int(14000 * math.sin((2.0 * math.pi * freq * i) / SAMPLE_RATE))
+            val = int(14000 * math.sin((2.0 * math.pi * freq * i) / MAX_SAMPLE_RATE))
             out.extend(struct.pack("<h", val))
         return bytes(out)
 

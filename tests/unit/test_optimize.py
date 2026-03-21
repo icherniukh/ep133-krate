@@ -14,7 +14,7 @@ import core.ops
 from core.client import EP133Client, SlotEmptyError
 from core.ops import backup_copy, optimize_sample
 from cli.display import SilentView
-from core.models import SAMPLE_RATE
+from core.models import MAX_SAMPLE_RATE
 from tests.helpers import create_test_wav
 
 
@@ -76,7 +76,7 @@ def test_optimize_sample_downsamples_above_native_rate(tmp_path):
 
     assert success
     with wave.open(str(output_wav)) as w:
-        assert w.getframerate() == SAMPLE_RATE, "must downsample to 46875 Hz"
+        assert w.getframerate() == MAX_SAMPLE_RATE, "must downsample to 46875 Hz"
 
 
 @pytest.mark.skipif(not _sox_available(), reason="sox not installed")
@@ -200,7 +200,7 @@ def test_cmd_optimize_skips_entirely_when_already_optimal(monkeypatch):
         def __enter__(self): return self
         def __exit__(self, *_): return False
         def info(self, slot, include_size=False):
-            return SimpleNamespace(name="tiny.pcm", channels=1, samplerate=SAMPLE_RATE, size_bytes=0)
+            return SimpleNamespace(name="tiny.pcm", channels=1, samplerate=MAX_SAMPLE_RATE, size_bytes=0)
         def get(self, slot, path):
             log.append(("get", slot))
             create_test_wav(path)  # must be a valid WAV — cmd_optimize calls wave.open after get

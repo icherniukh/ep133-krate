@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from core.client import EP133Client, EP133Error
-from core.models import SAMPLE_RATE, BIT_DEPTH, CHANNELS
+from core.models import MAX_SAMPLE_RATE, BIT_DEPTH, CHANNELS
 from tests.helpers import create_test_wav
 
 
@@ -15,7 +15,7 @@ def test_create_test_wav_is_valid_ep133_format():
     try:
         create_test_wav(path, 0.1)
         with wave.open(str(path), "rb") as wav:
-            assert wav.getframerate() == SAMPLE_RATE
+            assert wav.getframerate() == MAX_SAMPLE_RATE
             assert wav.getnchannels() == CHANNELS
             assert wav.getsampwidth() == BIT_DEPTH // 8
     finally:

@@ -11,70 +11,7 @@ import json
 import sys
 from typing import Protocol, runtime_checkable
 
-from core.client import SampleInfo
-from core.models import SAMPLE_RATE
-
-# Size-band thresholds (bytes).  Both CLI and TUI share these so colour
-# gradients stay consistent across rendering targets.
-_BANDS: list[tuple[int, int]] = [
-    (0,                  50 * 1024),
-    (50 * 1024,         200 * 1024),
-    (200 * 1024,        500 * 1024),
-    (500 * 1024,      1024 * 1024),
-    (1024 * 1024,   2 * 1024 * 1024),
-    (2 * 1024 * 1024, 10 * 1024 * 1024),
-]
-
-
-class SampleFormat:
-    """Display formatting for EP-133 sample attributes."""
-
-    @classmethod
-    def size(cls, size_bytes: int) -> str:
-        if size_bytes <= 0:
-            return "-"
-        if size_bytes < 1024:
-            return f"{size_bytes:5}B"
-        if size_bytes < 1024 * 1024:
-            return f"{size_bytes / 1024:7.2f}K"
-        return f"{size_bytes / (1024 * 1024):7.2f}M"
-
-    @classmethod
-    def duration(
-        cls, size_bytes: int, samplerate: int = SAMPLE_RATE, channels: int = 1
-    ) -> str:
-        if size_bytes <= 0 or samplerate <= 0 or channels <= 0:
-            return "-"
-        bytes_per_frame = 2 * channels
-        samples = size_bytes // bytes_per_frame
-        return f"{samples / samplerate:.3f}"
-
-    @classmethod
-    def channels_abbr(cls, n: int) -> str:
-        if n == 2:
-            return "S"
-        if n == 1:
-            return "M"
-        return "-"
-
-    @classmethod
-    def slot_id(cls, slot: int) -> str:
-        return f"{slot:03d}"
-
-    @classmethod
-    def size_band(cls, size_bytes: int) -> tuple[int, float] | None:
-        """Return (band_index, ratio_within_band), or None if size <= 0.
-
-        Both CLI and TUI use the same band thresholds but apply their own
-        colour palettes.  This method is the single source of truth for where
-        each band starts and ends.
-        """
-        if size_bytes <= 0:
-            return None
-        for i, (lo, hi) in enumerate(_BANDS):
-            if size_bytes < hi:
-                return (i, (size_bytes - lo) / (hi - lo))
-        return (len(_BANDS) - 1, 1.0)
+from core.models import Sample, MAX_SAMPLE_RATE
 
 
 class Colors:
@@ -114,12 +51,9 @@ class View(Protocol):
     def progress(self, current: int, total: int, message: str = "") -> None: ...
 
     # --- domain-data methods (View owns the presentation decision) ---
-    def render_samples(self, samples: list[SampleInfo], start: int, end: int) -> None: ...
-    def sample_detail(self, info: SampleInfo) -> None: ...
+    def render_samples(self, samples: list[Sample], start: int, end: int) -> None: ...
+    def sample_detail(self, info: Sample) -> None: ...
 
-
-# Backward-compat alias
-RendererProtocol = View
 
 
 class TerminalView:
@@ -138,7 +72,7 @@ class TerminalView:
     # --- Terminal Formatting Strategies ---
 
     def _size_color(self, size_bytes: int) -> str:
-        result = SampleFormat.size_band(size_bytes)
+        result = Sample.size_band_for(size_bytes)
         if result is None:
             return ""
         band_idx, ratio = result
@@ -146,12 +80,12 @@ class TerminalView:
         idx = min(len(palette) - 1, int(ratio * len(palette)))
         return f"\033[48;5;{palette[idx]}m"
 
-    def _format_row(self, info: SampleInfo) -> str:
-        size_str = SampleFormat.size(info.size_bytes) if info.size_bytes else "-"
+    def _format_row(self, info: Sample) -> str:
+        size_str = info.formatted_size if info.size_bytes else "-"
         color = self._size_color(info.size_bytes) if info.size_bytes else ""
         reset = Colors.RESET if info.size_bytes else ""
 
-        channels_str = SampleFormat.channels_abbr(info.channels)
+        channels_str = info.channels_abbr
         channels_color = (
             f"{Colors.BOLD}{Colors.FG_RED}" if info.channels == 2 else Colors.FG_DIM
         )
@@ -167,21 +101,21 @@ class TerminalView:
             else f"{size_str:>{size_width}}"
         )
         return (
-            f"  {Colors.FG_DIM}{SampleFormat.slot_id(info.slot)}{Colors.RESET}  "
+            f"  {Colors.FG_DIM}{info.slot_id}{Colors.RESET}  "
             f"{name:<32}  "
             f"{channels_color}{channels_str}{Colors.RESET}  "
             f"{size_display}  "
-            f"{SampleFormat.duration(info.size_bytes, info.samplerate, info.channels):>9}"
+            f"{info.duration_str:>9}"
         )
 
-    def _row(self, info: SampleInfo) -> None:
+    def _row(self, info: Sample) -> None:
         print(self._format_row(info))
 
     def _table_header(self) -> None:
         print(f"  {'Slot':>4}  {'Name':<32}  {'CH':>2}  {'Size':>8}  {'s':>9}")
         print(f"  {'-'*4}  {'-'*32}  {'--':>2}  {'-'*8}  {'-'*9}")
 
-    def _oversized_warning(self, samples: list[SampleInfo]) -> None:
+    def _oversized_warning(self, samples: list[Sample]) -> None:
         oversized = [s for s in samples if s.size_bytes > 100 * 1024]
         if oversized:
             print(
@@ -221,17 +155,17 @@ class TerminalView:
         sys.stdout.write(f"\r  {bar} {pct*100:.0f}% {message}")
         sys.stdout.flush()
 
-    def render_samples(self, samples: list[SampleInfo], start: int, end: int) -> None:
+    def render_samples(self, samples: list[Sample], start: int, end: int) -> None:
         used = [s for s in samples if s.size_bytes]
         total_size = sum(s.size_bytes for s in used)
         print(f"\n  Slots {start:03d}-{end:03d}")
-        print(f"  Found {len(used)} samples, {SampleFormat.size(total_size)} total\n")
+        print(f"  Found {len(used)} samples, {Sample.format_size(total_size)} total\n")
         self._table_header()
         for info in samples:
             self._row(info)
         self._oversized_warning(samples)
 
-    def sample_detail(self, info: SampleInfo) -> None:
+    def sample_detail(self, info: Sample) -> None:
         print(f"📵 Slot {info.slot:03d}")
         print(f"   Name: {info.name}")
         if info.sym:
@@ -240,14 +174,9 @@ class TerminalView:
         print(f"   Format: {info.format}")
         print(f"   Channels: {info.channels}")
         if info.size_bytes:
-            print(f"   Size: {SampleFormat.size(info.size_bytes)}")
-            print(
-                f"   Duration: {SampleFormat.duration(info.size_bytes, info.samplerate, info.channels)}s"
-            )
+            print(f"   Size: {info.formatted_size}")
+            print(f"   Duration: {info.duration_str}s")
 
-
-# Backward-compat alias
-TerminalRenderer = TerminalView
 
 
 class SilentView:
@@ -277,10 +206,10 @@ class SilentView:
     def progress(self, current: int, total: int, message: str = "") -> None:
         pass
 
-    def render_samples(self, samples: list[SampleInfo], start: int, end: int) -> None:
+    def render_samples(self, samples: list[Sample], start: int, end: int) -> None:
         pass
 
-    def sample_detail(self, info: SampleInfo) -> None:
+    def sample_detail(self, info: Sample) -> None:
         pass
 
 
@@ -311,7 +240,7 @@ class JsonView:
     def progress(self, current: int, total: int, message: str = "") -> None:
         pass
 
-    def render_samples(self, samples: list[SampleInfo], start: int, end: int) -> None:
+    def render_samples(self, samples: list[Sample], start: int, end: int) -> None:
         used = [s for s in samples if s.size_bytes]
         total_bytes = sum(s.size_bytes for s in used)
         print(
@@ -334,7 +263,7 @@ class JsonView:
             )
         )
 
-    def sample_detail(self, info: SampleInfo) -> None:
+    def sample_detail(self, info: Sample) -> None:
         d: dict = {
             "slot": info.slot,
             "name": info.name,

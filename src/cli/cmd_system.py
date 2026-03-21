@@ -2,8 +2,8 @@ import re
 import json
 
 from core.client import EP133Client
-from core.models import MAX_SLOTS, decode_14bit, decode_node_id
-from cli.display import View, SampleFormat
+from core.models import Sample, MAX_SLOTS, decode_14bit, decode_node_id
+from cli.display import View
 from cli.parser import parse_range
 from cli.parser import parse_page
 from cli.formatters import short_text as _short
@@ -75,7 +75,7 @@ def cmd_status(args, view: View):
         pct = (total_size / total_mem) * 100 if total_mem else 0.0
         view.kv(
             "Memory",
-            f"{SampleFormat.size(total_size)} / {SampleFormat.size(total_mem)} ({pct:.0f}%)"
+            f"{Sample.format_size(total_size)} / {Sample.format_size(total_mem)} ({pct:.0f}%)"
             + (" (assumed total)" if assumed else ""),
         )
         bar = _format_bar(total_size, total_mem)
@@ -130,7 +130,7 @@ def cmd_fs_ls(args, view: View):
                     continue
                 slot_str = f"{slot_display:03d}" if not is_dir and slot_display else "DIR"
                 print(
-                    f"  {hi:02X}  {lo:02X}  {n14:>5}  {n16:>5}  {dec:>5}  {slot_str:>4}  0x{flags:02X}  {SampleFormat.size(size):>7}  {name}"
+                    f"  {hi:02X}  {lo:02X}  {n14:>5}  {n16:>5}  {dec:>5}  {slot_str:>4}  0x{flags:02X}  {Sample.format_size(size):>7}  {name}"
                 )
         else:
             entries = client.list_directory(node_id=node_id)
@@ -153,7 +153,7 @@ def cmd_fs_ls(args, view: View):
                     continue
                 slot_str = f"{slot:03d}" if not is_dir and slot else "DIR"
                 print(
-                    f"  {slot_str:>4}  {nid:>4}  0x{flags:02X}  {SampleFormat.size(size):>7}  {name}"
+                    f"  {slot_str:>4}  {nid:>4}  0x{flags:02X}  {Sample.format_size(size):>7}  {name}"
                 )
 
     return 0

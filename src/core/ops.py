@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any, Callable, Optional
 
 from .backup import backup_copy  # noqa: F401 — re-export for convenience
-from .models import SAMPLE_RATE
+from .models import MAX_SAMPLE_RATE
 
 
 # Type alias for progress callbacks: (current_step, total_steps, message)
@@ -28,7 +28,7 @@ def optimize_sample(
 ) -> tuple[bool, str, int, int]:
     """Optimize a WAV file for EP-133 using sox.
 
-    Downmixes stereo to mono, and downsamples only if rate > SAMPLE_RATE (46875 Hz).
+    Downmixes stereo to mono, and downsamples only if rate exceeds MAX_SAMPLE_RATE (46875 Hz).
     The device stores samples below 46875 Hz at their original rate (firmware OS 2.0+),
     so there is no reason to upsample.
 
@@ -45,7 +45,7 @@ def optimize_sample(
         in_rate = w.getframerate()
         in_depth = w.getsampwidth() * 8
 
-    target_rate = downsample_rate if downsample_rate else SAMPLE_RATE
+    target_rate = downsample_rate if downsample_rate else MAX_SAMPLE_RATE
 
     needs_downmix = in_channels > 1 and mono
     needs_resample = in_rate > target_rate

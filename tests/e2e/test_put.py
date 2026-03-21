@@ -12,7 +12,7 @@ class TestPut:
         from pathlib import Path
         import tempfile
 
-        from core.models import MAX_SLOTS, SAMPLE_RATE
+        from core.models import MAX_SLOTS, MAX_SAMPLE_RATE
         from core.client import EP133Error, SlotEmptyError
         from tests.helpers import create_test_wav
 
@@ -43,7 +43,7 @@ class TestPut:
             info = ep133_client.info(test_slot)
             assert not info.is_empty
             assert info.slot == test_slot
-            assert info.samplerate == SAMPLE_RATE
+            assert info.samplerate == MAX_SAMPLE_RATE
 
         finally:
             # Clean up
