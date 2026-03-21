@@ -1,25 +1,27 @@
 """
 Capture-based verification of the upload wire protocol.
 
-Uses captures/sniffer-upload21.jsonl (official TE app, slot 21) and
-captures/afterparty-kick-slot21.wav to verify:
+Two test classes:
 
-1. PUT_INIT payload decodes to correct slot, name, size, metadata.
-2. PUT_DATA chunks contain LE s16 PCM identical to the WAV's raw frames —
-   no byte swap, no transformation.
+1. TestOfficialCapture — verifies protocol understanding against the official TE app's
+   upload of sniffer-upload21.jsonl (slot 21, copyrighted WAV — no WAV file needed).
+   Tests validate internal consistency of the capture only.
 
-These files are gitignored (local forensics only); the test skips if absent.
+2. TestOfficialKickCapture — verifies the official TE app's upload of our copyright-free
+   kick-46875hz.wav (slot 97, captured via sniffer-upload-kick-official.jsonl). Full PCM
+   roundtrip comparison — proves the official tool sends WAV bytes unchanged, and our
+   protocol decoding is correct.
 """
 import json
-import struct
 import wave
 from pathlib import Path
 
 import pytest
 
+from core.models import UPLOAD_CHUNK_SIZE, UploadEndRequest, SysExCmd
+
 CAPTURES = Path(__file__).parents[2] / "captures"
-CAPTURE_FILE = CAPTURES / "sniffer-upload21.jsonl"
-WAV_FILE = CAPTURES / "afterparty-kick-slot21.wav"
+FIXTURES = Path(__file__).parents[1] / "fixtures"
 
 MFG_PREFIX = bytes([0x00, 0x20, 0x76, 0x33, 0x40])
 
@@ -38,10 +40,10 @@ def _decode_7bit(wire: bytes) -> bytes:
     return bytes(out)
 
 
-def _load_capture():
-    """Return decoded TX payloads from the capture (skips non-SysEx entries)."""
+def _load_capture(path: Path) -> list[bytes]:
+    """Return decoded TX file-op payloads from a JSONL capture."""
     payloads = []
-    with open(CAPTURE_FILE) as f:
+    with open(path) as f:
         for line in f:
             line = line.strip()
             if not line or line.startswith("//"):
@@ -50,7 +52,6 @@ def _load_capture():
             if entry["dir"] != "TX":
                 continue
             raw = bytes.fromhex(entry["hex"])
-            # SysEx: F0 <5-byte mfg> <device_id> <seq> 05 <7bit payload...> F7
             if raw[0] != 0xF0 or raw[1:6] != MFG_PREFIX:
                 continue
             if len(raw) < 10 or raw[8] != 0x05:  # CMD_FILE
@@ -59,31 +60,37 @@ def _load_capture():
     return payloads
 
 
-@pytest.fixture(scope="module")
-def capture_payloads():
-    if not CAPTURE_FILE.exists():
-        pytest.skip("Capture file not present")
-    return _load_capture()
+def _extract_put_init(payloads: list[bytes]) -> bytes:
+    return next(p for p in payloads if len(p) >= 4 and p[0] == 0x02 and p[1] == 0x00)
+
+
+def _extract_put_data(payloads: list[bytes]) -> list[bytes]:
+    return [p for p in payloads if len(p) >= 2 and p[0] == 0x02 and p[1] == 0x01]
+
+
+# ---------------------------------------------------------------------------
+# Official TE app capture — copyrighted WAV (sniffer-upload21.jsonl, slot 21)
+# ---------------------------------------------------------------------------
+
+OFFICIAL_CAPTURE = CAPTURES / "sniffer-upload21.jsonl"
 
 
 @pytest.fixture(scope="module")
-def wav_pcm():
-    if not WAV_FILE.exists():
-        pytest.skip("WAV fixture not present (copyright — local only)")
-    with wave.open(str(WAV_FILE), "rb") as w:
-        return {
-            "channels": w.getnchannels(),
-            "sampwidth": w.getsampwidth(),
-            "framerate": w.getframerate(),
-            "nframes": w.getnframes(),
-            "raw": w.readframes(w.getnframes()),
-        }
+def official_payloads():
+    if not OFFICIAL_CAPTURE.exists():
+        pytest.skip("Official capture file not present")
+    return _load_capture(OFFICIAL_CAPTURE)
 
 
-class TestUploadCaptureDecode:
-    def test_put_init_slot_and_name(self, capture_payloads):
-        """PUT_INIT payload decodes to slot 21 and name 'afterparty kick '."""
-        init = next(p for p in capture_payloads if len(p) >= 4 and p[0] == 0x02 and p[1] == 0x00)
+class TestOfficialCapture:
+    """Verify protocol understanding against official TE app upload (slot 21).
+
+    Self-contained — validates internal consistency without the original WAV.
+    """
+
+    def test_put_init_slot_and_name(self, official_payloads):
+        """PUT_INIT decodes to slot 21, name 'afterparty kick '."""
+        init = _extract_put_init(official_payloads)
 
         assert init[2] == 0x05, "file type byte should be 0x05 (audio)"
         slot = (init[3] << 8) | init[4]
@@ -97,55 +104,32 @@ class TestUploadCaptureDecode:
         name = init[name_start:name_end].decode("utf-8")
         assert name == "afterparty kick ", f"unexpected name: {name!r}"
 
-    def test_put_init_size_matches_wav(self, capture_payloads, wav_pcm):
-        """Size field in PUT_INIT matches the WAV's raw PCM byte count."""
-        init = next(p for p in capture_payloads if len(p) >= 4 and p[0] == 0x02 and p[1] == 0x00)
-
+    def test_put_init_size_matches_chunk_data(self, official_payloads):
+        """Declared size in PUT_INIT matches total PCM bytes in PUT_DATA chunks."""
+        init = _extract_put_init(official_payloads)
         declared_size = int.from_bytes(init[7:11], "big")
-        expected_size = len(wav_pcm["raw"])
-        assert declared_size == expected_size, (
-            f"PUT_INIT size {declared_size} != WAV size {expected_size}"
+
+        chunks = _extract_put_data(official_payloads)
+        data_chunks = [c for c in chunks if len(c) > 4]
+        actual_size = sum(len(c) - 4 for c in data_chunks)
+
+        assert declared_size == actual_size, (
+            f"PUT_INIT size {declared_size} != chunk data total {actual_size}"
         )
 
-    def test_put_init_metadata_json(self, capture_payloads, wav_pcm):
-        """Metadata JSON in PUT_INIT has correct channels and samplerate."""
-        import json as _json
-
-        init = next(p for p in capture_payloads if len(p) >= 4 and p[0] == 0x02 and p[1] == 0x00)
+    def test_put_init_metadata_json(self, official_payloads):
+        """Metadata JSON has valid channels and samplerate fields."""
+        init = _extract_put_init(official_payloads)
         name_start = 11
         name_end = init.index(0, name_start)
-        meta = _json.loads(init[name_end + 1 :].decode("utf-8").rstrip("\x00"))
+        meta = json.loads(init[name_end + 1 :].decode("utf-8").rstrip("\x00"))
 
-        assert meta["channels"] == wav_pcm["channels"]
-        assert meta["samplerate"] == wav_pcm["framerate"]
+        assert meta["channels"] in (1, 2), f"unexpected channels: {meta['channels']}"
+        assert meta["samplerate"] > 0, f"unexpected samplerate: {meta['samplerate']}"
 
-    def test_put_data_pcm_is_le_s16_unchanged(self, capture_payloads, wav_pcm):
-        """PUT_DATA chunks concatenate to the WAV's raw LE s16 bytes with no transformation."""
-        chunks = [p for p in capture_payloads if len(p) >= 2 and p[0] == 0x02 and p[1] == 0x01]
-        assert chunks, "No PUT_DATA chunks found in capture"
-
-        actual_pcm = b"".join(c[4:] for c in chunks)  # strip 02 01 chunk_hi chunk_lo
-        expected_pcm = wav_pcm["raw"]
-
-        assert len(actual_pcm) == len(expected_pcm), (
-            f"PCM length mismatch: got {len(actual_pcm)}, expected {len(expected_pcm)}"
-        )
-        assert actual_pcm == expected_pcm, (
-            "PCM bytes from capture do not match WAV raw frames — "
-            "encoding mismatch (byte swap?)"
-        )
-
-    def test_put_data_empty_sentinel_triggers_ack(self, capture_payloads):
-        """Official app sends an empty PUT chunk (0 PCM bytes) after the last
-        data chunk. The device ACK arrives after this sentinel — not after the
-        last data chunk. This is the upload commit signal.
-
-        All upload messages use opcode 0x7E (UPLOAD), confirmed from
-        captures/sniffer-upload21.jsonl.
-        """
-        from core.models import UploadEndRequest, SysExCmd
-
-        chunks = [p for p in capture_payloads if len(p) >= 2 and p[0] == 0x02 and p[1] == 0x01]
+    def test_put_data_empty_sentinel(self, official_payloads):
+        """Last PUT_DATA chunk is an empty sentinel (0 PCM bytes)."""
+        chunks = _extract_put_data(official_payloads)
         last = chunks[-1]
         assert len(last) == 4, (
             f"Last PUT chunk should have 0 PCM bytes (sentinel), got {len(last)-4}"
@@ -156,35 +140,111 @@ class TestUploadCaptureDecode:
         assert sentinel_ci == last_data_ci + 1, (
             f"Sentinel chunk_index {sentinel_ci} should be last_data_ci+1={last_data_ci+1}"
         )
-        # Verify our model uses the correct opcode (matches official tool)
-        assert UploadEndRequest.opcode == SysExCmd.UPLOAD, (
-            "UploadEndRequest must use UPLOAD (0x7E) — confirmed from capture"
-        )
 
-    def test_put_data_chunk_sizing(self, capture_payloads, wav_pcm):
-        """Official app uses UPLOAD_CHUNK_SIZE bytes per chunk; last chunk is smaller.
-
-        Observed: official app also sends a trailing empty (0-byte) chunk after the
-        last data chunk, as a sentinel. This is not required by our implementation.
-        """
-        from core.models import UPLOAD_CHUNK_SIZE
-
-        chunks = [p for p in capture_payloads if len(p) >= 2 and p[0] == 0x02 and p[1] == 0x01]
-        data_chunks = [c for c in chunks if len(c) > 4]   # non-empty PCM
-        empty_chunks = [c for c in chunks if len(c) <= 4]  # sentinel(s)
+    def test_put_data_chunk_sizing(self, official_payloads):
+        """All full chunks == UPLOAD_CHUNK_SIZE; last data chunk holds remainder."""
+        chunks = _extract_put_data(official_payloads)
+        data_chunks = [c for c in chunks if len(c) > 4]
+        empty_chunks = [c for c in chunks if len(c) <= 4]
 
         pcm_sizes = [len(c) - 4 for c in data_chunks]
-        assert all(s <= UPLOAD_CHUNK_SIZE for s in pcm_sizes), (
-            f"A chunk exceeds UPLOAD_CHUNK_SIZE={UPLOAD_CHUNK_SIZE}: {pcm_sizes}"
+        assert all(s <= UPLOAD_CHUNK_SIZE for s in pcm_sizes)
+        assert pcm_sizes[:-1] == [UPLOAD_CHUNK_SIZE] * (len(pcm_sizes) - 1)
+
+        init = _extract_put_init(official_payloads)
+        total_size = int.from_bytes(init[7:11], "big")
+        expected_remainder = total_size % UPLOAD_CHUNK_SIZE or UPLOAD_CHUNK_SIZE
+        assert pcm_sizes[-1] == expected_remainder
+        assert len(empty_chunks) == 1
+
+    def test_upload_opcode_is_0x7e(self, official_payloads):
+        """All upload messages use opcode 0x7E (UPLOAD)."""
+        assert UploadEndRequest.opcode == SysExCmd.UPLOAD
+
+
+# ---------------------------------------------------------------------------
+# Official TE app capture — copyright-free kick WAV (slot 97)
+# ---------------------------------------------------------------------------
+
+KICK_CAPTURE = CAPTURES / "sniffer-upload-kick-official.jsonl"
+KICK_WAV = FIXTURES / "kick-46875hz.wav"
+
+
+@pytest.fixture(scope="module")
+def kick_payloads():
+    if not KICK_CAPTURE.exists():
+        pytest.skip("kick capture not present")
+    return _load_capture(KICK_CAPTURE)
+
+
+@pytest.fixture(scope="module")
+def kick_wav():
+    with wave.open(str(KICK_WAV), "rb") as w:
+        return {
+            "channels": w.getnchannels(),
+            "framerate": w.getframerate(),
+            "nframes": w.getnframes(),
+            "raw": w.readframes(w.getnframes()),
+        }
+
+
+class TestOfficialKickCapture:
+    """Verify official TE app upload of our copyright-free kick WAV.
+
+    Full PCM comparison — proves official tool sends WAV bytes unchanged,
+    validating our protocol decoding.
+    """
+
+    def test_put_init_slot_and_name(self, kick_payloads):
+        """PUT_INIT decodes to slot 97, name 'kick-46875hz'."""
+        init = _extract_put_init(kick_payloads)
+        slot = (init[3] << 8) | init[4]
+        assert slot == 97, f"expected slot 97, got {slot}"
+
+        name_start = 11
+        name_end = init.index(0, name_start)
+        name = init[name_start:name_end].decode("utf-8")
+        assert name == "kick-46875hz", f"unexpected name: {name!r}"
+
+    def test_put_init_size_matches_wav(self, kick_payloads, kick_wav):
+        """PUT_INIT size field matches the WAV's raw PCM byte count."""
+        init = _extract_put_init(kick_payloads)
+        declared_size = int.from_bytes(init[7:11], "big")
+        assert declared_size == len(kick_wav["raw"])
+
+    def test_put_init_metadata(self, kick_payloads, kick_wav):
+        """Metadata JSON carries correct channels and samplerate."""
+        init = _extract_put_init(kick_payloads)
+        name_start = 11
+        name_end = init.index(0, name_start)
+        meta = json.loads(init[name_end + 1 :].decode("utf-8").rstrip("\x00"))
+
+        assert meta["channels"] == kick_wav["channels"]
+        assert meta["samplerate"] == kick_wav["framerate"]
+
+    def test_pcm_bytes_unchanged(self, kick_payloads, kick_wav):
+        """PUT_DATA chunks concatenate to the WAV's raw LE s16 bytes unchanged."""
+        chunks = _extract_put_data(kick_payloads)
+        data_chunks = [c for c in chunks if len(c) > 4]
+        actual_pcm = b"".join(c[4:] for c in data_chunks)
+
+        assert len(actual_pcm) == len(kick_wav["raw"]), (
+            f"PCM length mismatch: got {len(actual_pcm)}, expected {len(kick_wav['raw'])}"
         )
-        assert pcm_sizes[:-1] == [UPLOAD_CHUNK_SIZE] * (len(pcm_sizes) - 1), (
-            "All chunks except the last should be exactly UPLOAD_CHUNK_SIZE bytes"
+        assert actual_pcm == kick_wav["raw"], (
+            "PCM bytes from capture do not match WAV raw frames — encoding mismatch"
         )
-        wav_size = len(wav_pcm["raw"])
-        expected_remainder = wav_size % UPLOAD_CHUNK_SIZE or UPLOAD_CHUNK_SIZE
-        assert pcm_sizes[-1] == expected_remainder, (
-            f"Last chunk: expected {expected_remainder} bytes, got {pcm_sizes[-1]}"
-        )
-        assert len(empty_chunks) == 1, (
-            f"Expected 1 trailing empty sentinel chunk, got {len(empty_chunks)}"
-        )
+
+    def test_sentinel_and_chunk_sizing(self, kick_payloads, kick_wav):
+        """Chunk sizing matches UPLOAD_CHUNK_SIZE; sentinel present."""
+        chunks = _extract_put_data(kick_payloads)
+        data_chunks = [c for c in chunks if len(c) > 4]
+        empty_chunks = [c for c in chunks if len(c) <= 4]
+
+        pcm_sizes = [len(c) - 4 for c in data_chunks]
+        assert all(s <= UPLOAD_CHUNK_SIZE for s in pcm_sizes)
+        assert pcm_sizes[:-1] == [UPLOAD_CHUNK_SIZE] * (len(pcm_sizes) - 1)
+
+        expected_remainder = len(kick_wav["raw"]) % UPLOAD_CHUNK_SIZE or UPLOAD_CHUNK_SIZE
+        assert pcm_sizes[-1] == expected_remainder
+        assert len(empty_chunks) == 1

@@ -13,7 +13,7 @@ Fields:
 - `F0` = SysEx start
 - `00 20 76` = Teenage Engineering manufacturer ID
 - `33 40` = Device family (EP-133)
-- `[cmd]` = Command opcode byte (0x61, 0x77, 0x7C, 0x7D, 0x7E, etc.)
+- `[cmd]` = Session/device identifier byte — device echoes back with -0x40 offset in responses. Values like 0x61, 0x7E, 0x68 all work; the device does not enforce a specific value per operation.
 - `[seq]` = Sequence byte (increments per message)
 - `05` = CMD_FILE (file operations command group)
 - `raw_payload` = semantic bytes (typically `[op][subop][data...]`)
@@ -147,8 +147,8 @@ F0 00 20 76 33 40 7E [seq] 05 <packed_payload> F7
   - `0x01` (PUT_DATA)
   - `chunk_index_hi`, `chunk_index_lo` (16-bit big-endian index, NOT byte offset)
   - audio data: **raw LE s16 PCM** — WAV frames sent as-is, no byte swap.
-    Confirmed SOLID: byte-for-byte match between `captures/sniffer-upload21.jsonl`
-    decoded chunks and the original WAV file (`Afterparty Kick.wav`, 28636 bytes).
+    Confirmed SOLID: byte-for-byte match between official TE app upload capture
+    (`captures/sniffer-upload-kick-official.jsonl`) and `tests/fixtures/kick-46875hz.wav`.
 - Device responds with an ACK (usually echoing the command in the `0x2x` response range). It does **not** return a standard `status=0x00` response, so clients should only check that an ACK was received.
 
 ### 3. Commit/Verify Steps (Observed)
@@ -331,7 +331,7 @@ sox input.wav -c 1 -r 46875 -b 16 output.wav
 
 ## Known Issues
 
-1. **Upload Command IDs** - RESOLVED: official TE app uses `0x7E` for all upload operations (init, chunks, sentinel, verify). Confirmed from `captures/sniffer-upload21.jsonl`. The device also accepts `0x6C` (historical accident from early debugging), but `0x7E` is canonical.
+1. **Upload Command IDs** - The `[cmd]` byte (position 6) is a **session identifier**, not a fixed opcode — the device accepts any value and echoes it back with a -0x40 offset in responses. Official TE app uses rotating IDs (observed: `0x68`/`0x69` in `captures/sniffer-upload-kick-official.jsonl`, `0x7E` in `captures/sniffer-upload21.jsonl`). Our tool uses `0x7E` consistently. All values work.
 2. **Playback** - Protocol not fully documented (Command `0x76`).
 3. **Project files** - `.ppak` format known, but SysEx extraction path unknown.
 4. **"invalid file" Error Response** - When querying a missing or invalid node (e.g., via `METADATA GET`), the device may return a non-standard error payload (including high-byte content). Clients should treat these response payloads as raw bytes and avoid strict semantic decoding.
