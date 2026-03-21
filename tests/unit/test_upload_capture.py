@@ -20,7 +20,6 @@ import pytest
 
 from core.models import UPLOAD_CHUNK_SIZE, UploadEndRequest, SysExCmd
 
-CAPTURES = Path(__file__).parents[2] / "captures"
 FIXTURES = Path(__file__).parents[1] / "fixtures"
 
 MFG_PREFIX = bytes([0x00, 0x20, 0x76, 0x33, 0x40])
@@ -72,7 +71,7 @@ def _extract_put_data(payloads: list[bytes]) -> list[bytes]:
 # Official TE app capture — copyrighted WAV (sniffer-upload21.jsonl, slot 21)
 # ---------------------------------------------------------------------------
 
-OFFICIAL_CAPTURE = CAPTURES / "sniffer-upload21.jsonl"
+OFFICIAL_CAPTURE = FIXTURES / "sniffer-upload21.jsonl"
 
 
 @pytest.fixture(scope="module")
@@ -166,7 +165,7 @@ class TestOfficialCapture:
 # Official TE app capture — copyright-free kick WAV (slot 97)
 # ---------------------------------------------------------------------------
 
-KICK_CAPTURE = CAPTURES / "sniffer-upload-kick-official.jsonl"
+KICK_CAPTURE = FIXTURES / "sniffer-upload-kick-official.jsonl"
 KICK_WAV = FIXTURES / "kick-46875hz.wav"
 
 

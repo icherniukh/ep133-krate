@@ -126,7 +126,7 @@ The upload consists of a sequence of messages. The official app uses chunking an
 ```
 F0 00 20 76 33 40 7E [seq] 05 <packed_payload> F7
 ```
-- Command byte: `0x7E` (UPLOAD) — confirmed from captures/sniffer-upload21.jsonl
+- Command byte: `0x7E` (UPLOAD) — confirmed from tests/fixtures/sniffer-upload21.jsonl
 - Group byte: `0x05` (CMD_FILE)
 - Raw payload before packed7 encoding:
   - `0x02` (PUT)
@@ -148,7 +148,7 @@ F0 00 20 76 33 40 7E [seq] 05 <packed_payload> F7
   - `chunk_index_hi`, `chunk_index_lo` (16-bit big-endian index, NOT byte offset)
   - audio data: **raw LE s16 PCM** — WAV frames sent as-is, no byte swap.
     Confirmed SOLID: byte-for-byte match between official TE app upload capture
-    (`captures/sniffer-upload-kick-official.jsonl`) and `tests/fixtures/kick-46875hz.wav`.
+    (`tests/fixtures/sniffer-upload-kick-official.jsonl`) and `tests/fixtures/kick-46875hz.wav`.
 - Device responds with an ACK (usually echoing the command in the `0x2x` response range). It does **not** return a standard `status=0x00` response, so clients should only check that an ACK was received.
 
 ### 3. Commit/Verify Steps (Observed)
@@ -331,7 +331,7 @@ sox input.wav -c 1 -r 46875 -b 16 output.wav
 
 ## Known Issues
 
-1. **Upload Command IDs** - The `[cmd]` byte (position 6) is a **session identifier**, not a fixed opcode — the device accepts any value and echoes it back with a -0x40 offset in responses. Official TE app uses rotating IDs (observed: `0x68`/`0x69` in `captures/sniffer-upload-kick-official.jsonl`, `0x7E` in `captures/sniffer-upload21.jsonl`). Our tool uses `0x7E` consistently. All values work.
+1. **Upload Command IDs** - The `[cmd]` byte (position 6) is a **session identifier**, not a fixed opcode — the device accepts any value and echoes it back with a -0x40 offset in responses. Official TE app uses rotating IDs (observed: `0x68`/`0x69` in `tests/fixtures/sniffer-upload-kick-official.jsonl`, `0x7E` in `tests/fixtures/sniffer-upload21.jsonl`). Our tool uses `0x7E` consistently. All values work.
 2. **Playback** - Protocol not fully documented (Command `0x76`).
 3. **Project files** - `.ppak` format known, but SysEx extraction path unknown.
 4. **"invalid file" Error Response** - When querying a missing or invalid node (e.g., via `METADATA GET`), the device may return a non-standard error payload (including high-byte content). Clients should treat these response payloads as raw bytes and avoid strict semantic decoding.

@@ -54,9 +54,9 @@ class _FakeClient:
 
 
 def test_upload_messages_use_opcode_0x7e():
-    """All upload message classes must use opcode 0x7E (UPLOAD), matching the
-    official TE app. Confirmed from captures/sniffer-upload21.jsonl — every TX
-    message in the capture uses cmd byte 0x7E."""
+    """All upload message classes must use opcode 0x7E (UPLOAD).
+    The cmd byte is a session identifier — the device accepts any value.
+    See tests/fixtures/sniffer-upload-kick-official.jsonl for official TE app capture."""
     from core.models import (
         UploadInitRequest, UploadChunkRequest, UploadEndRequest,
         UploadVerifyRequest, DeleteRequest, SysExCmd,

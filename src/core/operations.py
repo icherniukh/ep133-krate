@@ -91,7 +91,7 @@ class UploadTransaction(Transaction):
         self.client._send_and_wait_msg(end_req, timeout=5.0)
 
         # 5. Verify → Metadata Set → Verify
-        # Official sequence from captures/sniffer-upload21.jsonl:
+        # Official sequence from tests/fixtures/sniffer-upload21.jsonl:
         # empty sentinel → ACK → VERIFY → METADATA SET → ACK → VERIFY
         verify_req = UploadVerifyRequest(slot=self.slot)
         self.client._send_and_wait_msg(verify_req, timeout=2.0)

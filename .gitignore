@@ -21,8 +21,7 @@ tmp/
 captures/
 !captures/*.wav
 !tests/fixtures/*.wav
-!captures/sniffer-upload21.jsonl
-!captures/sniffer-upload-kick-official.jsonl
+!tests/fixtures/*.jsonl
 !captures/sniffer-readmeta.jsonl
 !captures/sniffer-rename.jsonl
 !captures/sniffer-rename54-txrx.jsonl

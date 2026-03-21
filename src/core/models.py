@@ -367,7 +367,7 @@ class UploadEndRequest(FileMessage):
 
     The official app sends a zero-byte PUT chunk at the next chunk index
     after the last data chunk. The device ACKs after this, then the client
-    sends VERIFY. Confirmed from captures/sniffer-upload21.jsonl — all
+    sends VERIFY. Confirmed from tests/fixtures/sniffer-upload21.jsonl — all
     upload messages use opcode 0x7E (UPLOAD).
     """
     opcode = SysExCmd.UPLOAD
@@ -378,7 +378,7 @@ class UploadEndRequest(FileMessage):
 class UploadVerifyRequest(FileMessage):
     """VERIFY command sent after the empty sentinel chunk and after METADATA SET.
 
-    Decoded from captures/sniffer-upload21.jsonl: 0B 00 <slot_hi> <slot_lo>
+    Decoded from tests/fixtures/sniffer-upload21.jsonl: 0B 00 <slot_hi> <slot_lo>
     Official sequence: empty sentinel → ACK → VERIFY → METADATA SET → ACK → VERIFY
     """
     opcode = SysExCmd.UPLOAD

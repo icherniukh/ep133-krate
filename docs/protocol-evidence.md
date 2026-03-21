@@ -20,7 +20,7 @@ SOLID            SPECULATION      BLIND GUESS      UNKNOWN
 | Node meta GET | `EP133Client.get_node_metadata()` | Match | `captures/2026-02-20-audit-001-099.jsonl` (decoded), `captures/sniffer-readmeta.jsonl` (raw SysEx) | ✅ | Uses FileOp.METADATA GET |
 | Node meta SET | `EP133Client.rename()` | Match | `captures/sniffer-rename.jsonl` (raw SysEx) | ✅ | Official tool uses FileOp.METADATA SET with JSON name |
 | Download (GET) | `EP133Client.get()` | Partial | _pending_ | 🟡 | Works in practice |
-| Upload (PUT) | `EP133Client.put()` | Partial | `captures/sniffer-slot26.jsonl`, `captures/sniffer-upload21.jsonl`, `captures/sniffer-upload-clean-hi.bin` | ✅ | Official tool upload + META SET captured |
+| Upload (PUT) | `EP133Client.put()` | Partial | `captures/sniffer-slot26.jsonl`, `tests/fixtures/sniffer-upload21.jsonl`, `tests/fixtures/sniffer-upload-kick-official.jsonl`, `captures/sniffer-upload-clean-hi.bin` | ✅ | Official tool upload + META SET captured |
 | Delete | `EP133Client.delete()` | Match | `captures/sniffer-delete-hi.bin` | ✅ | Big-endian slot confirmed (467) |
 | Pad assign/trim | Not implemented | Unknown | `captures/sniffer-padtrim.jsonl` | 🟡 | Uses FileOp.METADATA SET on pad nodes (see below) |
 | Project switch | Not implemented | Match | _pending_ | ⚠️ | Protocol documented, no CLI yet |
@@ -71,7 +71,7 @@ Hunter summary after opening the official sample tool (no user actions):
 ## 3. Upload deep-dive & encoding quirks
 
 ### 2026-02-20 official tool upload captures (slot 26, slot 21)
-*Captures: `captures/sniffer-slot26.jsonl` and `captures/sniffer-upload21.jsonl`*
+*Captures: `captures/sniffer-slot26.jsonl`, `tests/fixtures/sniffer-upload21.jsonl`, and `tests/fixtures/sniffer-upload-kick-official.jsonl`*
 - Upload init is `SysExCmd 0x7E` (slot 21) and also `0x7F` (slot 26), with seq byte following.
 - Payload uses `CMD_FILE 0x05` + packed7(raw_payload):
   - `02 00 05 slot_hi slot_lo node_hi node_lo size_be name 00 json`
