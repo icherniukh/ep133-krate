@@ -315,9 +315,9 @@ class EP133Emulator:
                     pending.ended = True
             return [(self._build_file_response(0x3E, seq, 0, b""), self._page_delay())]
 
-        # VERIFY
+        # VERIFY — payload is [0x0B, slot_hi, slot_lo] (3 bytes, no sub byte)
         if op == FileOp.VERIFY:
-            slot = int.from_bytes(payload[2:4], "big") if len(payload) >= 4 else 0
+            slot = int.from_bytes(payload[1:3], "big") if len(payload) >= 3 else 0
             pending = self._pending.get(slot)
             if pending is not None:
                 self._commit_upload(pending)

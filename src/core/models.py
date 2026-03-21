@@ -378,12 +378,13 @@ class UploadEndRequest(FileMessage):
 class UploadVerifyRequest(FileMessage):
     """VERIFY command sent after the empty sentinel chunk and after METADATA SET.
 
-    Decoded from tests/fixtures/sniffer-upload21.jsonl: 0B 00 <slot_hi> <slot_lo>
+    Wire payload: 0B <slot_hi> <slot_lo> (3 bytes, no sub byte).
+    Confirmed from tests/fixtures/sniffer-upload-kick-official.jsonl:
+    both VERIFYs around META_SET use payload 0B 00 61 for slot 97.
     Official sequence: empty sentinel → ACK → VERIFY → METADATA SET → ACK → VERIFY
     """
     opcode = SysExCmd.UPLOAD
     file_op = U7Field(default=FileOp.VERIFY)
-    sub = U7Field(default=0x00)
     slot = BE16Field(default=0)
 
 class DeleteRequest(FileMessage):
