@@ -61,13 +61,15 @@ def _load_capture():
 
 @pytest.fixture(scope="module")
 def capture_payloads():
-    if not CAPTURE_FILE.exists() or not WAV_FILE.exists():
-        pytest.skip("Capture files not present (gitignored — local only)")
+    if not CAPTURE_FILE.exists():
+        pytest.skip("Capture file not present")
     return _load_capture()
 
 
 @pytest.fixture(scope="module")
 def wav_pcm():
+    if not WAV_FILE.exists():
+        pytest.skip("WAV fixture not present (copyright — local only)")
     with wave.open(str(WAV_FILE), "rb") as w:
         return {
             "channels": w.getnchannels(),
@@ -134,18 +136,19 @@ class TestUploadCaptureDecode:
         )
 
     def test_put_data_empty_sentinel_triggers_ack(self, capture_payloads):
-        """Official app sends an empty PUT_DATA chunk (0 PCM bytes) after the last
-        data chunk, using the same 0x6C opcode. The device ACK arrives after this
-        sentinel — not after the last data chunk. This is the upload commit signal.
+        """Official app sends an empty PUT chunk (0 PCM bytes) after the last
+        data chunk. The device ACK arrives after this sentinel — not after the
+        last data chunk. This is the upload commit signal.
 
-        Our UploadEndRequest must use UPLOAD_DATA (0x6C), not UPLOAD_END (0x6D).
+        All upload messages use opcode 0x7E (UPLOAD), confirmed from
+        captures/sniffer-upload21.jsonl.
         """
         from core.models import UploadEndRequest, SysExCmd
 
         chunks = [p for p in capture_payloads if len(p) >= 2 and p[0] == 0x02 and p[1] == 0x01]
         last = chunks[-1]
         assert len(last) == 4, (
-            f"Last PUT_DATA chunk should have 0 PCM bytes (sentinel), got {len(last)-4}"
+            f"Last PUT chunk should have 0 PCM bytes (sentinel), got {len(last)-4}"
         )
         sentinel_ci = (last[2] << 8) | last[3]
         data_chunks = chunks[:-1]
@@ -153,9 +156,9 @@ class TestUploadCaptureDecode:
         assert sentinel_ci == last_data_ci + 1, (
             f"Sentinel chunk_index {sentinel_ci} should be last_data_ci+1={last_data_ci+1}"
         )
-        # Verify our model uses the correct opcode
-        assert UploadEndRequest.opcode == SysExCmd.UPLOAD_DATA, (
-            "UploadEndRequest must use UPLOAD_DATA (0x6C), not UPLOAD_END (0x6D)"
+        # Verify our model uses the correct opcode (matches official tool)
+        assert UploadEndRequest.opcode == SysExCmd.UPLOAD, (
+            "UploadEndRequest must use UPLOAD (0x7E) — confirmed from capture"
         )
 
     def test_put_data_chunk_sizing(self, capture_payloads, wav_pcm):

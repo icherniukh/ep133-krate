@@ -53,6 +53,25 @@ class _FakeClient:
         pass
 
 
+def test_upload_messages_use_opcode_0x7e():
+    """All upload message classes must use opcode 0x7E (UPLOAD), matching the
+    official TE app. Confirmed from captures/sniffer-upload21.jsonl — every TX
+    message in the capture uses cmd byte 0x7E."""
+    from core.models import (
+        UploadInitRequest, UploadChunkRequest, UploadEndRequest,
+        UploadVerifyRequest, DeleteRequest, SysExCmd,
+    )
+    for cls in (UploadInitRequest, UploadChunkRequest, UploadEndRequest,
+                UploadVerifyRequest, DeleteRequest):
+        assert cls.opcode == SysExCmd.UPLOAD, (
+            f"{cls.__name__}.opcode should be UPLOAD (0x7E), got 0x{cls.opcode:02X}"
+        )
+    # Verify the wire byte
+    msg = UploadInitRequest(slot=1, file_size=100, name="test", metadata_json="{}")
+    wire = msg.build(seq=0)
+    assert wire[6] == 0x7E, f"Wire cmd byte should be 0x7E, got 0x{wire[6]:02X}"
+
+
 def test_upload_sends_le_pcm_unchanged():
     """UploadTransaction must send WAV PCM bytes as-is (LE s16), with no byte swap."""
     with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:

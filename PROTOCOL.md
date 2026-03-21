@@ -126,7 +126,7 @@ The upload consists of a sequence of messages. The official app uses chunking an
 ```
 F0 00 20 76 33 40 7E [seq] 05 <packed_payload> F7
 ```
-- Command byte: `0x7E` (or `0x6C` / `0x7F`)
+- Command byte: `0x7E` (UPLOAD) — confirmed from captures/sniffer-upload21.jsonl
 - Group byte: `0x05` (CMD_FILE)
 - Raw payload before packed7 encoding:
   - `0x02` (PUT)
@@ -331,7 +331,7 @@ sox input.wav -c 1 -r 46875 -b 16 output.wav
 
 ## Known Issues
 
-1. **Upload Command IDs** - Some operations use `0x6C` for data, while external refs show `0x7E`. Both appear to work depending on context.
+1. **Upload Command IDs** - RESOLVED: official TE app uses `0x7E` for all upload operations (init, chunks, sentinel, verify). Confirmed from `captures/sniffer-upload21.jsonl`. The device also accepts `0x6C` (historical accident from early debugging), but `0x7E` is canonical.
 2. **Playback** - Protocol not fully documented (Command `0x76`).
 3. **Project files** - `.ppak` format known, but SysEx extraction path unknown.
 4. **"invalid file" Error Response** - When querying a missing or invalid node (e.g., via `METADATA GET`), the device may return a non-standard error payload (including high-byte content). Clients should treat these response payloads as raw bytes and avoid strict semantic decoding.

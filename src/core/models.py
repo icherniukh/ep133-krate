@@ -345,7 +345,7 @@ class DownloadChunkRequest(FileMessage):
     page = U14LEField(default=0)
 
 class UploadInitRequest(FileMessage):
-    opcode = SysExCmd.UPLOAD_DATA
+    opcode = SysExCmd.UPLOAD
     file_op = U7Field(default=FileOp.PUT)
     put_type = U7Field(default=0x00)
     file_type = U7Field(default=0x05)
@@ -356,21 +356,21 @@ class UploadInitRequest(FileMessage):
     metadata_json = JsonField()
 
 class UploadChunkRequest(FileMessage):
-    opcode = SysExCmd.UPLOAD_DATA
+    opcode = SysExCmd.UPLOAD
     file_op = U7Field(default=FileOp.PUT)
     put_type = U7Field(default=0x01)
     chunk_index = BE16Field(default=0)
     data = RawBytesField(default=b"")
 
 class UploadEndRequest(FileMessage):
-    """Empty PUT_DATA chunk that signals end-of-upload to the device.
+    """Empty PUT chunk that signals end-of-upload to the device.
 
-    The official app sends a zero-byte PUT_DATA (same opcode as data chunks, 0x6C)
-    at the next chunk index after the last data chunk. The device ACKs after this,
-    then the client sends VERIFY. Using 0x6D (UPLOAD_END) here was wrong.
-    Confirmed from captures/sniffer-upload21.jsonl.
+    The official app sends a zero-byte PUT chunk at the next chunk index
+    after the last data chunk. The device ACKs after this, then the client
+    sends VERIFY. Confirmed from captures/sniffer-upload21.jsonl — all
+    upload messages use opcode 0x7E (UPLOAD).
     """
-    opcode = SysExCmd.UPLOAD_DATA
+    opcode = SysExCmd.UPLOAD
     file_op = U7Field(default=FileOp.PUT)
     put_type = U7Field(default=0x01)
     chunk_index = BE16Field(default=0)
@@ -381,7 +381,7 @@ class UploadVerifyRequest(FileMessage):
     Decoded from captures/sniffer-upload21.jsonl: 0B 00 <slot_hi> <slot_lo>
     Official sequence: empty sentinel → ACK → VERIFY → METADATA SET → ACK → VERIFY
     """
-    opcode = SysExCmd.UPLOAD_DATA
+    opcode = SysExCmd.UPLOAD
     file_op = U7Field(default=FileOp.VERIFY)
     sub = U7Field(default=0x00)
     slot = BE16Field(default=0)

@@ -97,9 +97,9 @@ class TestUploadFixture:
         end_reqs = [c for c in upload_calls if isinstance(c, UploadEndRequest)]
         assert len(end_reqs) == 1, f"Expected 1 UploadEndRequest, got {len(end_reqs)}"
 
-    def test_sentinel_uses_upload_data_opcode(self, upload_calls):
-        """UploadEndRequest must use UPLOAD_DATA (0x6C), not UPLOAD_END (0x6D)."""
-        assert UploadEndRequest.opcode == SysExCmd.UPLOAD_DATA
+    def test_sentinel_uses_upload_opcode(self, upload_calls):
+        """UploadEndRequest must use UPLOAD (0x7E), matching the official tool."""
+        assert UploadEndRequest.opcode == SysExCmd.UPLOAD
 
     def test_metadata_channels_and_rate(self, upload_calls, wav_info):
         """UploadInitRequest metadata_json must carry correct channels and samplerate."""

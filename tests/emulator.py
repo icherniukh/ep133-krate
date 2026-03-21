@@ -185,8 +185,6 @@ class EP133Emulator:
             return self._handle_list_files(seq, payload)
         if cmd == SysExCmd.DOWNLOAD:
             return self._handle_download(seq, payload)
-        if cmd == SysExCmd.UPLOAD_DATA:
-            return self._handle_upload_data(seq, payload)
         if cmd == SysExCmd.UPLOAD:
             return self._handle_upload(seq, payload)
 
@@ -268,16 +266,24 @@ class EP133Emulator:
 
         return [(self._build_file_response(0x3D, seq, 1, b""), self._delay())]
 
-    def _handle_upload_data(self, seq: int, payload: bytes) -> list[tuple[bytes, float]]:
+    def _handle_upload(self, seq: int, payload: bytes) -> list[tuple[bytes, float]]:
         if len(payload) < 2:
-            return [(self._build_file_response(0x2C, seq, 1, b""), self._delay())]
+            return [(self._build_file_response(0x3E, seq, 1, b""), self._delay())]
 
         op = payload[0]
-        sub = payload[1]
+        sub = payload[1] if len(payload) > 1 else 0
 
+        # DELETE
+        if op == FileOp.DELETE and len(payload) >= 3:
+            slot = int.from_bytes(payload[1:3], "big")
+            with self._lock:
+                self._samples.pop(slot, None)
+            return [(self._build_file_response(0x3E, seq, 0, b""), self._delay())]
+
+        # PUT INIT
         if op == FileOp.PUT and sub == 0x00:
             if len(payload) < 11:
-                return [(self._build_file_response(0x2C, seq, 1, b""), self._delay())]
+                return [(self._build_file_response(0x3E, seq, 1, b""), self._delay())]
             slot = int.from_bytes(payload[3:5], "big")
             size = int.from_bytes(payload[7:11], "big")
             tail = payload[11:]
@@ -294,37 +300,30 @@ class EP133Emulator:
                 name=name,
                 metadata=metadata,
             )
-            return [(self._build_file_response(0x2C, seq, 0, b""), self._delay())]
+            return [(self._build_file_response(0x3E, seq, 0, b""), self._delay())]
 
+        # PUT DATA / SENTINEL
         if op == FileOp.PUT and sub == 0x01:
             if len(payload) < 4:
-                return [(self._build_file_response(0x2C, seq, 1, b""), self._delay())]
+                return [(self._build_file_response(0x3E, seq, 1, b""), self._delay())]
             chunk = payload[4:]
-            # Single active upload is sufficient for current tests/client usage.
             pending = self._latest_pending_upload()
             if pending is not None:
                 if chunk:
                     pending.buffer.extend(chunk)
                 else:
                     pending.ended = True
-            return [(self._build_file_response(0x2C, seq, 0, b""), self._page_delay())]
+            return [(self._build_file_response(0x3E, seq, 0, b""), self._page_delay())]
 
+        # VERIFY
         if op == FileOp.VERIFY:
             slot = int.from_bytes(payload[2:4], "big") if len(payload) >= 4 else 0
             pending = self._pending.get(slot)
             if pending is not None:
                 self._commit_upload(pending)
                 self._pending.pop(slot, None)
-            return [(self._build_file_response(0x2C, seq, 0, b""), self._delay())]
-
-        return [(self._build_file_response(0x2C, seq, 1, b""), self._delay())]
-
-    def _handle_upload(self, seq: int, payload: bytes) -> list[tuple[bytes, float]]:
-        if len(payload) >= 3 and payload[0] == FileOp.DELETE:
-            slot = int.from_bytes(payload[1:3], "big")
-            with self._lock:
-                self._samples.pop(slot, None)
             return [(self._build_file_response(0x3E, seq, 0, b""), self._delay())]
+
         return [(self._build_file_response(0x3E, seq, 1, b""), self._delay())]
 
     def _encode_directory_entries(self, node_id: int, page: int, page_size: int = 24) -> bytes:
