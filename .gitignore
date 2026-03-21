@@ -9,6 +9,7 @@ htmlcov/
 
 # Project specific
 tmp/
+.claude-sessions/
 *.log
 .DS_Store
 
