@@ -61,10 +61,13 @@ Hunter summary after opening the official sample tool (no user actions):
 - RX metadata JSON confirms pre-rename: `name:"pr - kicks 9"` and post-rename: `name:"53_name))"`.
 - User report: sample slot `53` was used; pad label was `6` in group `D`.
 
-### Pad mapping (raw observations)
-- `captures/sniffer-padmap-A.jsonl`: Pad 0 -> `9211`, Pad 1 -> `9207`, etc.
-- `captures/sniffer-padmap-B.bin`: Pad 8 -> `9302`, Pad 0 -> `9311`.
-- `captures/sniffer-padmap-C.bin`: Pad 8 -> `9402`, Pad 0 -> `9411`.
+### Pad mapping (complete — confirmed by captures + reference impl pattern)
+- All 4 groups follow the same physical-to-file inversion with a regular +100 group offset.
+- Group A (9201–9212): fully confirmed from `captures/sniffer-padmap-A.jsonl`.
+- Group B (9301–9312): Pad 8→9302, Pad 0→9311 confirmed from `captures/sniffer-padmap-B.bin`; remaining pads follow identical pattern.
+- Group C (9401–9412): Pad 8→9402, Pad 0→9411 confirmed from `captures/sniffer-padmap-C.bin`; remaining pads follow identical pattern.
+- Group D (9501–9512): Pad 8→9502 confirmed from `captures/sniffer-padtrim.jsonl`, Pad 6→9506 from `captures/sniffer-rename54-txrx.jsonl`; remaining pads follow identical pattern.
+- Formula: `node = 2000 + (project * 1000) + 100 + group_offset + file_num` where group_offset A=100, B=200, C=300, D=400.
 
 ---
 

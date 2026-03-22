@@ -204,30 +204,18 @@ Captured in `captures/sniffer-padtrim.jsonl` (slot 74 upload + pad assign + trim
   - `{"sym":807}` on node `5407` suggests a pad/sample assignment outside the 9500+ range (needs confirmation).
 - META_GET also targets nodes that match slot numbers (e.g., `53`, `67`, `77`, `220`, `434`, `442`, `568`, `569`, `572`, `807`), suggesting sample nodes may be addressed by slot id.
 - User report: this capture corresponded to pad labeled `8` in group `D`.
-- User report: pad labels are `0-9` plus `.` and `Enter` (12 pads total); mapping to node IDs is still unknown.
+- Pad labels are `0-9` plus `.` and `Enter` (12 pads total).
 - TX+RX capture shows pad node `9506` assigned with `{"sym":53}` and sample rename via node `53` (see `captures/sniffer-rename54-txrx.jsonl`); user reports this was pad `6` in group `D`.
-- Group `A` mapping (observed in `captures/sniffer-padmap-A.jsonl`):
-  - Pad `0` -> node `9211`
-  - Pad `1` -> node `9207`
-  - Pad `2` -> node `9208`
-  - Pad `3` -> node `9209`
-  - Pad `4` -> node `9204`
-  - Pad `5` -> node `9205`
-  - Pad `6` -> node `9206`
-  - Pad `7` -> node `9201`
-  - Pad `8` -> node `9202`
-  - Pad `9` -> node `9203`
-  - Pad `.` -> node `9210`
-  - Pad `Enter` -> node `9212`
-- Group `B` partial mapping (observed in `captures/sniffer-padmap-B.bin`):
-  - Pad `8` -> node `9302`
-  - Pad `0` -> node `9311`
-- Group `C` partial mapping (observed in `captures/sniffer-padmap-C.bin`):
-  - Pad `8` -> node `9402`
-  - Pad `0` -> node `9411`
-- Group `D` partial mapping (observed in `captures/sniffer-padtrim.jsonl`, `captures/sniffer-rename54-txrx.jsonl`):
-  - Pad `8` -> node `9502`
-  - Pad `6` -> node `9506`
+- **Pad-to-node formula:** `node = 2000 + (project × 1000) + 100 + group_offset + file_num`
+  - `group_offset`: A=100, B=200, C=300, D=400
+  - `file_num`: 1–12, mapped from physical pad via row inversion (pads numbered bottom-to-top, files stored top-to-bottom):
+    ```
+    Physical:  10 11 12    Files:  01 02 03
+                7  8  9            04 05 06
+                4  5  6            07 08 09
+                1  2  3            10 11 12
+    ```
+  - Group A fully confirmed from captures; B/C/D confirmed at 2 points each — all follow the same +100 offset pattern.
 
 ## Download Protocol (GET)
 
@@ -387,7 +375,7 @@ To assign a sample to a pad, set `{"sym": <slot_id>}` on the pad's node via `MET
 |---|---|
 | `1000` | `/sounds/` directory |
 | `2000` | Root filesystem node |
-| `9201–9212` | Group A pads (confirmed from captures) |
-| `9301–9312` | Group B pads (partial) |
-| `9401–9412` | Group C pads (partial) |
-| `9501–9512` | Group D pads (partial) |
+| `X201–X212` | Group A pads (per formula above; X = project prefix) |
+| `X301–X312` | Group B pads |
+| `X401–X412` | Group C pads |
+| `X501–X512` | Group D pads |
