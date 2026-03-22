@@ -29,13 +29,14 @@ def test_slot_from_sound_entry_falls_back_to_filename_prefix():
     assert slot_from_sound_entry({"node_id": 9999, "name": "852 snare"}) == 852
 
 
-def test_parse_file_list_response_prefers_14bit_when_prefix_matches():
-    # Simulate 14-bit encoded node_id for slot 129 (node_id=1129 -> hi=0x08, lo=0x69)
+def test_parse_file_list_response_decodes_node_id_as_be16():
+    # Node ID is BE16 after packed7 decode (confirmed from device capture 2026-03-22).
+    # Slot 256: hi=0x01, lo=0x00 → BE16=256
     payload = bytearray(b"\x00\x00")
-    payload.extend(bytes([0x08, 0x69, 0x00, 0x00, 0x00, 0x00, 0x10]))
-    payload.extend(b"129 snare\x00")
+    payload.extend(bytes([0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x10]))
+    payload.extend(b"256.pcm\x00")
     entries = parse_file_list_response(bytes(payload))
-    assert entries[0]["node_id"] == 1129
+    assert entries[0]["node_id"] == 256
 
 
 def test_slot_from_sound_entry_prefers_filename_when_node_id_conflicts():

@@ -481,14 +481,8 @@ def decode_14bit(hi: int, lo: int) -> int:
     return (hi << 7) | lo
 
 def decode_node_id(hi: int, lo: int, name: str | None = None) -> int:
-    node_id_16 = (hi << 8) | lo
-    if hi > 0x7F or lo > 0x7F: return node_id_16
-    node_id_14 = (hi << 7) | lo
-    if name and name[:3].isdigit():
-        prefix = int(name[:3])
-        if node_id_14 - 1000 == prefix: return node_id_14
-        if node_id_16 - 1000 == prefix: return node_id_16
-    return node_id_14 if 1000 <= node_id_14 <= 12000 else node_id_16
+    """Decode node_id from LIST response as BE16 (confirmed from device capture)."""
+    return (hi << 8) | lo
 
 def slot_from_sound_entry(entry: dict) -> int | None:
     import re

@@ -317,12 +317,27 @@ sox input.wav -c 1 -r 46875 -b 16 output.wav
 4. **Timing** - Delays of 20-100ms between messages are commonly needed
 5. **Response filtering** - Filter by TE header + expected response opcode
 
+## File List Response (FileOp.LIST = 0x04)
+
+Response payload (after packed7 decode): 2-byte header, then repeating entries:
+```
+[node_hi] [node_lo] [flags] [size:4 BE] [name\0]
+```
+- `flags`: bit 1 = is_dir
+- `size`: 4-byte big-endian file size
+- `name`: null-terminated UTF-8 string
+
+### Node ID encoding — confirmed BE16
+
+The `node_hi`/`node_lo` bytes in LIST responses are **big-endian 16-bit** after packed7 decoding. Confirmed 2026-03-22 from a device capture with 430 entries across slots 1–972 — all 214 divergent cases (where BE16 ≠ U14) matched BE16. Examples: slot 256 = `[0x01, 0x00]`, slot 900 = `[0x03, 0x84]`.
+
 ## Known Issues
 
 1. **Upload Command IDs** - The `[cmd]` byte (position 6) is a **session identifier**, not a fixed opcode — the device accepts any value and echoes it back with a -0x40 offset in responses. Official TE app uses rotating IDs (observed: `0x68`/`0x69` in `tests/fixtures/sniffer-upload-kick-official.jsonl`, `0x7E` in `tests/fixtures/sniffer-upload21.jsonl`). Our tool uses `0x7E` consistently. All values work.
 2. **Playback** - Protocol not fully documented (Command `0x76`).
 3. **Project files** - `.ppak` format known, but SysEx extraction path unknown.
 4. **"invalid file" Error Response** - When querying a missing or invalid node (e.g., via `METADATA GET`), the device may return a non-standard error payload (including high-byte content). Clients should treat these response payloads as raw bytes and avoid strict semantic decoding.
+5. **Node ID encoding resolved** - LIST response node IDs are BE16 after packed7 decode. Confirmed 2026-03-22 (430 entries, slots 1–972). The old U14 heuristic in `decode_node_id()` has been removed.
 
 ## Tools
 
