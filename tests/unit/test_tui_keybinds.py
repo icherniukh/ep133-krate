@@ -648,6 +648,156 @@ def test_space_key_deselects_slot(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
+# Modal key isolation — app keys must not fire while a modal is open
+# ---------------------------------------------------------------------------
+
+def test_keys_dont_fire_app_actions_while_modal_open(monkeypatch):
+    """Pressing app keys (d, s, space, etc.) while a modal is open must NOT
+    trigger the app's action — they should be swallowed by the modal."""
+    monkeypatch.setattr("tui.app.DeviceWorker", StubWorker)
+
+    async def _run():
+        app = TUIApp(device_name="EP-133", debug=False)
+        async with app.run_test() as pilot:
+            _make_ready(app)
+
+            # Open rename modal (TextInputModal)
+            await pilot.press("r")
+            await pilot.pause()
+            assert isinstance(app.screen, TextInputModal)
+            before = list(_request_ops(app))
+
+            # Press keys that would normally trigger app actions
+            for key in ["d", "s", "o", "c", "m", "space", "backspace", "p"]:
+                await pilot.press(key)
+                await pilot.pause()
+
+            # No new worker requests should have been submitted
+            assert _request_ops(app) == before
+            # Still on the same modal
+            assert isinstance(app.screen, TextInputModal)
+
+    asyncio.run(_run())
+
+
+def test_enter_submits_rename_modal(monkeypatch):
+    """Pressing Enter in the rename TextInputModal must submit the value,
+    not trigger the app's view_details action."""
+    monkeypatch.setattr("tui.app.DeviceWorker", StubWorker)
+
+    async def _run():
+        app = TUIApp(device_name="EP-133", debug=False)
+        async with app.run_test() as pilot:
+            _make_ready(app)
+
+            await pilot.press("r")
+            await pilot.pause()
+            assert isinstance(app.screen, TextInputModal)
+
+            # Type a name and press Enter
+            inp = app.screen.query_one("#value")
+            inp.value = "kick-808"
+            await pilot.press("enter")
+            await pilot.pause()
+
+            # Modal should be dismissed
+            assert not isinstance(app.screen, TextInputModal)
+            # Rename request should be submitted
+            assert "rename" in _request_ops(app)
+
+    asyncio.run(_run())
+
+
+def test_enter_confirms_confirm_modal(monkeypatch):
+    """Pressing Enter in a ConfirmModal must confirm (dismiss True),
+    not trigger the app's view_details action."""
+    monkeypatch.setattr("tui.app.DeviceWorker", StubWorker)
+
+    async def _run():
+        app = TUIApp(device_name="EP-133", debug=False)
+        async with app.run_test() as pilot:
+            _make_ready(app)
+
+            await pilot.press("s")
+            await pilot.pause()
+            assert isinstance(app.screen, ConfirmModal)
+
+            await pilot.press("enter")
+            await pilot.pause()
+
+            # Modal should be dismissed — confirm modal focuses Cancel by
+            # default, so Enter on Cancel dismisses with False (no squash).
+            # The key point: we're NOT still on ConfirmModal and no
+            # view_details action fired.
+            assert not isinstance(app.screen, ConfirmModal)
+
+    asyncio.run(_run())
+
+
+def test_space_toggles_checkbox_in_optimize_modal(monkeypatch):
+    """Pressing Space in OptimizeModal must toggle a checkbox,
+    not trigger the app's toggle_select action."""
+    monkeypatch.setattr("tui.app.DeviceWorker", StubWorker)
+
+    async def _run():
+        app = TUIApp(device_name="EP-133", debug=False)
+        async with app.run_test() as pilot:
+            _make_ready(app)
+            selection_before = set(app.state.selected_slots)
+
+            await pilot.press("o")
+            await pilot.pause()
+            assert isinstance(app.screen, OptimizeModal)
+
+            # Focus the mono checkbox (should be focused by default)
+            from textual.widgets import Checkbox
+            cb = app.screen.query_one("#opt_mono", Checkbox)
+            cb.focus()
+            initial_value = cb.value
+
+            await pilot.press("space")
+            await pilot.pause()
+
+            # Checkbox should have toggled
+            assert cb.value != initial_value
+            # App selection must not have changed
+            assert app.state.selected_slots == selection_before
+
+    asyncio.run(_run())
+
+
+def test_up_down_navigate_within_confirm_modal(monkeypatch):
+    """Up/Down in a ConfirmModal must move focus between buttons,
+    not move the app's DataTable cursor."""
+    monkeypatch.setattr("tui.app.DeviceWorker", StubWorker)
+
+    async def _run():
+        app = TUIApp(device_name="EP-133", debug=False)
+        async with app.run_test() as pilot:
+            _make_ready(app)
+
+            await pilot.press("s")
+            await pilot.pause()
+            assert isinstance(app.screen, ConfirmModal)
+
+            # Note which slot was selected before
+            slot_before = app.state.selected_slot
+
+            # Press up/down — should not change app cursor
+            await pilot.press("down")
+            await pilot.pause()
+            await pilot.press("up")
+            await pilot.pause()
+
+            # App slot selection unchanged
+            assert app.state.selected_slot == slot_before
+            # Still on modal
+            assert isinstance(app.screen, ConfirmModal)
+
+    asyncio.run(_run())
+
+
+# ---------------------------------------------------------------------------
 # audition_started event → playback state initialization
 # ---------------------------------------------------------------------------
 

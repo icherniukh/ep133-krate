@@ -101,10 +101,10 @@ class TUIApp(App[None]):
 
     BINDINGS = [
         Binding("ctrl+r", "refresh", "Reload"),
-        Binding("enter", "view_details", "Details", priority=True),
+        Binding("enter", "view_details", "Details"),
         Binding("escape", "cancel", "Cancel", show=False),
-        Binding("up", "cursor_up", "Up", show=False, priority=True),
-        Binding("down", "cursor_down", "Down", show=False, priority=True),
+        Binding("up", "cursor_up", "Up", show=False),
+        Binding("down", "cursor_down", "Down", show=False),
         Binding("d", "download", "Download"),
         Binding("u", "upload", "Upload"),
         Binding("c", "copy", "Copy"),
@@ -311,6 +311,9 @@ class TUIApp(App[None]):
 
     def on_key(self, event: events.Key) -> None:
         if event.key not in {"up", "down", "enter"}:
+            return
+        # Don't intercept keys when a modal is active
+        if len(self.screen_stack) > 1:
             return
         if event.key == "enter" and self.moving_src is not None:
             self.action_view_details()
@@ -536,6 +539,11 @@ class TUIApp(App[None]):
             message = self._format_trace_message(trace)
             if message:
                 self._log(message)
+
+    def check_action(self, action: str, parameters: tuple[object, ...]) -> bool | None:
+        if len(self.screen_stack) > 1:
+            return False
+        return True
 
     def get_bindings(self) -> list[Binding]:
         if self.moving_src is not None:
