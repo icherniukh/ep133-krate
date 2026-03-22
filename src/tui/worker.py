@@ -14,7 +14,7 @@ from pathlib import Path
 from queue import Empty, Queue
 from typing import Any, Callable
 
-from core.client import EP133Client, SlotEmptyError
+from core.client import EP133Client, DownloadCancelledError, SlotEmptyError
 from core.models import MAX_SAMPLE_RATE
 
 import sys
@@ -67,12 +67,14 @@ class DeviceWorker(threading.Thread):
         self._waveform_precalc_max_load = _env_float("KO2_TUI_WAVEFORM_PRECALC_MAX_LOAD", 0.75)
         self._waveform_precalc_mode = _env_mode("KO2_TUI_WAVEFORM_PRECALC_MODE", "single")
         self._waveform_render_pool: ThreadPoolExecutor | None = None
+        self._user_request_pending = threading.Event()
         self._waveform_render_futures: dict[Future[dict[str, Any] | None], tuple[int, dict[str, Any] | None]] = {}
         if self._waveform_precalc_mode == "threaded":
             workers = max(1, min(4, (os.cpu_count() or 2) // 2))
             self._waveform_render_pool = ThreadPoolExecutor(max_workers=workers, thread_name_prefix="ko2-wave")
 
     def submit(self, request: WorkerRequest) -> None:
+        self._user_request_pending.set()
         self._request_queue.put(request)
 
     def run(self) -> None:
@@ -95,6 +97,7 @@ class DeviceWorker(threading.Thread):
             self._close_client()
 
     def _process_request(self, req: WorkerRequest) -> None:
+        self._user_request_pending.clear()
         t_start = time.perf_counter()
         phases: dict[str, float] = {}
         self._emit("busy", op=req.op)
@@ -159,17 +162,16 @@ class DeviceWorker(threading.Thread):
                 pairs = [(Path(p), int(s)) for p, s in req.payload["files_and_slots"]]
                 n = len(pairs)
                 uploaded = 0
-                hydrate: set[int] = set()
                 for idx, (input_path, slot) in enumerate(pairs, start=1):
                     if not input_path.exists():
                         self._emit("log", message=f"Skipped {input_path.name}: file not found")
                         continue
                     self._emit_progress(req.op, idx, n, f"Uploading [{idx}/{n}] {input_path.name} → slot {slot:03d}")
                     self._timed("device.put", phases, client.put, input_path, slot, progress=False)
-                    hydrate.add(slot)
+                    self._emit_slot_refresh(client, slot, phases=phases)
                     uploaded += 1
                 self._emit_success(f"Uploaded {uploaded} of {n} file{'s' if n != 1 else ''}", started_at=t_start)
-                self._emit_inventory(client, hydrate_slots=hydrate, phases=phases)
+                self._emit_inventory(client, hydrate_slots={s for _, s in pairs}, phases=phases)
             elif req.op == "squash":
                 self._handle_squash(req, client, phases, t_start)
             elif req.op == "optimize":
@@ -550,7 +552,7 @@ class DeviceWorker(threading.Thread):
                 if "samplerate" in meta:
                     patch["samplerate"] = samplerate
             except Exception as exc:
-                self._emit("trace", line=f"hydration failed for slot {slot}: {exc}", trace={})
+                self._emit("log", message=f"hydration failed for slot {slot}: {exc}")
                 continue
 
             if not patch:
@@ -594,7 +596,7 @@ class DeviceWorker(threading.Thread):
         try:
             info = self._timed("device.info", phases, client.info, int(slot), include_size=True)
         except Exception as exc:
-            self._emit("trace", line=f"slot_refresh failed for slot {slot:03d}: {exc}", trace={})
+            self._emit("log", message=f"slot_refresh failed for slot {slot:03d}: {exc}")
             return
         self._emit("slot_refresh", slot=int(slot), details=_sampleinfo_to_dict(info))
 
@@ -624,14 +626,17 @@ class DeviceWorker(threading.Thread):
         *,
         slot: int,
         phases: dict[str, float],
+        cancel_check: Callable[[], bool] | None = None,
     ) -> bytes | None:
         try:
             with tempfile.TemporaryDirectory() as td:
                 wav_path = Path(td) / f"slot{slot:03d}.wav"
-                self._timed("device.get", phases, client.get, int(slot), wav_path)
+                self._timed("device.get", phases, client.get, int(slot), wav_path, cancel_check=cancel_check)
                 return wav_path.read_bytes()
+        except DownloadCancelledError:
+            return None
         except Exception as exc:
-            self._emit("trace", line=f"waveform download failed for slot {slot:03d}: {exc}", trace={})
+            self._emit("log", message=f"waveform download failed for slot {slot:03d}: {exc}")
             return None
 
     def _schedule_waveform_precalc(self, sounds: dict[int, dict]) -> None:
@@ -639,13 +644,17 @@ class DeviceWorker(threading.Thread):
             ((int(slot), int(entry.get("size") or 0)) for slot, entry in sounds.items()),
             key=lambda item: item[1],
         )
-        self._waveform_precalc_slots = [slot for slot, _size in ordered if slot > 0]
+        checker = self._waveform_cache_checker
+        self._waveform_precalc_slots = [
+            slot for slot, _size in ordered
+            if slot > 0 and not (checker is not None and checker(slot))
+        ]
 
     def _maybe_run_waveform_precalc_step(self) -> None:
         self._drain_waveform_render_futures()
         if not self._waveform_precalc_slots:
             return
-        if not self._request_queue.empty():
+        if self._user_request_pending.is_set():
             return
         if self._load_ratio() > self._waveform_precalc_max_load:
             return
@@ -670,10 +679,16 @@ class DeviceWorker(threading.Thread):
         phases: dict[str, float] = {}
         self._emit("busy", op="waveform")
         try:
-            wav_bytes = self._download_slot_wav_bytes(client, slot=slot, phases=phases)
+            wav_bytes = self._download_slot_wav_bytes(
+                client, slot=slot, phases=phases,
+                cancel_check=self._user_request_pending.is_set,
+            )
         finally:
             self._emit("idle", op="waveform")
         if not wav_bytes:
+            # Cancelled or failed — re-insert so it's retried later
+            if slot not in self._waveform_precalc_slots:
+                self._waveform_precalc_slots.append(slot)
             return
 
         width = 320
@@ -703,7 +718,7 @@ class DeviceWorker(threading.Thread):
             try:
                 bins = future.result()
             except Exception as exc:
-                self._emit("trace", line=f"waveform render failed for slot {slot:03d}: {exc}", trace={})
+                self._emit("log", message=f"waveform render failed for slot {slot:03d}: {exc}")
                 continue
             if bins:
                 self._emit("waveform", slot=int(slot), bins=bins, fp=fp)
@@ -719,10 +734,10 @@ class DeviceWorker(threading.Thread):
     def _trace_hook(self, direction: str, raw: bytes) -> None:
         if not self._debug_logger:
             return
-        event = self._debug_logger.record(direction, raw)
-        if event is None:
-            return
-        self._emit("trace", line=event.ui_line(), trace=asdict(event))
+        # Record to JSONL file only — don't flood the UI event queue.
+        # The log pane shows high-level operations (success/error/progress),
+        # not individual SysEx messages.
+        self._debug_logger.record(direction, raw)
 
     def _emit_success(self, message: str, *, started_at: float) -> None:
         elapsed = max(0.0, time.perf_counter() - float(started_at))

@@ -41,7 +41,7 @@ class FakeClient:
             is_empty=False,
         )
 
-    def get(self, slot, output_path: Path):
+    def get(self, slot, output_path: Path, **kwargs):
         self.calls.append(("get", slot, str(output_path)))
         Path(output_path).write_bytes(b"RIFF....")
         return Path(output_path)
@@ -295,7 +295,7 @@ def test_worker_move_swap_is_destination_first():
 
 def test_worker_waveform_emits_preview(tmp_path):
     class WaveClient(FakeClient):
-        def get(self, slot, output_path: Path):
+        def get(self, slot, output_path: Path, **kwargs):
             self.calls.append(("get", slot, str(output_path)))
             with wave.open(str(output_path), "wb") as wf:
                 wf.setnchannels(1)
@@ -337,7 +337,7 @@ def test_waveform_precalc_background_single_mode(monkeypatch):
     monkeypatch.setenv("KO2_TUI_WAVEFORM_PRECALC_MODE", "single")
 
     class BgClient(FakeClient):
-        def get(self, slot, output_path: Path):
+        def get(self, slot, output_path: Path, **kwargs):
             self.calls.append(("get", slot, str(output_path)))
             with wave.open(str(output_path), "wb") as wf:
                 wf.setnchannels(1)
@@ -371,7 +371,7 @@ def test_waveform_precalc_background_threaded_mode(monkeypatch):
     monkeypatch.setenv("KO2_TUI_WAVEFORM_PRECALC_MODE", "threaded")
 
     class BgClient(FakeClient):
-        def get(self, slot, output_path: Path):
+        def get(self, slot, output_path: Path, **kwargs):
             self.calls.append(("get", slot, str(output_path)))
             with wave.open(str(output_path), "wb") as wf:
                 wf.setnchannels(1)
@@ -405,6 +405,94 @@ def test_waveform_precalc_background_threaded_mode(monkeypatch):
     assert wave_events
     assert wave_events[-1].payload["slot"] == 1
     assert "bins" in wave_events[-1].payload
+
+
+def test_precalc_cancelled_on_user_request(monkeypatch):
+    """When a user request arrives during precalc download, the download is cancelled."""
+
+    cancel_checks = []
+
+    class SlowClient(FakeClient):
+        def get(self, slot, output_path: Path, **kwargs):
+            # Record whether cancel_check was passed
+            cancel_checks.append(kwargs.get("cancel_check"))
+            self.calls.append(("get", slot, str(output_path)))
+            with wave.open(str(output_path), "wb") as wf:
+                wf.setnchannels(1)
+                wf.setsampwidth(2)
+                wf.setframerate(46875)
+                wf.writeframes(struct.pack("<h", 0) * 100)
+            return Path(output_path)
+
+    req_q: Queue = Queue()
+    evt_q: Queue = Queue()
+    fake = SlowClient()
+    worker = DeviceWorker(
+        device_name="EP-133",
+        request_queue=req_q,
+        event_queue=evt_q,
+        client_factory=lambda *args, **kwargs: fake,
+    )
+    worker._waveform_precalc_slots = [1]
+    monkeypatch.setattr(worker, "_load_ratio", lambda: 0.0)
+
+    # Precalc should pass cancel_check to client.get
+    worker._maybe_run_waveform_precalc_step()
+    assert len(cancel_checks) == 1
+    assert cancel_checks[0] is not None, "cancel_check must be passed to client.get during precalc"
+
+    # Verify the cancel_check returns True when user_request_pending is set
+    worker._user_request_pending.set()
+    assert cancel_checks[0]() is True
+
+    # And False when cleared
+    worker._user_request_pending.clear()
+    assert cancel_checks[0]() is False
+
+
+def test_precalc_skipped_when_user_request_pending(monkeypatch):
+    """Precalc step is skipped entirely when a user request is pending."""
+    download_calls = []
+
+    class _Client(FakeClient):
+        def get(self, slot, output_path: Path, **kwargs):
+            download_calls.append(slot)
+            Path(output_path).write_bytes(b"RIFF....")
+            return Path(output_path)
+
+    req_q: Queue = Queue()
+    evt_q: Queue = Queue()
+    worker = DeviceWorker(
+        device_name="EP-133",
+        request_queue=req_q,
+        event_queue=evt_q,
+        client_factory=lambda *args, **kwargs: _Client(),
+    )
+    worker._waveform_precalc_slots = [1, 2, 3]
+    monkeypatch.setattr(worker, "_load_ratio", lambda: 0.0)
+
+    # Signal a user request is pending
+    worker._user_request_pending.set()
+    worker._maybe_run_waveform_precalc_step()
+    assert download_calls == [], "precalc must not start when user request is pending"
+    assert worker._waveform_precalc_slots == [1, 2, 3], "precalc list must not be consumed"
+
+
+def test_schedule_precalc_skips_cached_slots():
+    """_schedule_waveform_precalc skips slots that the cache checker reports as cached."""
+    req_q: Queue = Queue()
+    evt_q: Queue = Queue()
+    cached = {1, 3, 5}
+    worker = DeviceWorker(
+        device_name="EP-133",
+        request_queue=req_q,
+        event_queue=evt_q,
+        client_factory=lambda *args, **kwargs: FakeClient(),
+        waveform_cache_checker=lambda slot: slot in cached,
+    )
+    sounds = {s: {"size": s * 100} for s in [1, 2, 3, 4, 5]}
+    worker._schedule_waveform_precalc(sounds)
+    assert worker._waveform_precalc_slots == [2, 4], "cached slots must be excluded from precalc"
 
 
 def test_worker_optimize_all_skips_mono_slots(monkeypatch, tmp_path):

@@ -1013,7 +1013,7 @@ def test_precalc_cache_hit_skips_midi_download():
         def _ensure_client(self):
             return _FakeClient()
 
-        def _download_slot_wav_bytes(self, client, *, slot, phases):
+        def _download_slot_wav_bytes(self, client, *, slot, phases, cancel_check=None):
             download_calls.append(slot)
             return None
 

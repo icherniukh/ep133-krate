@@ -21,6 +21,37 @@ from .models import MAX_SAMPLE_RATE
 ProgressCallback = Optional[Callable[[int, int, str], None]]
 
 
+def prepare_for_upload(input_path: Path, tmp_dir: Path | None = None) -> Path:
+    """Ensure a WAV file is in EP-133 compatible format (16-bit, ≤46875 Hz).
+
+    If the file is already compatible, returns input_path unchanged.
+    Otherwise, converts via sox and returns the path to the converted file.
+    Stereo is preserved (the device supports it).
+    """
+    with wave.open(str(input_path), "rb") as w:
+        channels = w.getnchannels()
+        rate = w.getframerate()
+        depth = w.getsampwidth() * 8
+
+    needs_requantize = depth != 16
+    needs_resample = rate > MAX_SAMPLE_RATE
+
+    if not needs_requantize and not needs_resample:
+        return input_path
+
+    if tmp_dir is None:
+        tmp_dir = input_path.parent
+    out_path = tmp_dir / f"{input_path.stem}_converted.wav"
+
+    sox_args = ["sox", "-G", str(input_path), "-b", "16", str(out_path)]
+    if needs_resample:
+        sox_args += ["rate", "-v", str(MAX_SAMPLE_RATE)]
+    sox_args += ["dither"]
+
+    subprocess.run(sox_args, capture_output=True, check=True, timeout=30)
+    return out_path
+
+
 def optimize_sample(
     input_path: Path, output_path: Optional[Path] = None,
     downsample_rate: Optional[int] = None, speed: Optional[float] = None,
@@ -55,19 +86,19 @@ def optimize_sample(
     if not needs_downmix and not needs_resample and not needs_requantize and not needs_speed:
         return True, "already optimal", original_size, original_size
 
-    # Use sox for conversion
-    sox_args = ["sox", str(input_path)]
+    sox_args = ["sox", "-G", str(input_path)]
     if needs_downmix:
         sox_args += ["-c", "1"]
-    if needs_resample:
-        sox_args += ["-r", str(target_rate)]
     if needs_requantize:
         sox_args += ["-b", "16"]
-
     sox_args.append(str(output_path))
-
+    # Effects chain: channel mix → resample (VHQ) → speed → dither (must be last)
+    if needs_resample:
+        sox_args += ["rate", "-v", str(target_rate)]
     if needs_speed:
         sox_args += ["speed", str(speed)]
+    if needs_requantize:
+        sox_args += ["dither"]
 
     try:
         subprocess.run(sox_args, capture_output=True, check=True, timeout=30)

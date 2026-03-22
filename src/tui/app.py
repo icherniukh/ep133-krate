@@ -525,6 +525,12 @@ class TUIApp(App[None]):
                 self._log(f"  phases: {phase_str}")
             return
 
+        if kind == "log":
+            message = str(payload.get("message", ""))
+            if message:
+                self._log(message)
+            return
+
         if kind == "trace" and self.debug_enabled:
             trace = cast(dict, payload.get("trace", {}))
             message = self._format_trace_message(trace)
@@ -1094,14 +1100,23 @@ class TUIApp(App[None]):
             self._queue_request(actions.bulk_delete(slots))
 
     def action_squash(self) -> None:
+        selected = sorted(self.state.selected_slots)
+        if selected:
+            start, end = selected[0], selected[-1]
+            msg = f"Squash gaps in slots {start}–{end}?"
+        else:
+            start, end = 1, 999
+            msg = "Squash all gaps? (Move samples to fill empty slots)"
+        self._squash_range = (start, end)
         self.push_screen(
-            ConfirmModal("Squash all gaps? (Move samples to fill empty slots)"),
+            ConfirmModal(msg),
             callback=self._on_squash_confirm,
         )
 
     def _on_squash_confirm(self, confirmed: bool) -> None:
         if confirmed:
-            self._queue_request(actions.squash())
+            start, end = getattr(self, "_squash_range", (1, 999))
+            self._queue_request(actions.squash(start=start, end=end))
 
     def action_optimize(self) -> None:
         if self.state.selected_slots:

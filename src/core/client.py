@@ -59,6 +59,11 @@ class SlotEmptyError(EP133Error):
     pass
 
 
+class DownloadCancelledError(EP133Error):
+    """Download was cancelled by caller."""
+    pass
+
+
 from .audio import detect_channels
 
 
@@ -162,50 +167,58 @@ class EP133Client:
         return seq
 
     def _initialize(self):
-        """Send device initialization sequence."""
+        """Send device initialization sequence.
+
+        Response-driven: each step waits for its specific response rather than
+        sleeping a fixed duration.  Returns as soon as the device answers
+        (typically <15 ms total), with a generous upper-bound timeout.
+        """
         self._device_info = None
-        
+
         self._drain_pending()
-        
-        # 1. Identity Request
+
+        # 1. Identity Request → wait for Identity Response (Universal MIDI, F0 7E … F7)
         msg1 = bytes([SYSEX_START, 0x7E, 0x7F, 0x06, 0x01, SYSEX_END])
         self._emit_trace("TX", msg1)
         self._outport.send(mido.Message("sysex", data=msg1[1:-1]))
-        # Read the Identity Response so it doesn't block the next command
-        self._recv_sysex(timeout=0.2)
-        
-        # 2. INIT 1 (Triggers product info response)
+        self._recv_next_sysex(timeout=2.0)  # consume identity response
+
+        # 2. INIT 1 → wait for TE response with cmd 0x21
         msg2 = bytes([SYSEX_START, *TE_MFG_ID, *DEVICE_FAMILY, SysExCmd.INIT, 0x17, 0x01, SYSEX_END])
         self._emit_trace("TX", msg2)
         self._outport.send(mido.Message("sysex", data=msg2[1:-1]))
-        
-        responses = self._recv_sysex(timeout=0.6)
-        for resp in responses:
-            if len(resp) > 8 and resp[6] == 0x21:
-                chars = []
-                for byte in resp[9:-1]:
-                    if 32 <= byte <= 126:
-                        chars.append(chr(byte))
-                text = "".join(chars)
-                info = {}
-                for pair in text.split(";"):
-                    if ":" in pair:
-                        k, v = pair.split(":", 1)
-                        info[k.strip()] = v.strip()
-                if info and "product" in info:
-                    self._device_info = {
-                        "device_name": info.get("product"),
-                        "device_version": info.get("sw_version") or info.get("os_version"),
-                        "device_sku": info.get("sku"),
-                        "serial": info.get("serial"),
-                        "raw_info": info
-                    }
-                    
-        # 3. INIT 2
+        resp = self._recv_matching(timeout=2.0, expect_cmd=0x21)
+        if resp and len(resp) > 8 and resp[6] == 0x21:
+            self._device_info = self._parse_init_response(resp)
+
+        # 3. INIT 2 → wait for TE response with cmd 0x21
         msg3 = bytes([SYSEX_START, *TE_MFG_ID, *DEVICE_FAMILY, SysExCmd.INIT, 0x18, 0x05, 0x00, 0x01, 0x01, 0x00, 0x40, 0x00, 0x00, SYSEX_END])
         self._emit_trace("TX", msg3)
         self._outport.send(mido.Message("sysex", data=msg3[1:-1]))
-        self._recv_sysex(timeout=0.2)
+        self._recv_matching(timeout=2.0, expect_cmd=0x21)
+
+    @staticmethod
+    def _parse_init_response(resp: bytes) -> dict | None:
+        """Extract product info from INIT 1 response."""
+        chars = []
+        for byte in resp[9:-1]:
+            if 32 <= byte <= 126:
+                chars.append(chr(byte))
+        text = "".join(chars)
+        info = {}
+        for pair in text.split(";"):
+            if ":" in pair:
+                k, v = pair.split(":", 1)
+                info[k.strip()] = v.strip()
+        if info and "product" in info:
+            return {
+                "device_name": info.get("product"),
+                "device_version": info.get("sw_version") or info.get("os_version"),
+                "device_sku": info.get("sku"),
+                "serial": info.get("serial"),
+                "raw_info": info,
+            }
+        return None
 
     def _emit_trace(self, direction: str, data: bytes) -> None:
         trace_hook = getattr(self, "_trace_hook", None)
@@ -506,13 +519,18 @@ class EP133Client:
 
     def put(self, input_path: Path, slot: int, name: Optional[str] = None, progress: bool = True, pitch: float = 0) -> None:
         import wave
-        with wave.open(str(input_path), "rb") as wav:
-            frames, rate, channels = wav.getnframes(), wav.getframerate(), wav.getnchannels()
-        def _cb(curr, total):
-            if progress: print(f"\r  Uploading... {curr/total*100:.1f}%", end="", flush=True)
-        meta = self.build_upload_metadata(channels, rate, frames, pitch)
-        tx = UploadTransaction(self, input_path, slot, name, meta, _cb)
-        tx.execute()
+        import tempfile
+        from .ops import prepare_for_upload
+
+        with tempfile.TemporaryDirectory() as td:
+            upload_path = prepare_for_upload(input_path, tmp_dir=Path(td))
+            with wave.open(str(upload_path), "rb") as wav:
+                frames, rate, channels = wav.getnframes(), wav.getframerate(), wav.getnchannels()
+            def _cb(curr, total):
+                if progress: print(f"\r  Uploading... {curr/total*100:.1f}%", end="", flush=True)
+            meta = self.build_upload_metadata(channels, rate, frames, pitch)
+            tx = UploadTransaction(self, upload_path, slot, name or input_path.stem, meta, _cb)
+            tx.execute()
         if progress: print(" done")
         self._initialize()
 
@@ -577,7 +595,13 @@ class EP133Client:
         node_id = int(entry.get("node_id") or slot)
         self.set_node_metadata(node_id, {"name": new_name})
 
-    def get(self, slot: int, output_path: Optional[Path] = None, debug: bool = False) -> Path:
+    def get(
+        self,
+        slot: int,
+        output_path: Optional[Path] = None,
+        debug: bool = False,
+        cancel_check: Optional[Callable[[], bool]] = None,
+    ) -> Path:
         from core.models import MAX_SAMPLE_RATE
         info = self.info(slot)
         if info.is_empty or info.size_bytes == 0:
@@ -588,7 +612,7 @@ class EP133Client:
             output_path = Path(f"{name}_{slot:03d}.wav")
 
         try:
-            data = self._download_data(slot, debug=debug)
+            data = self._download_data(slot, debug=debug, cancel_check=cancel_check)
 
             # Metadata channels is unreliable for samples not uploaded by this tool
             # (e.g. official TE app, on-device recordings have no JSON metadata).
@@ -615,7 +639,12 @@ class EP133Client:
 
         return output_path
 
-    def _download_data(self, slot: int, debug: bool = False) -> bytes:
+    def _download_data(
+        self,
+        slot: int,
+        debug: bool = False,
+        cancel_check: Optional[Callable[[], bool]] = None,
+    ) -> bytes:
         seq = 0x2E
         init_resp = self._send_file_request(
             DownloadInitRequest(slot=slot),
@@ -639,7 +668,8 @@ class EP133Client:
         received = 0
 
         while received < file_info["size"]:
-            self._drain_pending()
+            if cancel_check is not None and cancel_check():
+                raise DownloadCancelledError(f"Download of slot {slot} cancelled")
             seq = (seq + 1) & 0x7F
             self._send_msg(DownloadChunkRequest(page=page), seq=seq)
             chunk = self._recv_download_chunk(page=page, timeout=2.5, debug=debug)
