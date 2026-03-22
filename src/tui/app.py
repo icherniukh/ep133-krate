@@ -150,6 +150,7 @@ class TUIApp(App[None]):
         self._dialog_logger: DialogLogger | None = None
         self._col_keys: list = []
         self.moving_src: int | None = None
+        self.copying_src: int | None = None
         self._device_online: bool | None = None  # None=unknown, True=online, False=error
         self._waveform_by_slot: dict[int, dict[str, Any]] = {}
         self._waveform_pending: set[int] = set()
@@ -250,6 +251,12 @@ class TUIApp(App[None]):
                 v = copy(self.state.slots[self.moving_src])
                 v.slot = dst
                 return v
+        if self.copying_src is not None:
+            dst = self.state.selected_slot
+            if slot == dst and dst != self.copying_src:
+                v = copy(self.state.slots[self.copying_src])
+                v.slot = dst
+                return v
         return row
 
     def _refresh_table(self) -> None:
@@ -297,11 +304,15 @@ class TUIApp(App[None]):
     def on_data_table_row_highlighted(self, event: DataTable.RowHighlighted) -> None:
         old_slot = self.state.selected_slot
         self.state.selected_slot = event.cursor_row + 1
-        
+
         if self.moving_src is not None:
             # Re-render old and new position to reflect visual swap
             self._update_table_rows([self.moving_src, old_slot, self.state.selected_slot])
             self._update_status("Move mode (Esc to cancel, Enter to drop)")
+
+        if self.copying_src is not None:
+            self._update_table_rows([self.copying_src, old_slot, self.state.selected_slot])
+            self._update_status("Copy mode (Esc to cancel, Enter to paste)")
 
         self._update_details(self.state.selected_slot)
         self._update_waveform(self.state.selected_slot)
@@ -551,10 +562,18 @@ class TUIApp(App[None]):
                 Binding("enter", "view_details", "Drop / Swap"),
                 Binding("escape", "cancel_move", "Cancel Move"),
             ]
+        if self.copying_src is not None:
+            return [
+                Binding("enter", "view_details", "Paste"),
+                Binding("escape", "cancel_copy", "Cancel Copy"),
+            ]
         return super().get_bindings()
 
     def action_cancel(self) -> None:
-        self.action_cancel_move()
+        if self.copying_src is not None:
+            self.action_cancel_copy()
+        else:
+            self.action_cancel_move()
 
     def _update_details(self, slot: int) -> None:
         slot = max(1, min(slot, len(self.state.slots)))
@@ -564,7 +583,7 @@ class TUIApp(App[None]):
         self.query_one("#details", DetailsWidget).set_slot(slot, row, details)
 
     def _update_status(self, state_text: str) -> None:
-        is_active = self.state.busy or self.moving_src is not None
+        is_active = self.state.busy or self.moving_src is not None or self.copying_src is not None
 
         if self.state.busy:
             circle = "🟡"
@@ -838,6 +857,18 @@ class TUIApp(App[None]):
                 self._update_status(self.state.status)
             return
 
+        if self.copying_src is not None:
+            src = self.copying_src
+            dst = self.state.selected_slot
+            self.copying_src = None
+            self._refresh_table()
+            self.refresh_bindings()
+            if src != dst and not self.state.slots[dst].exists:
+                self._queue_request(actions.copy(src, dst))
+            else:
+                self._update_status(self.state.status)
+            return
+
         slot = self._current_slot()
         if slot in self.state.details_by_slot:
             self._update_details(slot)
@@ -891,6 +922,9 @@ class TUIApp(App[None]):
         table = self.query_one("#slots", DataTable)
         if table.row_count <= 0:
             return
+        if self.copying_src is not None:
+            self._copy_cursor_move(1)
+            return
         if table.cursor_row >= table.row_count - 1:
             table.move_cursor(row=0, animate=False)
             return
@@ -900,10 +934,25 @@ class TUIApp(App[None]):
         table = self.query_one("#slots", DataTable)
         if table.row_count <= 0:
             return
+        if self.copying_src is not None:
+            self._copy_cursor_move(-1)
+            return
         if table.cursor_row <= 0:
             table.move_cursor(row=table.row_count - 1, animate=False)
             return
         table.action_cursor_up()
+
+    def _copy_cursor_move(self, direction: int) -> None:
+        """Move cursor to next empty slot in the given direction (1=down, -1=up)."""
+        table = self.query_one("#slots", DataTable)
+        max_slot = len(self.state.slots)
+        current = table.cursor_row + 1  # 1-based slot
+        s = current + direction
+        while 1 <= s <= max_slot:
+            if not self.state.slots[s].exists:
+                table.move_cursor(row=s - 1, animate=False)
+                return
+            s += direction
 
     def action_page_down(self) -> None:
         table = self.query_one("#slots", DataTable)
@@ -1031,24 +1080,35 @@ class TUIApp(App[None]):
         if not self.state.slots[slot].exists:
             self._log(f"Slot {slot:03d} is empty")
             return
-        self.push_screen(
-            TextInputModal(
-                title=f"Copy slot {slot:03d} to...",
-                placeholder="Destination slot (1-999)",
-            ),
-            callback=lambda dst: self._on_copy_modal(slot, dst),
-        )
+        self.copying_src = slot
+        # Jump to nearest empty slot
+        self._jump_to_empty_slot(slot)
+        self._refresh_table()
+        self.refresh_bindings()
+        self._update_status("Copy mode (Esc to cancel, Enter to paste)")
 
-    def _on_copy_modal(self, src: int, dst_str: str | None) -> None:
-        if dst_str:
-            try:
-                dst = int(dst_str.strip())
-                if 1 <= dst <= 999:
-                    self._queue_request(actions.copy(src, dst))
-                else:
-                    self._log("Destination slot must be between 1 and 999")
-            except ValueError:
-                self._log("Invalid destination slot")
+    def action_cancel_copy(self) -> None:
+        if self.copying_src is not None:
+            self.copying_src = None
+            self._refresh_table()
+            self.refresh_bindings()
+            self._update_status(self.state.status)
+
+    def _jump_to_empty_slot(self, from_slot: int) -> None:
+        """Move cursor to the nearest empty slot, searching forward then backward."""
+        table = self.query_one("#slots", DataTable)
+        max_slot = len(self.state.slots)
+        # Search forward first
+        for s in range(from_slot + 1, max_slot + 1):
+            if not self.state.slots[s].exists:
+                table.move_cursor(row=s - 1, animate=False)
+                return
+        # Then backward
+        for s in range(from_slot - 1, 0, -1):
+            if not self.state.slots[s].exists:
+                table.move_cursor(row=s - 1, animate=False)
+                return
+        self._log("No empty slots available")
 
     def action_rename(self) -> None:
         slot = self._current_slot()

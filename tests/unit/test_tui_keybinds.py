@@ -384,10 +384,10 @@ def test_s_key_squash_cancel_skips_request(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# c key → copy TextInputModal (occupied slot)
+# c key → copy mode (occupied slot, cursor jumps to empty)
 # ---------------------------------------------------------------------------
 
-def test_c_key_opens_copy_modal(monkeypatch):
+def test_c_key_enters_copy_mode(monkeypatch):
     monkeypatch.setattr("tui.app.DeviceWorker", StubWorker)
 
     async def _run():
@@ -396,7 +396,7 @@ def test_c_key_opens_copy_modal(monkeypatch):
             _make_ready(app)
             await pilot.press("c")
             await pilot.pause()
-            assert isinstance(app.screen, TextInputModal)
+            assert app.copying_src == 1
 
     asyncio.run(_run())
 
@@ -410,9 +410,13 @@ def test_c_key_copy_confirm_submits_request(monkeypatch):
             _make_ready(app)
             await pilot.press("c")
             await pilot.pause()
-            app.screen.dismiss("50")
+            # Navigate to an empty slot so selected_slot != copying_src
+            await pilot.press("down")
+            await pilot.pause()
+            await pilot.press("enter")
             await pilot.pause()
             assert "copy" in _request_ops(app)
+            assert app.copying_src is None
 
     asyncio.run(_run())
 
@@ -427,9 +431,10 @@ def test_c_key_copy_cancel_skips_request(monkeypatch):
             before = list(_request_ops(app))
             await pilot.press("c")
             await pilot.pause()
-            app.screen.dismiss(None)
+            await pilot.press("escape")
             await pilot.pause()
             assert _request_ops(app) == before
+            assert app.copying_src is None
 
     asyncio.run(_run())
 
