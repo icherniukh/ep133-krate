@@ -585,8 +585,13 @@ class TUIApp(App[None]):
     def action_cancel(self) -> None:
         if self.copying_src is not None:
             self.action_cancel_copy()
-        else:
+        elif self.moving_src is not None:
             self.action_cancel_move()
+        elif self.state.selected_slots:
+            prev = set(self.state.selected_slots)
+            self.state.selected_slots.clear()
+            self._update_selection_display(prev)
+            self._update_status(self.state.status)
 
     def _update_details(self, slot: int) -> None:
         slot = max(1, min(slot, len(self.state.slots)))

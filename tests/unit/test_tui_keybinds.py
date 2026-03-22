@@ -925,3 +925,24 @@ def test_navigation_works_while_busy(monkeypatch):
             assert app.state.selected_slot != slot_before, "Navigation should work while busy"
 
     asyncio.run(_run())
+
+
+def test_escape_clears_selection(monkeypatch):
+    """Escape with selected slots should clear the selection."""
+    monkeypatch.setattr("tui.app.DeviceWorker", StubWorker)
+
+    async def _run():
+        app = TUIApp(device_name="EP-133", debug=False)
+        async with app.run_test() as pilot:
+            _make_ready(app)
+            # Select slot 1
+            await pilot.press("space")
+            await pilot.pause()
+            assert len(app.state.selected_slots) == 1
+
+            # Escape clears
+            await pilot.press("escape")
+            await pilot.pause()
+            assert len(app.state.selected_slots) == 0
+
+    asyncio.run(_run())
