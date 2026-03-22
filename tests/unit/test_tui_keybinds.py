@@ -439,6 +439,58 @@ def test_c_key_copy_cancel_skips_request(monkeypatch):
     asyncio.run(_run())
 
 
+def test_copy_mode_cursor_skips_occupied_slots(monkeypatch):
+    """In copy mode, up/down should skip occupied slots."""
+    monkeypatch.setattr("tui.app.DeviceWorker", StubWorker)
+
+    async def _run():
+        app = TUIApp(device_name="EP-133", debug=False)
+        async with app.run_test() as pilot:
+            # Set up slots 1-3 occupied, 4 empty
+            app._handle_event(WorkerEvent(kind="idle", payload={"op": "refresh_inventory"}))
+            app._handle_event(WorkerEvent(kind="inventory", payload={"sounds": {
+                1: {"name": "001.pcm", "size": 1000, "node_id": 1},
+                2: {"name": "002.pcm", "size": 1000, "node_id": 2},
+                3: {"name": "003.pcm", "size": 1000, "node_id": 3},
+            }}))
+            await pilot.pause()
+
+            await pilot.press("c")
+            await pilot.pause()
+            assert app.copying_src == 1
+
+            # First down from wherever the cursor landed should reach an empty slot
+            await pilot.press("down")
+            await pilot.pause()
+            landed = app.state.selected_slot
+            assert not app.state.slots[landed].exists, f"Slot {landed} should be empty"
+
+    asyncio.run(_run())
+
+
+def test_copy_mode_shows_preview_at_destination(monkeypatch):
+    """Visual row at destination should show the source sample name."""
+    monkeypatch.setattr("tui.app.DeviceWorker", StubWorker)
+
+    async def _run():
+        app = TUIApp(device_name="EP-133", debug=False)
+        async with app.run_test() as pilot:
+            _make_ready(app)
+            await pilot.press("c")
+            await pilot.pause()
+            # Navigate to empty slot
+            await pilot.press("down")
+            await pilot.pause()
+            dst = app.state.selected_slot
+            assert dst != 1
+            # Visual row at destination should show source sample
+            visual = app._get_visual_row(dst)
+            assert visual.exists
+            assert visual.name == "001.pcm"
+
+    asyncio.run(_run())
+
+
 # ---------------------------------------------------------------------------
 # r key → rename TextInputModal
 # ---------------------------------------------------------------------------
