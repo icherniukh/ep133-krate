@@ -134,8 +134,8 @@ Notable discoveries from the capture analysis:
 
 MIDI SysEx is a 7-bit-clean channel — any byte with the high bit set ends the
 message. Binary data (PCM audio, JSON metadata) must be re-encoded before
-transmission. `Packed7` does this: every 8 bytes of input become 9 bytes of
-output, high bits packed into a leading byte. Implemented in
+transmission. `Packed7` does this: every 7 bytes of input become 8 bytes of
+output — a leading byte carries the MSBs, followed by the 7 data bytes masked to 7 bits. Implemented in
 `src/core/types.py`, round-trip verified in the test suite.
 
 ### Descriptor DSL for protocol messages

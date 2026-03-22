@@ -655,10 +655,11 @@ class TUIApp(App[None]):
             "move": "move",
             "rename": "rename",
             "delete": "delete",
-            "bulk_delete": "bulk delete",
+            "bulk_delete": "delete",
+            "batch_upload": "upload",
             "squash": "squash",
             "optimize": "optimize",
-            "optimize_all": "optimize all",
+            "optimize_all": "optimize",
             "stop": "stop",
         }
         return labels.get(key, op)
