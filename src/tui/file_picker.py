@@ -1,4 +1,4 @@
-"""File picker for batch upload.
+"""File picker for upload.
 
 Primary: yazi --chooser-file (suspend TUI, launch yazi, read results).
 Fallback: DirectoryTreePickerModal (built-in Textual DirectoryTree, Space to
@@ -11,6 +11,7 @@ import subprocess
 import tempfile
 from pathlib import Path
 
+from rich.text import Text
 from textual import on
 from textual.app import ComposeResult
 from textual.binding import Binding
@@ -26,8 +27,20 @@ def _is_yazi_available() -> bool:
 class _WavTree(DirectoryTree):
     """DirectoryTree that shows only directories and .wav files."""
 
+    def __init__(self, *args, selected: set[Path] | None = None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._selected: set[Path] = selected or set()
+
     def filter_paths(self, paths):
         return [p for p in paths if p.is_dir() or p.suffix.lower() == ".wav"]
+
+    def render_label(self, node, base_style, style):
+        label = super().render_label(node, base_style, style)
+        if node.data and not node.data.path.is_dir():
+            path = Path(str(node.data.path))
+            if path in self._selected:
+                return Text.assemble("● ", label)
+        return label
 
 
 class DirectoryTreePickerModal(ModalScreen[list[Path] | None]):
@@ -45,19 +58,35 @@ class DirectoryTreePickerModal(ModalScreen[list[Path] | None]):
     ]
 
     DEFAULT_CSS = """
+    DirectoryTreePickerModal {
+        align: center middle;
+    }
     DirectoryTreePickerModal > Vertical {
-        width: 80;
-        height: 40;
+        width: 90%;
+        max-width: 120;
+        height: 85%;
+        max-height: 50;
         padding: 1 2;
         border: round $accent;
         background: $panel;
     }
+    DirectoryTreePickerModal #modal_title {
+        height: 1;
+        text-style: bold;
+        color: $text;
+    }
     DirectoryTreePickerModal #tree {
         height: 1fr;
+        border: tall $background;
     }
     DirectoryTreePickerModal #selection_count {
         height: 1;
-        color: $text-muted;
+        color: $accent;
+    }
+    DirectoryTreePickerModal #modal_actions {
+        height: auto;
+        margin-top: 1;
+        align: right middle;
     }
     """
 
@@ -73,10 +102,15 @@ class DirectoryTreePickerModal(ModalScreen[list[Path] | None]):
                 id="modal_title",
             )
             yield Label("0 files selected", id="selection_count")
-            yield _WavTree(str(self._start_dir), id="tree")
+            yield _WavTree(str(self._start_dir), id="tree", selected=self._selected)
             with Horizontal(id="modal_actions"):
                 yield Button("Cancel", id="cancel")
                 yield Button("Upload Selected", id="ok", variant="primary")
+
+    def on_mount(self) -> None:
+        container = self.query_one("Vertical")
+        container.styles.opacity = 0
+        container.animate("opacity", 1.0, duration=0.15, easing="out_cubic")
 
     def action_cancel(self) -> None:
         self.dismiss(None)
@@ -94,6 +128,7 @@ class DirectoryTreePickerModal(ModalScreen[list[Path] | None]):
         else:
             self._selected.add(path)
         self._update_count()
+        tree.refresh()
 
     def _update_count(self) -> None:
         n = len(self._selected)
