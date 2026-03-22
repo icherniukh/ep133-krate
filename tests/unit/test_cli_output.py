@@ -145,6 +145,7 @@ def test_cmd_put_success(monkeypatch, tmp_path):
 
 
 def test_cmd_put_missing_file(monkeypatch, tmp_path):
+    client = FakeClient(sounds={})
     monkeypatch.setattr(cli.cmd_slots, "EP133Client", lambda *a, **k: client)
     monkeypatch.setattr(cli.cmd_transfer, "EP133Client", lambda *a, **k: client)
     monkeypatch.setattr(cli.cmd_audio, "EP133Client", lambda *a, **k: client)
