@@ -109,24 +109,33 @@ def _build_event(direction: str, raw: bytes) -> TraceEvent:
         if len(body) > 7 and body[7:8] == b"\x05":
             finfo = {}
             decoded_payload = b""
-            payload_candidates = []
-            if direction == "RX" and len(body) > 9:
-                status = body[8]
-                payload_candidates.append(body[9:])
-            if len(body) > 8:
-                payload_candidates.append(body[8:])
 
-            for candidate in payload_candidates:
-                try:
-                    decoded = Packed7.unpack(candidate)
-                    maybe = _decode_fileop(decoded)
-                except Exception:
-                    continue
-                if not decoded_payload:
-                    decoded_payload = decoded
-                if maybe.get("fileop") in {0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x0B}:
-                    finfo = maybe
-                    break
+            # Download data responses (cmd 0x3D) contain packed7-encoded
+            # PCM audio.  Trying to decode them as file operations produces
+            # false matches (random PCM bytes look like PUT_INIT, DELETE,
+            # etc.).  Detect these early and skip fileop decoding.
+            is_download_data_rx = (direction == "RX" and cmd == 0x3D)
+
+            if not is_download_data_rx:
+                payload_candidates = []
+                if direction == "RX" and len(body) > 9:
+                    status = body[8]
+                    payload_candidates.append(body[9:])
+                if len(body) > 8:
+                    payload_candidates.append(body[8:])
+
+                for candidate in payload_candidates:
+                    try:
+                        decoded = Packed7.unpack(candidate)
+                        maybe = _decode_fileop(decoded)
+                    except Exception:
+                        continue
+                    if not decoded_payload:
+                        decoded_payload = decoded
+                    if maybe.get("fileop") in {0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x0B}:
+                        finfo = maybe
+                        break
+
             op = finfo.get("op")
             fileop = finfo.get("fileop")
             subop = finfo.get("subop")
@@ -134,9 +143,22 @@ def _build_event(direction: str, raw: bytes) -> TraceEvent:
             node = finfo.get("node")
             name = finfo.get("name")
             if op is None and direction == "RX":
-                if cmd == 0x3D and decoded_payload:
-                    op = "GET_INIT_RSP"
-                    name = _extract_name_from_payload(decoded_payload)
+                if is_download_data_rx:
+                    if len(body) > 9:
+                        status = body[8]
+                    # First RX on 0x3D is GET_INIT_RSP; subsequent ones
+                    # are GET_DATA chunks.  Distinguish by checking if
+                    # the decoded payload contains a filename.
+                    try:
+                        decoded_payload = Packed7.unpack(body[9:]) if len(body) > 9 else b""
+                    except Exception:
+                        decoded_payload = b""
+                    fname = _extract_name_from_payload(decoded_payload)
+                    if fname:
+                        op = "GET_INIT_RSP"
+                        name = fname
+                    else:
+                        op = "GET_DATA"
                 elif cmd == 0x2A:
                     op = "LIST_RSP"
                 elif cmd == 0x37:
