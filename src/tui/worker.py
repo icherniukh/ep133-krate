@@ -166,7 +166,7 @@ class DeviceWorker(threading.Thread):
                     if not input_path.exists():
                         self._emit("log", message=f"Skipped {input_path.name}: file not found")
                         continue
-                    self._emit_progress(req.op, idx, n, f"Uploading [{idx}/{n}] {input_path.name} → slot {slot:03d}")
+                    self._emit_progress(req.op, idx, n, f"Uploading {input_path.name} → slot {slot:03d}")
                     self._timed("device.put", phases, client.put, input_path, slot)
                     self._emit_slot_refresh(client, slot, phases=phases)
                     uploaded += 1
@@ -404,7 +404,7 @@ class DeviceWorker(threading.Thread):
         for idx, info in enumerate(candidates, 1):
             slot = info.slot
             name = info.name
-            self._emit_progress(req.op, idx, total, f"Optimizing slot {slot:03d} ({idx}/{total})")
+            self._emit_progress(req.op, idx, total, f"Optimizing slot {slot:03d}")
 
             with tempfile.TemporaryDirectory() as td:
                 temp_path = Path(td) / f"slot{slot:03d}.wav"

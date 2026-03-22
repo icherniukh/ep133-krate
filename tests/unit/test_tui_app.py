@@ -4,7 +4,7 @@ import asyncio
 from pathlib import Path
 from unittest.mock import AsyncMock
 
-from tui.app import TUIApp, _waveform_signature
+from tui.app import TUIApp, _waveform_signature, _render_progress_bar
 from tui.ui import ConfirmModal, HelpModal, OptimizeModal, TextInputModal
 from tui.worker import WorkerEvent
 from textual.widgets import Checkbox, DataTable, Static, TextArea
@@ -791,7 +791,8 @@ def test_progress_event_updates_status(monkeypatch):
             )
             left = app.query_one("#status_left", Static)
             rendered = str(left.render())
-            assert "Optimizing slot 003 (2/5)" in rendered
+            assert "Optimizing slot 003" in rendered
+            assert "40%" in rendered  # 2/5 = 40% progress bar
             status_bar = app.query_one("#status")
             assert status_bar.has_class("active")
 
@@ -1100,5 +1101,64 @@ def test_waveform_event_persists_fingerprint_index(monkeypatch):
             app._handle_event(WorkerEvent(kind="waveform", payload={"slot": 1, "bins": bins, "fp": fp}))
             store = app._waveform_store  # type: ignore[attr-defined]
             assert store._f.get("c" * 64) is not None
+
+    asyncio.run(_run())
+
+
+# ---------------------------------------------------------------------------
+# Progress bar rendering
+# ---------------------------------------------------------------------------
+
+def test_render_progress_bar():
+    assert _render_progress_bar(0, 10) == "[░░░░░░░░░░░░░░░░] 0%"
+    assert _render_progress_bar(5, 10) == "[████████░░░░░░░░] 50%"
+    assert _render_progress_bar(10, 10) == "[████████████████] 100%"
+    assert _render_progress_bar(1, 3) == "[█████░░░░░░░░░░░] 33%"
+
+
+def test_progress_bar_shown_for_multi_step_ops(monkeypatch):
+    monkeypatch.setattr("tui.app.DeviceWorker", StubWorker)
+
+    async def _run():
+        app = TUIApp(device_name="EP-133", debug=False)
+        async with app.run_test() as _pilot:
+            _make_ready(app)
+            # Multi-step: total > 2 → bar shown
+            app._handle_event(WorkerEvent(
+                kind="progress",
+                payload={"op": "bulk_delete", "message": "Deleting slot 005", "current": 3, "total": 8},
+            ))
+            rendered = str(app.query_one("#status_left", Static).render())
+            assert "█" in rendered
+            assert "37%" in rendered  # 3/8
+
+            # Single op: total=2 → no bar
+            app._handle_event(WorkerEvent(
+                kind="progress",
+                payload={"op": "upload", "message": "Uploading to slot 050", "current": 1, "total": 2},
+            ))
+            rendered = str(app.query_one("#status_left", Static).render())
+            assert "█" not in rendered
+
+    asyncio.run(_run())
+
+
+def test_progress_bar_resets_on_idle(monkeypatch):
+    monkeypatch.setattr("tui.app.DeviceWorker", StubWorker)
+
+    async def _run():
+        app = TUIApp(device_name="EP-133", debug=False)
+        async with app.run_test() as _pilot:
+            _make_ready(app)
+            app._handle_event(WorkerEvent(
+                kind="progress",
+                payload={"op": "optimize", "message": "Optimizing", "current": 5, "total": 10},
+            ))
+            assert app._progress_total == 10
+            app._handle_event(WorkerEvent(kind="idle", payload={"op": "optimize"}))
+            assert app._progress_current == 0
+            assert app._progress_total == 0
+            rendered = str(app.query_one("#status_left", Static).render())
+            assert "█" not in rendered
 
     asyncio.run(_run())

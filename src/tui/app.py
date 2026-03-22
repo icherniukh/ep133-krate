@@ -158,6 +158,8 @@ class TUIApp(App[None]):
         self._waveform_precalc_active: bool = False
         self._logs_visible: bool = True
         self._log_lines: list[str] = []
+        self._progress_current: int = 0
+        self._progress_total: int = 0
 
         # Playback cursor animation
         self._play_slot: int | None = None
@@ -392,6 +394,8 @@ class TUIApp(App[None]):
                 self._update_status(self.state.status)
                 return
             self.state.set_busy(False, "IDLE")
+            self._progress_current = 0
+            self._progress_total = 0
             self._update_status("IDLE")
             return
 
@@ -513,7 +517,8 @@ class TUIApp(App[None]):
             current = payload.get("current")
             total = payload.get("total")
             if isinstance(current, int) and isinstance(total, int) and total > 0:
-                msg = f"{msg} ({current}/{total})" if msg else f"Progress {current}/{total}"
+                self._progress_current = current
+                self._progress_total = total
             if msg:
                 self.state.set_busy(True, msg)
                 self._update_status(msg)
@@ -614,7 +619,11 @@ class TUIApp(App[None]):
         if self._debug_logger and self._debug_logger.path:
             debug_suffix = f"  debug={self._debug_logger.path.name}"
 
-        left = f"{state_text}{sel_suffix}{mem_suffix}{logs_suffix}{debug_suffix}{wf_suffix}"
+        progress_bar = ""
+        if self.state.busy and self._progress_total > 2:
+            progress_bar = f"  {_render_progress_bar(self._progress_current, self._progress_total)}"
+
+        left = f"{state_text}{progress_bar}{sel_suffix}{mem_suffix}{logs_suffix}{debug_suffix}{wf_suffix}"
         right = f"{self.device_name or 'EP-133'} {circle}"
 
         self.query_one("#status_left", Static).update(left)
@@ -1242,6 +1251,15 @@ class TUIApp(App[None]):
     def action_quit(self) -> None:
         self._shutdown_worker()
         self.exit()
+
+
+def _render_progress_bar(current: int, total: int, width: int = 16) -> str:
+    """Render a text progress bar like [████████░░░░░░░░] 50%."""
+    frac = min(1.0, current / total) if total > 0 else 0.0
+    filled = int(width * frac)
+    empty = width - filled
+    pct = int(frac * 100)
+    return f"[{'█' * filled}{'░' * empty}] {pct}%"
 
 
 def _waveform_signature(slot: int, slots: dict[int, SlotRow]) -> dict[str, Any] | None:
