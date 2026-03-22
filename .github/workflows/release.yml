@@ -10,6 +10,7 @@ permissions:
 
 jobs:
   release:
+    if: vars.ENABLE_RELEASE == 'true'
     runs-on: ubuntu-latest
 
     steps:
