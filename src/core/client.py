@@ -509,7 +509,9 @@ class EP133Client:
                 if progress_callback:
                     progress_callback(curr, total)
             meta = self.build_upload_metadata(channels, rate, frames, pitch)
-            tx = UploadTransaction(self, upload_path, slot, name or input_path.stem, meta, _cb)
+            from .naming import sanitize_sample_name
+            sample_name = sanitize_sample_name(name or input_path.stem)
+            tx = UploadTransaction(self, upload_path, slot, sample_name, meta, _cb)
             tx.execute()
         self._initialize()
 
