@@ -74,7 +74,7 @@ def cmd_optimize(args, view: View):
             opt_path = temp_path.with_suffix(".opt.wav")
             view.step("Uploading...")
             try:
-                client.put(opt_path, slot, name=info.name, progress=False, pitch=pitch)
+                client.put(opt_path, slot, name=info.name, pitch=pitch)
                 view.success("Done")
             except EP133Error as e:
                 view.error(f"Upload failed: {e}")
@@ -157,7 +157,7 @@ def _optimize_all_process(candidates: list, client, view: View) -> tuple[int, in
                 continue
 
             try:
-                client.put(opt_path, info.slot, name=info.name, progress=False)
+                client.put(opt_path, info.slot, name=info.name)
                 view.success(f"Saved {Sample.format_size(savings)} ({savings/original_size*100:.1f}%)")
                 optimized += 1
                 total_savings += savings
@@ -267,7 +267,7 @@ def _slot_signature(name: str, size_bytes: int, channels: int, samplerate: int) 
     }
 
 def cmd_fingerprint(args, view: View):
-    from tui.waveform_store import WaveformStore
+    from core.waveform_store import WaveformStore
 
     action = str(getattr(args, "fp_action", "") or "").strip().lower()
     if action not in {"write", "read", "verify"}:

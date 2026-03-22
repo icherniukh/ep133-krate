@@ -1,4 +1,4 @@
-from tui.waveform_store import WaveformStore
+from core.waveform_store import WaveformStore
 import json
 
 

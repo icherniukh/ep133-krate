@@ -37,7 +37,7 @@ def _squash_range(client, start: int, end: int) -> None:
             tmp = Path(td) / f"slot{old_slot:03d}.wav"
             client.get(old_slot, tmp)
             client.delete(old_slot)
-            client.put(tmp, new_slot, name=name, progress=False)
+            client.put(tmp, new_slot, name=name)
 
 
 class TestSquashHardware:
@@ -66,8 +66,8 @@ class TestSquashHardware:
 
             try:
                 # Upload to scattered slots
-                ep133_client.put(wav_a, UPLOAD_SLOT_A, name="squash-test-a", progress=False)
-                ep133_client.put(wav_b, UPLOAD_SLOT_B, name="squash-test-b", progress=False)
+                ep133_client.put(wav_a, UPLOAD_SLOT_A, name="squash-test-a")
+                ep133_client.put(wav_b, UPLOAD_SLOT_B, name="squash-test-b")
 
                 sounds = ep133_client.list_sounds()
                 assert UPLOAD_SLOT_A in sounds, f"Upload to slot {UPLOAD_SLOT_A} failed"

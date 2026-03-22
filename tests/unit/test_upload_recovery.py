@@ -68,7 +68,7 @@ class _FakeClientOK:
     def __exit__(self, *_):
         return False
 
-    def put(self, path: Path, slot: int, name=None, progress=False, pitch=0.0):
+    def put(self, path: Path, slot: int, name=None, progress_callback=None, pitch=0.0):
         self._log.append(("put", slot, str(path), name))
 
 
@@ -84,7 +84,7 @@ class _FakeClientRaises:
     def __exit__(self, *_):
         return False
 
-    def put(self, path: Path, slot: int, name=None, progress=False, pitch=0.0):
+    def put(self, path: Path, slot: int, name=None, progress_callback=None, pitch=0.0):
         raise self._exc
 
 

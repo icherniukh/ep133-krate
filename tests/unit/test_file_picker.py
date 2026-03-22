@@ -200,7 +200,7 @@ class _FakePutClient:
     def get_node_metadata(self, node_id: int):
         return None
 
-    def put(self, input_path: Path, slot: int, name=None, progress=False):
+    def put(self, input_path: Path, slot: int, name=None, progress_callback=None):
         self.calls.append(("put", str(input_path), slot))
 
 

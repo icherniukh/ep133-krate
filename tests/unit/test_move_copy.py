@@ -37,7 +37,7 @@ class FakeClient:
         path.write_bytes(b"dummy")
         self._log.append(("get", slot))
 
-    def put(self, path: Path, slot: int, name=None, progress=False):
+    def put(self, path: Path, slot: int, name=None, progress_callback=None):
         self._log.append(("put", slot, name))
 
     def delete(self, slot: int):

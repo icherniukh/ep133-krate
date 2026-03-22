@@ -46,8 +46,8 @@ class FakeClient:
         Path(output_path).write_bytes(b"RIFF....")
         return Path(output_path)
 
-    def put(self, input_path: Path, slot: int, name=None, progress=False):
-        self.calls.append(("put", str(input_path), slot, name, progress))
+    def put(self, input_path: Path, slot: int, name=None, progress_callback=None):
+        self.calls.append(("put", str(input_path), slot, name, progress_callback))
 
     def rename(self, slot: int, new_name: str):
         self.calls.append(("rename", slot, new_name))
@@ -220,8 +220,8 @@ def test_worker_refresh_enrichment_chunks_updates():
 
 def test_worker_optimize_emits_slot_refresh(monkeypatch, tmp_path):
     class OptimizeClient(FakeClient):
-        def put(self, input_path: Path, slot: int, name=None, progress=False, pitch=0.0):
-            self.calls.append(("put", str(input_path), slot, name, progress, pitch))
+        def put(self, input_path: Path, slot: int, name=None, progress_callback=None, pitch=0.0):
+            self.calls.append(("put", str(input_path), slot, name, progress_callback, pitch))
 
     def _fake_optimize_sample(input_path, output_path, downsample_rate=None, speed=None):
         Path(output_path).write_bytes(Path(input_path).read_bytes())
@@ -288,8 +288,8 @@ def test_worker_move_swap_is_destination_first():
     assert normalized == [
         ("get", 1),
         ("get", 2),
-        ("put", 2, "afterparty kick", False),
-        ("put", 1, "002 snare", False),
+        ("put", 2, "afterparty kick", None),
+        ("put", 1, "002 snare", None),
     ]
 
 
@@ -522,8 +522,8 @@ def test_worker_optimize_all_skips_mono_slots(monkeypatch, tmp_path):
                 is_empty=False,
             )
 
-        def put(self, input_path, slot: int, name=None, progress=False, pitch=0.0):
-            self.calls.append(("put", str(input_path), slot, name, progress))
+        def put(self, input_path, slot: int, name=None, progress_callback=None, pitch=0.0):
+            self.calls.append(("put", str(input_path), slot, name, progress_callback))
 
         def get_node_metadata(self, node_id: int):
             self.calls.append(("get_node_metadata", node_id))

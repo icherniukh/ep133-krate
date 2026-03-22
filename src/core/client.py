@@ -7,7 +7,7 @@ Provides a thin transport layer for sending and receiving protocol messages.
 
 from __future__ import annotations
 
-import sys
+import logging
 import time
 import json
 from pathlib import Path
@@ -17,12 +17,14 @@ from typing import Any, Mapping, Optional, Callable
 
 try:
     import mido
-except ImportError:
-    print("Error: mido library not installed. Run: pip install mido")
-    sys.exit(1)
+except ImportError as exc:
+    raise ImportError("mido library not installed. Run: pip install mido") from exc
+
+_log = logging.getLogger(__name__)
 
 from .models import (
     Sample, SampleInfo,
+    EP133Error, DeviceNotFoundError, SlotEmptyError, DownloadCancelledError,
     SysExCmd, GetType, MAX_SAMPLE_RATE, BIT_DEPTH, CHANNELS, MAX_SLOTS,
     SYSEX_START, SYSEX_END, TE_MFG_ID, DEVICE_FAMILY, CMD_FILE,
     slot_from_sound_entry, decode_node_id,
@@ -41,27 +43,6 @@ def find_device() -> Optional[str]:
         if "EP-133" in port or "EP-1320" in port:
             return port
     return None
-
-
-
-class EP133Error(Exception):
-    """Base exception for EP-133 errors."""
-    pass
-
-
-class DeviceNotFoundError(EP133Error):
-    """EP-133 device not found."""
-    pass
-
-
-class SlotEmptyError(EP133Error):
-    """Slot is empty."""
-    pass
-
-
-class DownloadCancelledError(EP133Error):
-    """Download was cancelled by caller."""
-    pass
 
 
 from .audio import detect_channels
@@ -230,10 +211,7 @@ class EP133Client:
             # Tracing should never interrupt protocol operations.
             pass
 
-    def _send_sysex(self, data: bytes, debug: bool = False) -> None:
-        if debug:
-            hx = " ".join(f"{b:02X}" for b in data[:80])
-            print(f"  TX: {hx}...")
+    def _send_sysex(self, data: bytes) -> None:
         self._emit_trace("TX", data)
         self._outport.send(mido.Message("sysex", data=data[1:-1]))
 
@@ -517,7 +495,8 @@ class EP133Client:
             meta.update({"sound.loopstart": 0, "sound.loopend": loop_end})
         return meta
 
-    def put(self, input_path: Path, slot: int, name: Optional[str] = None, progress: bool = True, pitch: float = 0) -> None:
+    def put(self, input_path: Path, slot: int, name: Optional[str] = None,
+            progress_callback: Optional[Callable[[int, int], None]] = None, pitch: float = 0) -> None:
         import wave
         import tempfile
         from .ops import prepare_for_upload
@@ -527,11 +506,11 @@ class EP133Client:
             with wave.open(str(upload_path), "rb") as wav:
                 frames, rate, channels = wav.getnframes(), wav.getframerate(), wav.getnchannels()
             def _cb(curr, total):
-                if progress: print(f"\r  Uploading... {curr/total*100:.1f}%", end="", flush=True)
+                if progress_callback:
+                    progress_callback(curr, total)
             meta = self.build_upload_metadata(channels, rate, frames, pitch)
             tx = UploadTransaction(self, upload_path, slot, name or input_path.stem, meta, _cb)
             tx.execute()
-        if progress: print(" done")
         self._initialize()
 
     def delete(self, slot: int) -> None:
@@ -599,7 +578,6 @@ class EP133Client:
         self,
         slot: int,
         output_path: Optional[Path] = None,
-        debug: bool = False,
         cancel_check: Optional[Callable[[], bool]] = None,
     ) -> Path:
         from core.models import MAX_SAMPLE_RATE
@@ -612,7 +590,7 @@ class EP133Client:
             output_path = Path(f"{name}_{slot:03d}.wav")
 
         try:
-            data = self._download_data(slot, debug=debug, cancel_check=cancel_check)
+            data = self._download_data(slot, cancel_check=cancel_check)
 
             # Metadata channels is unreliable for samples not uploaded by this tool
             # (e.g. official TE app, on-device recordings have no JSON metadata).
@@ -642,7 +620,6 @@ class EP133Client:
     def _download_data(
         self,
         slot: int,
-        debug: bool = False,
         cancel_check: Optional[Callable[[], bool]] = None,
     ) -> bytes:
         seq = 0x2E
@@ -672,7 +649,7 @@ class EP133Client:
                 raise DownloadCancelledError(f"Download of slot {slot} cancelled")
             seq = (seq + 1) & 0x7F
             self._send_msg(DownloadChunkRequest(page=page), seq=seq)
-            chunk = self._recv_download_chunk(page=page, timeout=2.5, debug=debug)
+            chunk = self._recv_download_chunk(page=page, timeout=2.5)
             if chunk is None:
                 break
             all_data.extend(chunk)
@@ -681,7 +658,7 @@ class EP133Client:
 
         return bytes(all_data)[: file_info["size"]]
 
-    def _recv_download_chunk(self, page: int, timeout: float = 2.5, debug: bool = False) -> bytes | None:
+    def _recv_download_chunk(self, page: int, timeout: float = 2.5) -> bytes | None:
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
             raw = self._recv_next_sysex(deadline - time.monotonic())
@@ -699,8 +676,7 @@ class EP133Client:
                 continue
             echo_page, _ = U14LE.decode(decoded[:2])
             if int(echo_page) != page:
-                if debug:
-                    print(f"  ⚠ Page mismatch: expected {page}, got {int(echo_page)}")
+                _log.warning("Page mismatch: expected %d, got %d", page, int(echo_page))
                 continue
             return bytes(decoded[2:])
         return None

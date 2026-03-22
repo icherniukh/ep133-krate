@@ -12,7 +12,7 @@ import core.ops
 from core.client import EP133Client, SlotEmptyError
 from core.ops import backup_copy, optimize_sample
 from cli.display import View
-from tui.waveform_store import WaveformStore
+from core.waveform_store import WaveformStore
 from tests.helpers import create_test_wav
 
 

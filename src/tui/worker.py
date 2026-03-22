@@ -123,7 +123,7 @@ class DeviceWorker(threading.Thread):
                     raise FileNotFoundError(f"File not found: {input_path}")
                 name = req.payload.get("name")
                 self._emit_progress(req.op, 1, 2, f"Uploading to slot {slot:03d}")
-                self._timed("device.put", phases, client.put, input_path, slot, name=name, progress=False)
+                self._timed("device.put", phases, client.put, input_path, slot, name=name)
                 self._emit_success(f"Uploaded {input_path.name} to slot {slot:03d}", started_at=t_start)
                 self._emit_inventory(client, hydrate_slots={slot}, phases=phases)
             elif req.op == "rename":
@@ -167,7 +167,7 @@ class DeviceWorker(threading.Thread):
                         self._emit("log", message=f"Skipped {input_path.name}: file not found")
                         continue
                     self._emit_progress(req.op, idx, n, f"Uploading [{idx}/{n}] {input_path.name} → slot {slot:03d}")
-                    self._timed("device.put", phases, client.put, input_path, slot, progress=False)
+                    self._timed("device.put", phases, client.put, input_path, slot)
                     self._emit_slot_refresh(client, slot, phases=phases)
                     uploaded += 1
                 self._emit_success(f"Uploaded {uploaded} of {n} file{'s' if n != 1 else ''}", started_at=t_start)
@@ -345,7 +345,6 @@ class DeviceWorker(threading.Thread):
                         upload_path,
                         slot,
                         name=name,
-                        progress=False,
                         pitch=pitch,
                     )
                     optimized_count += 1
@@ -445,7 +444,6 @@ class DeviceWorker(threading.Thread):
                         slot,
                         name=name,
                         pitch=0.0,
-                        progress=False,
                     )
                     optimized_count += 1
                     changed_slots.add(slot)

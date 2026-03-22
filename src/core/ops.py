@@ -182,24 +182,24 @@ def move_slot(
             if dst_entry:
                 if progress:
                     progress(2, 3, f"Swapping {src:03d} ↔ {dst:03d}")
-                client.put(src_path, dst, name=src_name, progress=False)
-                client.put(dst_path, src, name=dst_name, progress=False)
+                client.put(src_path, dst, name=src_name, )
+                client.put(dst_path, src, name=dst_name, )
                 return f"Swapped {src:03d} ↔ {dst:03d}"
             else:
                 if progress:
                     progress(2, 3, f"Moving {src:03d} → {dst:03d}")
-                client.put(src_path, dst, name=src_name, progress=False)
+                client.put(src_path, dst, name=src_name, )
                 client.delete(src)
                 return f"Moved {src:03d} → {dst:03d}"
         except EP133Error:
             # Attempt rollback on failure
             if dst_entry:
                 try:
-                    client.put(src_path, src, name=src_name, progress=False)
+                    client.put(src_path, src, name=src_name, )
                 except Exception:
                     pass
                 try:
-                    client.put(dst_path, dst, name=dst_name, progress=False)
+                    client.put(dst_path, dst, name=dst_name, )
                 except Exception:
                     pass
             raise
@@ -247,12 +247,12 @@ def copy_slot(
         try:
             if progress:
                 progress(2, 3, f"Uploading to slot {dst:03d}")
-            client.put(src_path, dst, name=src_name, progress=False)
+            client.put(src_path, dst, name=src_name, )
             return f"Copied {src:03d} → {dst:03d}"
         except EP133Error:
             if dst_entry:
                 try:
-                    client.put(dst_path, dst, name=dst_name, progress=False)
+                    client.put(dst_path, dst, name=dst_name, )
                 except Exception:
                     pass
             raise
@@ -301,11 +301,11 @@ def squash_process(
             try:
                 client.delete(old_slot)
                 deleted = True
-                client.put(temp_path, new_slot, name=name, progress=False)
+                client.put(temp_path, new_slot, name=name, )
             except EP133Error:
                 if deleted:
                     try:
-                        client.put(temp_path, old_slot, name=name, progress=False)
+                        client.put(temp_path, old_slot, name=name, )
                     except Exception:
                         pass
                 raise

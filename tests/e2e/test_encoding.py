@@ -58,7 +58,7 @@ class TestAudioEncoding:
             original_samples = _make_test_wav(src)
 
             try:
-                ep133_client.put(src, TEST_SLOT, name="enc-test", progress=False)
+                ep133_client.put(src, TEST_SLOT, name="enc-test")
                 ep133_client.get(TEST_SLOT, dst)
 
                 dl = _read_wav_samples(dst)

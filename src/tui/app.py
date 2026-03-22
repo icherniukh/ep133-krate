@@ -19,7 +19,7 @@ from . import actions
 from .debug_log import DebugLogger
 from .file_picker import pick_files
 from .dialog_log import DialogLogger
-from .waveform_store import WaveformStore
+from core.waveform_store import WaveformStore
 from .waveform_widget import WaveformWidget
 from core.models import Sample, MAX_SAMPLE_RATE
 from .selectors import parse_selector

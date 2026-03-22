@@ -53,7 +53,7 @@ class TestUploadSlotRanges:
                 wav_path = td_path / f"test_{slot}.wav"
                 create_test_wav(wav_path, duration_sec=0.05 + i * 0.02)
 
-                ep133_client.put(wav_path, slot, name=f"test-{slot}", progress=False)
+                ep133_client.put(wav_path, slot, name=f"test-{slot}")
 
                 info = ep133_client.info(slot)
                 assert not info.is_empty, f"Slot {slot} empty after upload"
@@ -92,7 +92,7 @@ class TestCopy:
             wav_path = td_path / "source.wav"
             create_test_wav(wav_path, duration_sec=0.1)
 
-            ep133_client.put(wav_path, src, name="copy-src", progress=False)
+            ep133_client.put(wav_path, src, name="copy-src")
             copy_slot(ep133_client, src, dst)
 
             info_dst = ep133_client.info(dst)
@@ -133,7 +133,7 @@ class TestMove:
             wav_path = td_path / "source.wav"
             create_test_wav(wav_path, duration_sec=0.1)
 
-            ep133_client.put(wav_path, src, name="move-src", progress=False)
+            ep133_client.put(wav_path, src, name="move-src")
 
             # Save original PCM
             dl_before = td_path / "dl_before.wav"
@@ -182,7 +182,7 @@ class TestSquash:
             for i, slot in enumerate([slot_a, slot_b, slot_c]):
                 wav_path = td_path / f"s{slot}.wav"
                 create_test_wav(wav_path, duration_sec=0.05 + i * 0.03)
-                ep133_client.put(wav_path, slot, name=f"squash-{slot}", progress=False)
+                ep133_client.put(wav_path, slot, name=f"squash-{slot}")
 
                 dl = td_path / f"dl_orig_{slot}.wav"
                 ep133_client.get(slot, output_path=dl)
@@ -204,7 +204,7 @@ class TestSquash:
                 dl_tmp = td_path / f"squash_tmp_{old}.wav"
                 ep133_client.get(old, output_path=dl_tmp)
                 ep133_client.delete(old)
-                ep133_client.put(dl_tmp, new, name=name, progress=False)
+                ep133_client.put(dl_tmp, new, name=name)
 
             # Verify: contiguous slots have correct PCM
             expected_slots = [squash_start, squash_start + 1, squash_start + 2]

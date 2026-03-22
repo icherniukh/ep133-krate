@@ -37,7 +37,7 @@ def test_put_accepts_non_native_samplerate_without_device():
         client = EP133Client.__new__(EP133Client)
         # Should NOT raise for sample rate — fails later at MIDI I/O
         with pytest.raises(Exception) as exc_info:
-            client.put(path, 999, progress=False)
+            client.put(path, 999)
         assert "Sample rate" not in str(exc_info.value)
     finally:
         path.unlink(missing_ok=True)

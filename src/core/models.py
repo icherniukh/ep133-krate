@@ -11,6 +11,29 @@ from typing import Any, Dict, Optional, Type, TypeVar, ClassVar
 from abc import ABC, abstractmethod
 from .types import WireType, Packed7, U7, BE16, BE32, U14, U14LE, RawBytes, NullBytes
 
+
+# --- Exception Hierarchy ---
+
+class EP133Error(Exception):
+    """Base exception for EP-133 errors."""
+    pass
+
+
+class DeviceNotFoundError(EP133Error):
+    """EP-133 device not found."""
+    pass
+
+
+class SlotEmptyError(EP133Error):
+    """Slot is empty."""
+    pass
+
+
+class DownloadCancelledError(EP133Error):
+    """Download was cancelled by caller."""
+    pass
+
+
 # --- Protocol Opcodes & Constants ---
 
 SYSEX_START = 0xF0

@@ -37,7 +37,7 @@ class TestPut:
             create_test_wav(path, 0.1)
 
             # Upload
-            ep133_client.put(path, test_slot, progress=False)
+            ep133_client.put(path, test_slot)
 
             # Verify by querying info
             info = ep133_client.info(test_slot)
