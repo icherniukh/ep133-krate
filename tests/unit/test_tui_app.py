@@ -163,21 +163,20 @@ def test_delete_confirm_cancel_skips_request(monkeypatch):
     asyncio.run(_run())
 
 
-def test_requests_are_queued_while_busy(monkeypatch):
+def test_device_actions_blocked_while_busy(monkeypatch):
     monkeypatch.setattr("tui.app.DeviceWorker", StubWorker)
 
     async def _run():
         app = TUIApp(device_name="EP-133", debug=False)
         async with app.run_test() as pilot:
             _make_ready(app)
+            before = list(_request_ops(app))
             app.state.set_busy(True, "Running refresh_inventory...")
             await pilot.press("backspace")
             await pilot.pause()
-            assert isinstance(app.screen, ConfirmModal)
-            app.screen.dismiss(True)
-            await pilot.pause()
-            ops = _request_ops(app)
-            assert "delete" in ops
+            # Delete should be blocked — no modal, no new request
+            assert not isinstance(app.screen, ConfirmModal)
+            assert _request_ops(app) == before
 
     asyncio.run(_run())
 

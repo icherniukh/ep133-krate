@@ -551,8 +551,16 @@ class TUIApp(App[None]):
             if message:
                 self._log(message)
 
+    _DEVICE_ACTIONS = frozenset({
+        "download", "upload", "copy", "start_move", "rename",
+        "squash", "optimize", "optimize_all", "delete", "audition", "refresh",
+    })
+
     def check_action(self, action: str, parameters: tuple[object, ...]) -> bool | None:
         if len(self.screen_stack) > 1:
+            return False
+        if self.state.busy and action in self._DEVICE_ACTIONS:
+            self._log("Busy — wait for current operation to finish")
             return False
         return True
 

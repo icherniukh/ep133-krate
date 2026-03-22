@@ -883,3 +883,45 @@ def test_audition_started_event_initializes_playback_state(monkeypatch):
                 app._play_timer.stop()
 
     asyncio.run(_run())
+
+
+# ---------------------------------------------------------------------------
+# Busy state blocks device actions
+# ---------------------------------------------------------------------------
+
+def test_device_actions_blocked_while_busy(monkeypatch):
+    """Device-touching actions must be blocked when state.busy is True."""
+    monkeypatch.setattr("tui.app.DeviceWorker", StubWorker)
+
+    async def _run():
+        app = TUIApp(device_name="EP-133", debug=False)
+        async with app.run_test() as pilot:
+            _make_ready(app)
+            app.state.set_busy(True, "Working...")
+
+            before = list(_request_ops(app))
+            # Try all device actions — none should go through
+            for key in ("d", "u", "c", "m", "r", "s", "o", "O", "backspace", "p"):
+                await pilot.press(key)
+                await pilot.pause()
+            assert _request_ops(app) == before, "No new requests should be queued while busy"
+
+    asyncio.run(_run())
+
+
+def test_navigation_works_while_busy(monkeypatch):
+    """Navigation keys should still work while busy."""
+    monkeypatch.setattr("tui.app.DeviceWorker", StubWorker)
+
+    async def _run():
+        app = TUIApp(device_name="EP-133", debug=False)
+        async with app.run_test() as pilot:
+            _make_ready(app)
+            app.state.set_busy(True, "Working...")
+            slot_before = app.state.selected_slot
+
+            await pilot.press("down")
+            await pilot.pause()
+            assert app.state.selected_slot != slot_before, "Navigation should work while busy"
+
+    asyncio.run(_run())
