@@ -12,6 +12,7 @@ dependencies = [
     "python-rtmidi>=1.5.0",
     "textual>=0.80.0",
     "rich>=13.0.0",
+    "unidecode>=1.3.0",
 ]
 
 [project.scripts]
@@ -19,3 +20,21 @@ krate = "cli.cli_main:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.pylint.main]
+ignore-patterns = [".*_pb2\\.py"]
+ignore-paths = ["^\\.claude"]
+fail-under = 8.5
+
+[tool.pylint.messages-control]
+disable = [
+    "duplicate-code",             # R0801 — too noisy across modules
+    "missing-module-docstring",   # C0114 — can add later
+    "missing-function-docstring", # C0116 — can add later
+    "raise-missing-from",         # W0707 — style preference
+    "too-many-locals",            # R0914 — known complex functions
+    "too-many-statements",        # R0915
+    "too-many-branches",          # R0912
+    "line-too-long",              # C0301 — formatter handles this
+    "no-member",                  # E1101 — wave module false positives (Wave_read vs Wave_write)
+]

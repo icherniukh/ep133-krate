@@ -580,7 +580,7 @@ class TUIApp(App[None]):
                 Binding("enter", "view_details", "Paste"),
                 Binding("escape", "cancel_copy", "Cancel Copy"),
             ]
-        return super().get_bindings()
+        return super().get_bindings()  # pylint: disable=no-member
 
     def action_cancel(self) -> None:
         if self.copying_src is not None:

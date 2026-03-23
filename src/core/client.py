@@ -39,7 +39,7 @@ from .operations import UploadTransaction
 
 def find_device() -> Optional[str]:
     """Find EP-133 device in available MIDI output ports."""
-    for port in mido.get_output_names():
+    for port in mido.get_output_names():  # pylint: disable=no-member
         if "EP-133" in port or "EP-1320" in port:
             return port
     return None
@@ -126,8 +126,8 @@ class EP133Client:
 
     def connect(self):
         """Open MIDI connection to device."""
-        self._outport = mido.open_output(self.device_name)
-        self._inport = mido.open_input(self.device_name)
+        self._outport = mido.open_output(self.device_name)  # pylint: disable=no-member
+        self._inport = mido.open_input(self.device_name)  # pylint: disable=no-member
         self._initialize()
 
     def close(self):
@@ -206,7 +206,7 @@ class EP133Client:
         if trace_hook is None:
             return
         try:
-            trace_hook(direction, data)
+            trace_hook(direction, data)  # pylint: disable=not-callable
         except Exception:
             # Tracing should never interrupt protocol operations.
             pass
@@ -572,7 +572,7 @@ class EP133Client:
     def rename(self, slot: int, new_name: str) -> None:
         sounds = self.list_sounds()
         entry = sounds.get(slot)
-        if not entry: raise Exception(f"Slot {slot} empty")
+        if not entry: raise SlotEmptyError(f"Slot {slot} empty")
         node_id = int(entry.get("node_id") or slot)
         self.set_node_metadata(node_id, {"name": new_name})
 
@@ -727,9 +727,11 @@ class EP133Client:
             output_path.write_bytes(data)
             return
         import wave
+        # pylint: disable=no-member  # wave.open("wb") returns Wave_write; pylint infers Wave_read
         with wave.open(str(output_path), "wb") as wav:
             wav.setnchannels(channels)
             from core.models import BIT_DEPTH
             wav.setsampwidth(BIT_DEPTH // 8)
             wav.setframerate(samplerate)
             if data: wav.writeframes(data)
+        # pylint: enable=no-member

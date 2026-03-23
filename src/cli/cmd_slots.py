@@ -441,7 +441,7 @@ def cmd_group(args, view: View):
     direction = "right" if args.reverse else "left"
 
     with EP133Client(args.device) as client:
-        mapping = client.group(start, end, direction)
+        mapping = client.group(start, end, direction)  # pylint: disable=no-member
 
         if not mapping:
             view.info(f"No samples found in range {start:03d}-{end:03d}")

@@ -179,7 +179,7 @@ def instrumented_send(self, msg):
             instrumented_send._mid_events,
             instrumented_send._hunt,
         )
-    return _original_send(self, msg)
+    return _original_send(self, msg)  # pylint: disable=not-callable
 
 def _parse_args():
     parser = argparse.ArgumentParser(

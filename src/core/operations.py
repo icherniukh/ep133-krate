@@ -9,7 +9,8 @@ from typing import Optional, Callable
 from .models import (
     UPLOAD_CHUNK_SIZE,
     UploadInitRequest, UploadChunkRequest, UploadEndRequest,
-    UploadVerifyRequest, MetadataSetRequest
+    UploadVerifyRequest, MetadataSetRequest,
+    EP133Error,
 )
 
 
@@ -64,7 +65,7 @@ class UploadTransaction(Transaction):
         
         resp = self.client._send_and_wait_msg(init_req, timeout=5.0)
         if not resp:
-            raise Exception("Upload init failed: No response")
+            raise EP133Error("Upload init failed: No response")
 
         # 3. Data Chunks — pipelined (matches official TE app behavior).
         # The device ACKs each chunk with ~6ms lag, which equals the MIDI transmission

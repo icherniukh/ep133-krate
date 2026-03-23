@@ -284,7 +284,7 @@ class SysExMessage(metaclass=MessageMeta):
 
     def __init__(self, **kwargs):
         self._values = {}
-        for name, field in self._fields:
+        for name, field in self._fields:  # pylint: disable=no-member
             if field.expected is not None:
                 self._values[name] = field.expected
             elif name in kwargs:
@@ -308,7 +308,7 @@ class SysExMessage(metaclass=MessageMeta):
     def pack_payload(self) -> bytes:
         """Serialize all descriptor fields."""
         data = b""
-        for name, field in self._fields:
+        for name, field in self._fields:  # pylint: disable=no-member
             data += field.pack(self)
         return data
 
@@ -317,7 +317,7 @@ class SysExMessage(metaclass=MessageMeta):
         """Deserialize from raw bytes (payload after seq byte)."""
         instance = cls()
         offset = 0
-        for name, field in cls._fields:
+        for name, field in cls._fields:  # pylint: disable=no-member
             if offset >= len(data) and not isinstance(field, NullBytesField):
                 break
             val, consumed = field.unpack(data, offset)
@@ -344,7 +344,7 @@ class FileMessage(SysExMessage):
         
         instance = cls()
         field_offset = 0
-        for name, field in cls._fields:
+        for name, field in cls._fields:  # pylint: disable=no-member
             if field_offset >= len(payload): break
             val, consumed = field.unpack(payload, field_offset)
             if val is not None:

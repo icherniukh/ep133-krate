@@ -145,10 +145,9 @@ def test_cmd_put_success(monkeypatch, tmp_path):
 
 
 def test_cmd_put_missing_file(monkeypatch, tmp_path):
-    monkeypatch.setattr(cli.cmd_slots, "EP133Client", lambda *a, **k: client)
-    monkeypatch.setattr(cli.cmd_transfer, "EP133Client", lambda *a, **k: client)
-    monkeypatch.setattr(cli.cmd_audio, "EP133Client", lambda *a, **k: client)
-        #, lambda *a, **k: FakeClient())
+    monkeypatch.setattr(cli.cmd_slots, "EP133Client", lambda *a, **k: FakeClient())
+    monkeypatch.setattr(cli.cmd_transfer, "EP133Client", lambda *a, **k: FakeClient())
+    monkeypatch.setattr(cli.cmd_audio, "EP133Client", lambda *a, **k: FakeClient())
 
     view = make_view()
     rc = cli.cmd_transfer.cmd_put(_args(file=str(tmp_path / "missing.wav"), slot=10, name=None, pitch=0.0), view)
