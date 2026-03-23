@@ -4,6 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ep133-krate"
+# Versioning: v0.MINOR.PATCH — MINOR = new device features, PATCH = fixes
+# Release: bump here → commit → git tag v0.1.0 → git push --tags
 version = "0.1.0"
 description = "Sample manager for the Teenage Engineering EP-133 KO-II"
 requires-python = ">=3.11"
