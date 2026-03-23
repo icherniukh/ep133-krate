@@ -6,6 +6,9 @@ __pycache__/
 .pytest_cache/
 .coverage
 htmlcov/
+*.egg-info/
+dist/
+build/
 
 # Project specific
 tmp/
@@ -51,3 +54,8 @@ experiments/
 venv/
 env/
 .venv/
+
+# Beads / Dolt files (added by bd init)
+.dolt/
+*.db
+.beads-credential-key
