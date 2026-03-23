@@ -1162,3 +1162,162 @@ def test_progress_bar_resets_on_idle(monkeypatch):
             assert "█" not in rendered
 
     asyncio.run(_run())
+
+
+# ---------------------------------------------------------------------------
+# Fold feature — app-level tests
+# ---------------------------------------------------------------------------
+
+def _make_ready_with_gaps(app: TUIApp) -> None:
+    """Like _make_ready but with a sparse inventory so fold produces FoldedRegions.
+
+    Slots 1 and 50 are occupied; everything else is empty.  With 48 consecutive
+    empty slots between them, action_toggle_fold must create at least one
+    FoldedRegion, reducing the visible row count from 999 down significantly.
+    """
+    app._handle_event(WorkerEvent(kind="idle", payload={"op": "refresh_inventory"}))
+    app._handle_event(
+        WorkerEvent(
+            kind="inventory",
+            payload={
+                "sounds": {
+                    1: {"name": "kick.pcm", "size": 1000, "node_id": 1},
+                    50: {"name": "snare.pcm", "size": 2000, "node_id": 50},
+                }
+            },
+        )
+    )
+
+
+def test_toggle_fold_on_sets_flag_and_fold_suffix(monkeypatch):
+    """action_toggle_fold sets _fold_empty=True and status shows [fold]."""
+    monkeypatch.setattr("tui.app.DeviceWorker", StubWorker)
+
+    async def _run():
+        app = TUIApp(device_name="EP-133", debug=False)
+        async with app.run_test() as pilot:
+            _make_ready_with_gaps(app)
+            assert not app._fold_empty
+
+            app.action_toggle_fold()
+            await pilot.pause()
+
+            assert app._fold_empty
+            # Static.update() sets _Static__content synchronously.
+            left = app.query_one("#status_left", Static)
+            left_text = str(left._Static__content)  # type: ignore[attr-defined]
+            assert "[fold]" in left_text
+
+    asyncio.run(_run())
+
+
+def test_toggle_fold_off_clears_flag_and_fold_suffix(monkeypatch):
+    """action_toggle_fold twice leaves _fold_empty=False and removes [fold] from status."""
+    monkeypatch.setattr("tui.app.DeviceWorker", StubWorker)
+
+    async def _run():
+        app = TUIApp(device_name="EP-133", debug=False)
+        async with app.run_test() as pilot:
+            _make_ready_with_gaps(app)
+
+            app.action_toggle_fold()
+            await pilot.pause()
+            assert app._fold_empty
+
+            app.action_toggle_fold()
+            await pilot.pause()
+
+            assert not app._fold_empty
+            left = app.query_one("#status_left", Static)
+            left_text = str(left._Static__content)  # type: ignore[attr-defined]
+            assert "[fold]" not in left_text
+
+    asyncio.run(_run())
+
+
+def test_fold_reduces_visible_row_count(monkeypatch):
+    """With fold active, the DataTable has fewer rows than the full 999-slot list."""
+    monkeypatch.setattr("tui.app.DeviceWorker", StubWorker)
+
+    async def _run():
+        app = TUIApp(device_name="EP-133", debug=False)
+        async with app.run_test() as pilot:
+            _make_ready_with_gaps(app)
+            table = app.query_one("#slots", DataTable)
+            full_count = table.row_count
+            assert full_count == 999
+
+            await pilot.press("f")
+            await pilot.pause()
+
+            assert table.row_count < full_count
+            # _visible_rows must match the table row count.
+            assert len(app._visible_rows) == table.row_count
+
+    asyncio.run(_run())
+
+
+def test_on_data_table_row_highlighted_folded_region_preserves_selected_slot(monkeypatch):
+    """Highlighting a FoldedRegion row must not change selected_slot."""
+    monkeypatch.setattr("tui.app.DeviceWorker", StubWorker)
+
+    async def _run():
+        from tui.state import FoldedRegion
+        app = TUIApp(device_name="EP-133", debug=False)
+        async with app.run_test() as pilot:
+            _make_ready_with_gaps(app)
+
+            await pilot.press("f")
+            await pilot.pause()
+
+            # selected_slot is set after fold rebuild.
+            slot_before = app.state.selected_slot
+
+            # Find a FoldedRegion row index to simulate highlighting.
+            fold_row_idx = next(
+                i for i, r in enumerate(app._visible_rows) if isinstance(r, FoldedRegion)
+            )
+            # Simulate the DataTable highlight event for that row.
+            app.on_data_table_row_highlighted(
+                DataTable.RowHighlighted(
+                    app.query_one("#slots", DataTable),
+                    cursor_row=fold_row_idx,
+                    row_key=None,  # type: ignore[arg-type]
+                )
+            )
+            await pilot.pause()
+
+            assert app.state.selected_slot == slot_before
+
+    asyncio.run(_run())
+
+
+def test_cursor_down_with_fold_skips_folded_region(monkeypatch):
+    """action_cursor_down with fold active must land on a SlotRow, not a FoldedRegion."""
+    monkeypatch.setattr("tui.app.DeviceWorker", StubWorker)
+
+    async def _run():
+        from tui.state import FoldedRegion, SlotRow
+        app = TUIApp(device_name="EP-133", debug=False)
+        async with app.run_test() as pilot:
+            _make_ready_with_gaps(app)
+
+            await pilot.press("f")
+            await pilot.pause()
+
+            table = app.query_one("#slots", DataTable)
+            # Start at row 0 (first SlotRow, slot 1).
+            table.move_cursor(row=0, animate=False)
+            await pilot.pause()
+
+            # Press down — should land on the next SlotRow, skipping any FoldedRegion.
+            await pilot.press("down")
+            await pilot.pause()
+
+            current_row = table.cursor_row
+            assert 0 <= current_row < len(app._visible_rows)
+            assert isinstance(app._visible_rows[current_row], SlotRow), (
+                f"cursor landed on FoldedRegion at row {current_row}"
+            )
+
+    asyncio.run(_run())

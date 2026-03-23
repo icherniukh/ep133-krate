@@ -1005,7 +1005,9 @@ class TUIApp(App[None]):
             self._copy_cursor_move(1)
             return
         if table.cursor_row >= table.row_count - 1:
-            table.move_cursor(row=0, animate=False)
+            # Wrap to first visible SlotRow (or row 0 when fold is off).
+            wrap_row = self._next_slot_row(-1, direction=1)
+            table.move_cursor(row=wrap_row if wrap_row is not None else 0, animate=False)
             return
         next_row = self._next_slot_row(table.cursor_row, direction=1)
         if next_row is not None:
@@ -1021,7 +1023,9 @@ class TUIApp(App[None]):
             self._copy_cursor_move(-1)
             return
         if table.cursor_row <= 0:
-            table.move_cursor(row=table.row_count - 1, animate=False)
+            # Wrap to last visible SlotRow (or last row when fold is off).
+            wrap_row = self._next_slot_row(len(self._visible_rows), direction=-1)
+            table.move_cursor(row=wrap_row if wrap_row is not None else table.row_count - 1, animate=False)
             return
         prev_row = self._next_slot_row(table.cursor_row, direction=-1)
         if prev_row is not None:
@@ -1048,11 +1052,11 @@ class TUIApp(App[None]):
         """Move cursor to next empty slot in the given direction (1=down, -1=up)."""
         table = self.query_one("#slots", DataTable)
         max_slot = len(self.state.slots)
-        current = table.cursor_row + 1  # 1-based slot
+        current = self._current_slot()
         s = current + direction
         while 1 <= s <= max_slot:
             if not self.state.slots[s].exists:
-                table.move_cursor(row=s - 1, animate=False)
+                table.move_cursor(row=self._slot_to_table_row(s), animate=False)
                 return
             s += direction
 
@@ -1060,12 +1064,28 @@ class TUIApp(App[None]):
         table = self.query_one("#slots", DataTable)
         step = max(1, table.size.height // 2)
         new_row = min(table.row_count - 1, table.cursor_row + step)
+        if self._fold_empty and self._visible_rows:
+            if isinstance(self._visible_rows[new_row], FoldedRegion):
+                fwd = self._next_slot_row(new_row - 1, direction=1)
+                bwd = self._next_slot_row(new_row + 1, direction=-1)
+                if fwd is not None:
+                    new_row = fwd
+                elif bwd is not None:
+                    new_row = bwd
         table.move_cursor(row=new_row, animate=False)
 
     def action_page_up(self) -> None:
         table = self.query_one("#slots", DataTable)
         step = max(1, table.size.height // 2)
         new_row = max(0, table.cursor_row - step)
+        if self._fold_empty and self._visible_rows:
+            if isinstance(self._visible_rows[new_row], FoldedRegion):
+                bwd = self._next_slot_row(new_row + 1, direction=-1)
+                fwd = self._next_slot_row(new_row - 1, direction=1)
+                if bwd is not None:
+                    new_row = bwd
+                elif fwd is not None:
+                    new_row = fwd
         table.move_cursor(row=new_row, animate=False)
 
     def _format_selection_expr(self) -> str:
@@ -1203,12 +1223,12 @@ class TUIApp(App[None]):
         # Search forward first
         for s in range(from_slot + 1, max_slot + 1):
             if not self.state.slots[s].exists:
-                table.move_cursor(row=s - 1, animate=False)
+                table.move_cursor(row=self._slot_to_table_row(s), animate=False)
                 return
         # Then backward
         for s in range(from_slot - 1, 0, -1):
             if not self.state.slots[s].exists:
-                table.move_cursor(row=s - 1, animate=False)
+                table.move_cursor(row=self._slot_to_table_row(s), animate=False)
                 return
         self._log("No empty slots available")
 
