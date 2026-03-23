@@ -17,6 +17,64 @@ class SlotRow:
     loaded: bool = False
 
 
+@dataclass
+class FoldedRegion:
+    """Represents a collapsed run of consecutive empty slots in the table."""
+    start_slot: int
+    end_slot: int
+    count: int
+
+
+# A visible table item is either a real slot row or a folded summary.
+VisibleRow = SlotRow | FoldedRegion
+
+
+def build_visible_rows(
+    slots: dict[int, SlotRow],
+    fold: bool,
+    min_run: int = 2,
+) -> list[VisibleRow]:
+    """Return the ordered list of rows to display in the slots table.
+
+    When *fold* is False every slot is returned as-is (999 SlotRow items).
+    When *fold* is True, consecutive runs of *min_run* or more empty (not
+    existing) slots are replaced by a single :class:`FoldedRegion` summary
+    row.  Isolated empty slots (run length < *min_run*) remain visible.
+    """
+    if not fold:
+        return [slots[s] for s in sorted(slots)]
+
+    ordered = sorted(slots)
+    result: list[VisibleRow] = []
+    run_start: int | None = None
+    run_end: int | None = None
+
+    def _flush_run(start: int, end: int) -> None:
+        length = end - start + 1
+        if length >= min_run:
+            result.append(FoldedRegion(start_slot=start, end_slot=end, count=length))
+        else:
+            for s in range(start, end + 1):
+                result.append(slots[s])
+
+    for s in ordered:
+        row = slots[s]
+        if not row.exists:
+            if run_start is None:
+                run_start = s
+            run_end = s
+        else:
+            if run_start is not None:
+                _flush_run(run_start, run_end)  # type: ignore[arg-type]
+                run_start = None
+                run_end = None
+            result.append(row)
+
+    if run_start is not None:
+        _flush_run(run_start, run_end)  # type: ignore[arg-type]
+
+    return result
+
 
 # TODO: add a samples database — central local storage for samples to enable
 # quick upload/download/backup, deduplication, and unlimited library space on

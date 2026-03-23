@@ -21,6 +21,7 @@ import argparse
 import logging
 import sys
 import tempfile
+import threading
 from pathlib import Path
 from typing import Optional
 
@@ -51,6 +52,7 @@ app = FastAPI(title="krate-bridge", version="0.1.0")
 # EP133Client is synchronous; FastAPI runs in a single process here, so a
 # module-level client is safe for the bridge's single-user use case.
 _client: Optional[EP133Client] = None
+_client_lock = threading.Lock()
 
 
 def _get_client() -> EP133Client:
@@ -77,10 +79,11 @@ def list_slots() -> list[dict]:
     Each item: {"slot": int, "name": str, "size": int, "node_id": int | null}
     """
     client = _get_client()
-    try:
-        sounds = client.list_sounds()
-    except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"Device error: {exc}") from exc
+    with _client_lock:
+        try:
+            sounds = client.list_sounds()
+        except Exception as exc:
+            raise HTTPException(status_code=502, detail=f"Device error: {exc}") from exc
 
         result = []
         for slot, entry in sorted(sounds.items()):
@@ -114,10 +117,11 @@ def upload_file(
     with tempfile.TemporaryDirectory() as td:
         tmp_path = Path(td) / f"upload{suffix}"
         tmp_path.write_bytes(contents)
-        try:
-            client.put(tmp_path, slot=slot, name=Path(file.filename or "").stem or None)
-        except Exception as exc:
-            raise HTTPException(status_code=502, detail=f"Upload failed: {exc}") from exc
+        with _client_lock:
+            try:
+                client.put(tmp_path, slot=slot, name=Path(file.filename or "").stem or None)
+            except Exception as exc:
+                raise HTTPException(status_code=502, detail=f"Upload failed: {exc}") from exc
 
     return {"status": "ok", "slot": slot, "filename": file.filename}
 
@@ -126,10 +130,11 @@ def upload_file(
 def delete_slot(slot: int) -> dict:
     """Delete the sample at the given slot."""
     client = _get_client()
-    try:
-        client.delete(slot)
-    except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"Delete failed: {exc}") from exc
+    with _client_lock:
+        try:
+            client.delete(slot)
+        except Exception as exc:
+            raise HTTPException(status_code=502, detail=f"Delete failed: {exc}") from exc
     return {"status": "ok", "slot": slot}
 
 
@@ -140,7 +145,7 @@ def delete_slot(slot: int) -> dict:
 
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="krate-bridge: mobile HTTP bridge for EP-133 KO-II")
-    parser.add_argument("--host", default="127.0.0.1", help="Bind host (default: 127.0.0.1)")
+    parser.add_argument("--host", default="0.0.0.0", help="Bind host (default: 0.0.0.0)")
     parser.add_argument("--port", type=int, default=8765, help="Bind port (default: 8765)")
     parser.add_argument("--device", default=None, help="MIDI device name (auto-detected if omitted)")
     return parser.parse_args()

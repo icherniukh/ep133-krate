@@ -122,6 +122,8 @@ class EP133Client:
     ):
         self._transport = transport
         if transport is None:
+            if not _mido_available:
+                raise ImportError("mido library not installed. Run: pip install mido")
             self.device_name = device_name or find_device()
             if not self.device_name:
                 raise DeviceNotFoundError("EP-133 not found. Connect via USB.")
@@ -135,7 +137,7 @@ class EP133Client:
 
     def connect(self):
         """Open MIDI connection to device."""
-        if getattr(self, "_transport", None) is not None:
+        if self._transport is not None:
             # External transport — no mido ports to open.
             self._initialize()
             return
@@ -145,9 +147,8 @@ class EP133Client:
 
     def close(self):
         """Close MIDI connection."""
-        transport = getattr(self, "_transport", None)
-        if transport is not None:
-            transport.close()
+        if self._transport is not None:
+            self._transport.close()
             return
         if self._outport: self._outport.close()
         if self._inport: self._inport.close()

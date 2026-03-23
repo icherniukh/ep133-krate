@@ -102,6 +102,9 @@ class UploadQueueScreen(toga.Box):
                     "status": _STATUS_QUEUED,
                 }
                 self._queue.append(entry)
+                # Auto-advance slot for next pick
+                next_slot = min(999, slot + 1)
+                self._slot_input.value = next_slot
                 self._refresh_list()
         except Exception as exc:
             self._status_label.text = f"File pick error: {exc}"
