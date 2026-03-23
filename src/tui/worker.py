@@ -103,93 +103,10 @@ class DeviceWorker(threading.Thread):
         self._emit("busy", op=req.op)
         try:
             client = self._timed("client.ensure", phases, self._ensure_client)
-
-            if req.op == "refresh_inventory":
-                self._emit_inventory(client, phases=phases)
-            elif req.op == "fetch_details":
-                slot = int(req.payload["slot"])
-                info = self._timed("device.info", phases, client.info, slot, include_size=True)
-                self._emit("details", slot=slot, details=_sampleinfo_to_dict(info))
-            elif req.op == "download":
-                slot = int(req.payload["slot"])
-                output_path = Path(str(req.payload["output_path"]))
-                self._emit_progress(req.op, 1, 2, f"Downloading slot {slot:03d}")
-                result = self._timed("device.get", phases, client.get, slot, output_path)
-                self._emit_success(f"Downloaded slot {slot:03d} to {result}", started_at=t_start)
-            elif req.op == "upload":
-                slot = int(req.payload["slot"])
-                input_path = Path(str(req.payload["input_path"]))
-                if not input_path.exists():
-                    raise FileNotFoundError(f"File not found: {input_path}")
-                name = req.payload.get("name")
-                self._emit_progress(req.op, 1, 2, f"Uploading to slot {slot:03d}")
-                self._timed("device.put", phases, client.put, input_path, slot, name=name)
-                self._emit_success(f"Uploaded {input_path.name} to slot {slot:03d}", started_at=t_start)
-                self._emit_inventory(client, hydrate_slots={slot}, phases=phases)
-            elif req.op == "rename":
-                slot = int(req.payload["slot"])
-                new_name = str(req.payload["new_name"])
-                self._timed("device.rename", phases, client.rename, slot, new_name)
-                self._emit_success(f"Renamed slot {slot:03d} to '{new_name}'", started_at=t_start)
-                # Slot still exists — skip list_sounds + get_node_metadata; patch directly.
-                self._emit("inventory_enriched", updates={slot: {"name": new_name}})
-            elif req.op == "copy":
-                self._handle_copy(req, client, phases, t_start)
-            elif req.op == "move":
-                self._handle_move(req, client, phases, t_start)
-            elif req.op == "audition":
-                slot = int(req.payload["slot"])
-                duration_s = float(req.payload.get("duration_s") or 0.0)
-                self._timed("device.audition", phases, client.audition, slot)
-                if duration_s > 0:
-                    self._emit("audition_started", slot=slot, duration_s=duration_s)
-                self._emit_success(f"Auditioning slot {slot:03d}", started_at=t_start)
-            elif req.op == "delete":
-                slot = int(req.payload["slot"])
-                self._timed("device.delete", phases, client.delete, slot)
-                self._emit_success(f"Deleted slot {slot:03d}", started_at=t_start)
-                # Slot is gone — skip list_sounds; clear it directly.
-                self._emit("slot_removed", slot=slot)
-            elif req.op == "bulk_delete":
-                slots = [int(s) for s in req.payload["slots"]]
-                n = len(slots)
-                for idx, slot in enumerate(slots, start=1):
-                    self._emit_progress(req.op, idx, n, f"Deleting slot {slot:03d}")
-                    self._timed("device.delete", phases, client.delete, slot)
-                self._emit_success(f"Deleted {n} slot{'s' if n != 1 else ''}", started_at=t_start)
-                self._emit_inventory(client, hydrate_slots=set(slots), phases=phases)
-            elif req.op == "batch_upload":
-                pairs = [(Path(p), int(s)) for p, s in req.payload["files_and_slots"]]
-                n = len(pairs)
-                uploaded = 0
-                for idx, (input_path, slot) in enumerate(pairs, start=1):
-                    if not input_path.exists():
-                        self._emit("log", message=f"Skipped {input_path.name}: file not found")
-                        continue
-                    self._emit_progress(req.op, idx, n, f"Uploading {input_path.name} → slot {slot:03d}")
-                    self._timed("device.put", phases, client.put, input_path, slot)
-                    self._emit_slot_refresh(client, slot, phases=phases)
-                    uploaded += 1
-                self._emit_success(f"Uploaded {uploaded} of {n} file{'s' if n != 1 else ''}", started_at=t_start)
-                self._emit_inventory(client, hydrate_slots={s for _, s in pairs}, phases=phases)
-            elif req.op == "squash":
-                self._handle_squash(req, client, phases, t_start)
-            elif req.op == "optimize":
-                self._handle_optimize(req, client, phases, t_start)
-            elif req.op == "optimize_all":
-                self._handle_optimize_all(req, client, phases, t_start)
-            elif req.op == "waveform":
-                slot = int(req.payload["slot"])
-                width = int(req.payload.get("width") or 60)
-                height = int(req.payload.get("height") or 9)
-                self._waveform_precalc_slots = [s for s in self._waveform_precalc_slots if s != slot]
-                preview = self._build_waveform_preview(client, slot=slot, width=width, height=height, phases=phases)
-                if preview:
-                    self._emit("waveform", slot=slot, bins=preview.get("bins"), fp=preview.get("fp"))
-                else:
-                    self._emit("waveform", slot=slot, bins=None, fp=None)
-            else:
-                raise ValueError(f"Unknown operation: {req.op}")
+            handler = _OP_HANDLERS.get(req.op)
+            if handler is None:
+                raise ValueError(f"Unknown operation: {req.op!r}")
+            handler(self, req, client, phases, t_start)
         except Exception as exc:
             self._emit("error", op=req.op, message=str(exc))
             self._close_client()
@@ -207,19 +124,104 @@ class DeviceWorker(threading.Thread):
             )
             self._emit("idle", op=req.op)
 
+    def _handle_refresh_inventory(self, req: WorkerRequest, client: EP133Client, phases: dict[str, float], t_start: float) -> None:
+        self._emit_inventory(client, phases=phases)
+
+    def _handle_fetch_details(self, req: WorkerRequest, client: EP133Client, phases: dict[str, float], t_start: float) -> None:
+        slot = int(req.payload["slot"])
+        info = self._timed("device.info", phases, client.info, slot, include_size=True)
+        self._emit("details", slot=slot, details=_sampleinfo_to_dict(info))
+
+    def _handle_download(self, req: WorkerRequest, client: EP133Client, phases: dict[str, float], t_start: float) -> None:
+        slot = int(req.payload["slot"])
+        output_path = Path(str(req.payload["output_path"]))
+        self._emit_progress(req.op, 1, 2, f"Downloading slot {slot:03d}")
+        result = self._timed("device.get", phases, client.get, slot, output_path)
+        self._emit_success(f"Downloaded slot {slot:03d} to {result}", started_at=t_start)
+
+    def _handle_upload(self, req: WorkerRequest, client: EP133Client, phases: dict[str, float], t_start: float) -> None:
+        slot = int(req.payload["slot"])
+        input_path = Path(str(req.payload["input_path"]))
+        if not input_path.exists():
+            raise FileNotFoundError(f"File not found: {input_path}")
+        name = req.payload.get("name")
+        self._emit_progress(req.op, 1, 2, f"Uploading to slot {slot:03d}")
+        self._timed("device.put", phases, client.put, input_path, slot, name=name)
+        self._emit_success(f"Uploaded {input_path.name} to slot {slot:03d}", started_at=t_start)
+        self._emit_inventory(client, hydrate_slots={slot}, phases=phases)
+
+    def _handle_rename(self, req: WorkerRequest, client: EP133Client, phases: dict[str, float], t_start: float) -> None:
+        slot = int(req.payload["slot"])
+        new_name = str(req.payload["new_name"])
+        self._timed("device.rename", phases, client.rename, slot, new_name)
+        self._emit_success(f"Renamed slot {slot:03d} to '{new_name}'", started_at=t_start)
+        # Slot still exists — skip list_sounds + get_node_metadata; patch directly.
+        self._emit("inventory_enriched", updates={slot: {"name": new_name}})
+
+    def _handle_audition(self, req: WorkerRequest, client: EP133Client, phases: dict[str, float], t_start: float) -> None:
+        slot = int(req.payload["slot"])
+        duration_s = float(req.payload.get("duration_s") or 0.0)
+        self._timed("device.audition", phases, client.audition, slot)
+        if duration_s > 0:
+            self._emit("audition_started", slot=slot, duration_s=duration_s)
+        self._emit_success(f"Auditioning slot {slot:03d}", started_at=t_start)
+
+    def _handle_delete(self, req: WorkerRequest, client: EP133Client, phases: dict[str, float], t_start: float) -> None:
+        slot = int(req.payload["slot"])
+        self._timed("device.delete", phases, client.delete, slot)
+        self._emit_success(f"Deleted slot {slot:03d}", started_at=t_start)
+        # Slot is gone — skip list_sounds; clear it directly.
+        self._emit("slot_removed", slot=slot)
+
+    def _handle_bulk_delete(self, req: WorkerRequest, client: EP133Client, phases: dict[str, float], t_start: float) -> None:
+        slots = [int(s) for s in req.payload["slots"]]
+        n = len(slots)
+        for idx, slot in enumerate(slots, start=1):
+            self._emit_progress(req.op, idx, n, f"Deleting slot {slot:03d}")
+            self._timed("device.delete", phases, client.delete, slot)
+        self._emit_success(f"Deleted {n} slot{'s' if n != 1 else ''}", started_at=t_start)
+        self._emit_inventory(client, hydrate_slots=set(slots), phases=phases)
+
+    def _handle_batch_upload(self, req: WorkerRequest, client: EP133Client, phases: dict[str, float], t_start: float) -> None:
+        pairs = [(Path(p), int(s)) for p, s in req.payload["files_and_slots"]]
+        n = len(pairs)
+        uploaded = 0
+        for idx, (input_path, slot) in enumerate(pairs, start=1):
+            if not input_path.exists():
+                self._emit("log", message=f"Skipped {input_path.name}: file not found")
+                continue
+            self._emit_progress(req.op, idx, n, f"Uploading {input_path.name} → slot {slot:03d}")
+            self._timed("device.put", phases, client.put, input_path, slot)
+            self._emit_slot_refresh(client, slot, phases=phases)
+            uploaded += 1
+        self._emit_success(f"Uploaded {uploaded} of {n} file{'s' if n != 1 else ''}", started_at=t_start)
+        self._emit_inventory(client, hydrate_slots={s for _, s in pairs}, phases=phases)
+
+    def _handle_waveform(self, req: WorkerRequest, client: EP133Client, phases: dict[str, float], t_start: float) -> None:
+        slot = int(req.payload["slot"])
+        width = int(req.payload.get("width") or 60)
+        height = int(req.payload.get("height") or 9)
+        self._waveform_precalc_slots = [s for s in self._waveform_precalc_slots if s != slot]
+        preview = self._build_waveform_preview(client, slot=slot, width=width, height=height, phases=phases)
+        if preview:
+            self._emit("waveform", slot=slot, bins=preview.get("bins"), fp=preview.get("fp"))
+        else:
+            self._emit("waveform", slot=slot, bins=None, fp=None)
+
+    def _make_progress_cb(self, op: str) -> Callable[[int, int, str], None]:
+        def _progress(curr: int, total: int, msg: str) -> None:
+            self._emit_progress(op, curr, total, msg)
+        return _progress
+
     def _handle_copy(self, req: WorkerRequest, client: EP133Client, phases: dict[str, float], t_start: float) -> None:
         src = int(req.payload["src"])
         dst = int(req.payload["dst"])
-
-        def _progress(curr: int, total: int, msg: str) -> None:
-            self._emit_progress(req.op, curr, total, msg)
-
         try:
             msg = self._timed(
                 "local.copy_slot",
                 phases,
                 copy_slot,
-                client, src, dst, progress=_progress
+                client, src, dst, progress=self._make_progress_cb(req.op)
             )
             self._emit_success(msg, started_at=t_start)
         except Exception as exc:
@@ -233,16 +235,12 @@ class DeviceWorker(threading.Thread):
         if src == dst:
             self._emit_success("Move skipped (same slot)", started_at=t_start)
             return
-
-        def _progress(curr: int, total: int, msg: str) -> None:
-            self._emit_progress(req.op, curr, total, msg)
-
         try:
             msg = self._timed(
                 "local.move_slot",
                 phases,
                 move_slot,
-                client, src, dst, progress=_progress
+                client, src, dst, progress=self._make_progress_cb(req.op)
             )
             self._emit_success(msg, started_at=t_start)
         except Exception as exc:
@@ -254,7 +252,7 @@ class DeviceWorker(threading.Thread):
         start = int(req.payload.get("start", 1))
         end = int(req.payload.get("end", 999))
         sounds = self._timed("device.list_sounds", phases, client.list_sounds)
-        
+
         mapping = squash_scan(sounds, start, end)
 
         if not mapping:
@@ -263,16 +261,13 @@ class DeviceWorker(threading.Thread):
 
         total = len(mapping)
 
-        def _progress(curr: int, total: int, msg: str) -> None:
-            self._emit_progress(req.op, curr, total, msg)
-
         try:
             self._emit("busy", op=f"Squashing {total} slots...")
             self._timed(
                 "local.squash_process",
                 phases,
                 squash_process,
-                mapping, sounds, client, raw=False, progress=_progress
+                mapping, sounds, client, raw=False, progress=self._make_progress_cb(req.op)
             )
             self._emit_success(f"Squashed {total} slots", started_at=t_start)
         except Exception as exc:
@@ -752,6 +747,27 @@ class DeviceWorker(threading.Thread):
 
     def _emit(self, kind: str, **payload: Any) -> None:
         self._event_queue.put(WorkerEvent(kind=kind, payload=payload))
+
+
+# Registry mapping operation names to unbound handler methods.
+# Add a new entry here whenever a new operation is introduced.
+_OP_HANDLERS: dict[str, Callable[..., None]] = {
+    "refresh_inventory": DeviceWorker._handle_refresh_inventory,
+    "fetch_details": DeviceWorker._handle_fetch_details,
+    "download": DeviceWorker._handle_download,
+    "upload": DeviceWorker._handle_upload,
+    "rename": DeviceWorker._handle_rename,
+    "copy": DeviceWorker._handle_copy,
+    "move": DeviceWorker._handle_move,
+    "audition": DeviceWorker._handle_audition,
+    "delete": DeviceWorker._handle_delete,
+    "bulk_delete": DeviceWorker._handle_bulk_delete,
+    "batch_upload": DeviceWorker._handle_batch_upload,
+    "squash": DeviceWorker._handle_squash,
+    "optimize": DeviceWorker._handle_optimize,
+    "optimize_all": DeviceWorker._handle_optimize_all,
+    "waveform": DeviceWorker._handle_waveform,
+}
 
 
 def _percentile(sorted_values: list[float], q: float) -> float:
