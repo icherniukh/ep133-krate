@@ -572,7 +572,7 @@ class EP133Client:
     def rename(self, slot: int, new_name: str) -> None:
         sounds = self.list_sounds()
         entry = sounds.get(slot)
-        if not entry: raise Exception(f"Slot {slot} empty")
+        if not entry: raise SlotEmptyError(f"Slot {slot} empty")
         node_id = int(entry.get("node_id") or slot)
         self.set_node_metadata(node_id, {"name": new_name})
 
