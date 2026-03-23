@@ -1,4 +1,4 @@
-from tui.state import TuiState, initial_slots
+from tui.state import FoldedRegion, SlotRow, TuiState, build_visible_rows, initial_slots
 
 
 def test_initial_slots_has_999_entries():
@@ -122,3 +122,100 @@ def test_clear_slot_marks_slot_empty_and_removes_details():
     assert state.slots[5].exists is False
     assert state.slots[5].name == "(empty)"
     assert 5 not in state.details_by_slot
+
+
+# ---------------------------------------------------------------------------
+# build_visible_rows / fold logic
+# ---------------------------------------------------------------------------
+
+def _make_slots(occupied: list[int], total: int = 10) -> dict[int, SlotRow]:
+    """Create a slots dict with *total* entries where *occupied* slots exist."""
+    slots = {s: SlotRow(slot=s) for s in range(1, total + 1)}
+    for s in occupied:
+        slots[s].exists = True
+        slots[s].name = f"sample{s:03d}"
+    return slots
+
+
+def test_build_visible_rows_fold_off_returns_all_slots():
+    slots = _make_slots([3, 7], total=10)
+    rows = build_visible_rows(slots, fold=False)
+    assert len(rows) == 10
+    assert all(isinstance(r, SlotRow) for r in rows)
+    assert [r.slot for r in rows] == list(range(1, 11))  # type: ignore[union-attr]
+
+
+def test_build_visible_rows_fold_on_collapses_long_run():
+    # slots 1-5 empty, slot 6 occupied, slots 7-10 empty
+    slots = _make_slots([6], total=10)
+    rows = build_visible_rows(slots, fold=True)
+
+    # Expect: FoldedRegion(1-5), SlotRow(6), FoldedRegion(7-10)
+    assert len(rows) == 3
+    first, middle, last = rows
+    assert isinstance(first, FoldedRegion)
+    assert first.start_slot == 1
+    assert first.end_slot == 5
+    assert first.count == 5
+
+    assert isinstance(middle, SlotRow)
+    assert middle.slot == 6
+
+    assert isinstance(last, FoldedRegion)
+    assert last.start_slot == 7
+    assert last.end_slot == 10
+    assert last.count == 4
+
+
+def test_build_visible_rows_fold_on_single_empty_stays_visible():
+    # Isolated empty slots (run < 2) are shown individually.
+    # Slots: 1=occ, 2=empty (run=1), 3=occ, 4=empty (run=1), 5=occ
+    slots = _make_slots([1, 3, 5], total=5)
+    rows = build_visible_rows(slots, fold=True)
+    # Runs of length 1 are below min_run=2, so all rows are SlotRows.
+    assert len(rows) == 5
+    assert all(isinstance(r, SlotRow) for r in rows)
+
+
+def test_build_visible_rows_fold_on_run_of_exactly_two_collapses():
+    # Slots 2-3 empty — exactly at the min_run threshold.
+    slots = _make_slots([1, 4, 5], total=5)
+    rows = build_visible_rows(slots, fold=True)
+    # Expect: SlotRow(1), FoldedRegion(2-3), SlotRow(4), SlotRow(5)
+    assert len(rows) == 4
+    assert isinstance(rows[0], SlotRow)
+    assert isinstance(rows[1], FoldedRegion)
+    assert rows[1].count == 2  # type: ignore[union-attr]
+    assert isinstance(rows[2], SlotRow)
+    assert isinstance(rows[3], SlotRow)
+
+
+def test_build_visible_rows_all_empty_folds_into_one_region():
+    slots = _make_slots([], total=8)
+    rows = build_visible_rows(slots, fold=True)
+    assert len(rows) == 1
+    region = rows[0]
+    assert isinstance(region, FoldedRegion)
+    assert region.start_slot == 1
+    assert region.end_slot == 8
+    assert region.count == 8
+
+
+def test_build_visible_rows_all_occupied_no_folding():
+    slots = _make_slots(list(range(1, 6)), total=5)
+    rows = build_visible_rows(slots, fold=True)
+    assert len(rows) == 5
+    assert all(isinstance(r, SlotRow) for r in rows)
+
+
+def test_build_visible_rows_fold_preserves_slot_order():
+    # Verifies that the visible rows are in ascending slot order.
+    slots = _make_slots([2, 7], total=10)
+    rows = build_visible_rows(slots, fold=True)
+    slot_nums = []
+    for r in rows:
+        if isinstance(r, SlotRow):
+            slot_nums.append(r.slot)
+        else:
+            slot_nums.append(r.start_slot)
+    assert slot_nums == sorted(slot_nums)
