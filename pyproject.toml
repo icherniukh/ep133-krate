@@ -20,6 +20,14 @@ dependencies = [
 [project.scripts]
 krate = "cli.cli_main:main"
 
+[project.optional-dependencies]
+mobile = [
+    "toga>=0.4.0",
+    "httpx>=0.24.0",
+    "fastapi>=0.100.0",
+    "uvicorn>=0.20.0",
+]
+
 [tool.setuptools.packages.find]
 where = ["src"]
 
