@@ -96,7 +96,7 @@ def cmd_fs_ls(args, view: View):
 
     with EP133Client(args.device) as client:
         if args.raw:
-            entries = client.list_directory_raw(node_id=node_id)
+            entries = client.list_directory_raw(node_id=node_id)  # pylint: disable=no-member
             if not entries:
                 print("  (no entries)")
                 return 0
