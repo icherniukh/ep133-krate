@@ -1,9 +1,11 @@
 """
 MIDI transport abstraction for EP-133 KO-II device communication.
 
-Provides a MidiTransport ABC that decouples the core client from mido so
-the same client logic works on desktop (LocalMidiTransport) and on mobile
-devices where mido/rtmidi are unavailable (RemoteMidiTransport over HTTP).
+Provides a MidiTransport ABC that decouples EP133Client from mido.
+Desktop use: LocalMidiTransport wraps a mido port pair.
+Mobile use: the Toga companion app talks directly to the krate-bridge
+HTTP API (/slots, /upload, /slots/{slot}) — it does not use EP133Client
+or MidiTransport at all. The bridge runs on a Mac/PC with mido available.
 """
 
 from __future__ import annotations
@@ -56,33 +58,3 @@ class LocalMidiTransport(MidiTransport):
         self._out.close()
 
 
-class RemoteMidiTransport(MidiTransport):
-    """HTTP transport — for mobile use via the krate-bridge service."""
-
-    def __init__(self, base_url: str = "http://localhost:8765") -> None:
-        try:
-            import httpx
-        except ImportError as exc:
-            raise ImportError(
-                "httpx is required for RemoteMidiTransport. "
-                "Install it with: pip install httpx"
-            ) from exc
-        self._client = httpx.Client(base_url=base_url, timeout=30.0)
-
-    def send(self, msg: "mido.Message") -> None:
-        self._client.post(
-            "/midi/send",
-            json={"type": msg.type, "data": list(msg.bytes())},
-        )
-
-    def receive(self, timeout: float = 5.0) -> Optional["mido.Message"]:
-        if not _mido_available:
-            raise RuntimeError("mido is required to decode received MIDI messages")
-        resp = self._client.get("/midi/recv", params={"timeout": timeout})
-        if resp.status_code == 204:
-            return None
-        data = resp.json()
-        return mido.Message.from_bytes(data["data"])
-
-    def close(self) -> None:
-        self._client.close()

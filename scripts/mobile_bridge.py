@@ -96,7 +96,7 @@ def list_slots() -> list[dict]:
 
 
 @app.post("/upload")
-async def upload_file(
+def upload_file(
     file: UploadFile = File(...),
     slot: int = Query(..., ge=1, le=999, description="Target slot number (1–999)"),
 ) -> dict:
@@ -104,9 +104,11 @@ async def upload_file(
 
     The file is written to a temporary directory, then passed to
     EP133Client.put() which handles conversion and the SysEx upload sequence.
+    FastAPI runs plain def routes in a thread pool, so the synchronous
+    EP133Client.put() call does not block the event loop.
     """
     client = _get_client()
-    contents = await file.read()
+    contents = file.file.read()
     suffix = Path(file.filename or "upload.wav").suffix or ".wav"
 
     with tempfile.TemporaryDirectory() as td:

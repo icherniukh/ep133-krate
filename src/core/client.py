@@ -17,8 +17,10 @@ from typing import Any, Mapping, Optional, Callable
 
 try:
     import mido
-except ImportError as exc:
-    raise ImportError("mido library not installed. Run: pip install mido") from exc
+    _mido_available = True
+except ImportError:
+    mido = None  # type: ignore[assignment]
+    _mido_available = False
 
 _log = logging.getLogger(__name__)
 
@@ -39,6 +41,8 @@ from .operations import UploadTransaction
 
 def find_device() -> Optional[str]:
     """Find EP-133 device in available MIDI output ports."""
+    if not _mido_available:
+        return None
     for port in mido.get_output_names():  # pylint: disable=no-member
         if "EP-133" in port or "EP-1320" in port:
             return port
@@ -124,8 +128,8 @@ class EP133Client:
         else:
             self.device_name = device_name  # informational only; may be None
 
-        self._outport: Optional[mido.ports.Output] = None
-        self._inport: Optional[mido.ports.Input] = None
+        self._outport = None
+        self._inport = None
         self._seq = 0
         self._trace_hook = trace_hook
 
