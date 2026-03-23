@@ -8,11 +8,17 @@ Exports:
 """
 import argparse
 import re
+import importlib.metadata
 
 try:
     from core.models import MAX_SLOTS
 except ImportError as e:
     raise ImportError(f"cli.parser: could not import core.models: {e}") from e
+
+try:
+    __version__ = importlib.metadata.version("ep133-krate")
+except importlib.metadata.PackageNotFoundError:
+    __version__ = "0.0.0+dev"
 
 
 def validate_slot(slot) -> int:
@@ -61,6 +67,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="krate - EP-133 KO-II Command Line Tool",
         formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    parser.add_argument(
+        "--version", action="version", version=f"krate {__version__}"
     )
     parser.add_argument(
         "--json", action="store_true", help="Machine-readable JSON output"
