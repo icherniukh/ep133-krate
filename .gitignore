@@ -50,6 +50,9 @@ experiments/
 # Backups created by krate optimize/move/copy
 .krate-backups/
 
+# Lock files
+uv.lock
+
 # Virtual environments
 venv/
 env/
