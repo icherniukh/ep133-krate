@@ -8,6 +8,8 @@ If the bridge is not reachable the screen shows a friendly error message.
 
 from __future__ import annotations
 
+import asyncio
+
 try:
     import toga
     from toga.style import Pack
@@ -66,11 +68,11 @@ class SlotListScreen(toga.Box):
             resp.raise_for_status()
             return resp.json()
 
-    def _on_refresh(self, widget: toga.Button) -> None:
+    async def _on_refresh(self, widget: toga.Button) -> None:
         self._status_label.text = "Loading…"
         self._list_view.data = []
         try:
-            slots = self._fetch_slots()
+            slots = await asyncio.to_thread(self._fetch_slots)
             if not slots:
                 self._status_label.text = "No samples found on device."
                 return

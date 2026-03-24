@@ -7,6 +7,7 @@ EP-133 KO-II via the krate-bridge HTTP service.
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 
 try:
@@ -117,7 +118,7 @@ class UploadQueueScreen(toga.Box):
         count = len(self._queue)
         self._status_label.text = f"{count} file(s) in queue." if count else "No files queued."
 
-    def _on_upload_all(self, widget: toga.Button) -> None:
+    async def _on_upload_all(self, widget: toga.Button) -> None:
         if not self._queue:
             self._status_label.text = "Queue is empty — pick a file first."
             return
@@ -128,9 +129,9 @@ class UploadQueueScreen(toga.Box):
             entry["status"] = _STATUS_UPLOADING
             self._refresh_list()
             try:
-                self._upload_entry(entry)
+                await asyncio.to_thread(self._upload_entry, entry)
                 entry["status"] = _STATUS_DONE
-            except Exception as exc:
+            except Exception:
                 entry["status"] = _STATUS_ERROR
                 errors += 1
             self._refresh_list()
