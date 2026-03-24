@@ -242,3 +242,9 @@ contributors: `bd list` for the full backlog, `bd ready` for unblocked work.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, capture
 instructions, and architecture decision log.
+
+---
+
+## License
+
+Copyright (c) 2026, Ivan Cherniukh. [MIT](LICENSE)
