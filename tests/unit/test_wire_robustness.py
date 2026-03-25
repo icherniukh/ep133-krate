@@ -1,5 +1,5 @@
 import pytest
-from core.types import U7, U14, BE16, BE32, Packed7, WireDataError, TruncatedMessageError
+from core.types import U7, U14, Packed7, WireDataError, TruncatedMessageError
 
 
 # ---------------------------------------------------------------------------

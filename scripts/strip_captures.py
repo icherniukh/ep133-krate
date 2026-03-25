@@ -12,9 +12,7 @@ Usage:
 """
 import argparse
 import json
-import os
 import shutil
-import sys
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).parent.parent
@@ -99,7 +97,7 @@ def strip_jsonl(path: Path, dry_run: bool) -> tuple[int, int]:
     marker at the end of the file.
     Returns (original_line_count, new_line_count).
     """
-    with open(path) as f:
+    with open(path, encoding="utf-8") as f:
         lines = f.readlines()
 
     out = []
@@ -131,7 +129,7 @@ def strip_jsonl(path: Path, dry_run: bool) -> tuple[int, int]:
         out.append(json.dumps(marker) + "\n")
 
     if not dry_run:
-        with open(path, "w") as f:
+        with open(path, "w", encoding="utf-8") as f:
             f.writelines(out)
 
     return len(lines), len(out)
@@ -144,7 +142,7 @@ def extract_tui(dry_run: bool):
         return
 
     print(f"Reading {TUI_SOURCE.name} ({TUI_SOURCE.stat().st_size // 1_048_576} MB)...")
-    with open(TUI_SOURCE) as f:
+    with open(TUI_SOURCE, encoding="utf-8") as f:
         lines = f.readlines()
 
     included = set()
@@ -172,7 +170,7 @@ def extract_tui(dry_run: bool):
     )
 
     if not dry_run:
-        with open(TUI_EXTRACT, "w") as f:
+        with open(TUI_EXTRACT, "w", encoding="utf-8") as f:
             f.write(header)
             f.writelines(out_lines)
         print(f"  Wrote {len(out_lines)} lines → {TUI_EXTRACT.name}")

@@ -26,7 +26,7 @@ from pathlib import Path
 from typing import Optional
 
 # Ensure the src/ tree is importable when running from the repo root.
-_repo_root = Path(__file__).resolve().parent.parent
+_repo_root = Path(__file__).resolve().parent.parent  # pylint: disable=invalid-name
 sys.path.insert(0, str(_repo_root / "src"))
 
 try:
@@ -40,8 +40,9 @@ except ImportError as exc:
     )
     sys.exit(1)
 
+# pylint: disable=wrong-import-position
 from core.client import EP133Client, find_device
-from core.models import DeviceNotFoundError
+# pylint: enable=wrong-import-position
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s  %(name)s  %(message)s")
 _log = logging.getLogger("krate-bridge")

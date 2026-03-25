@@ -6,8 +6,9 @@ from pathlib import Path
 from core.client import EP133Client, SlotEmptyError, EP133Error
 from core.models import Sample, MAX_SAMPLE_RATE
 from core.ops import optimize_sample, backup_copy
+from core.audio import extract_waveform_bins
+from core.waveform_store import WaveformStore
 from cli.display import View
-from cli.parser import validate_slot
 from cli.prompts import confirm
 
 def cmd_optimize(args, view: View):
@@ -147,7 +148,7 @@ def _optimize_all_process(candidates: list, client, view: View) -> tuple[int, in
                 continue
 
             if msg == "already optimal":
-                print(f"  ⊘ Already optimal (channel count confirmed in WAV header)")
+                print("  ⊘ Already optimal (channel count confirmed in WAV header)")
                 continue
 
             savings = original_size - opt_size
@@ -171,7 +172,7 @@ def _optimize_all_report(optimized: int, total: int, total_savings: int, view: V
     print(f"  Optimized: {optimized}/{total} samples")
     print(f"  Total savings: {Sample.format_size(total_savings)}")
 
-def _optimize_all_display_candidates(candidates: list, view: View) -> int:
+def _optimize_all_display_candidates(candidates: list, view: View) -> int:  # pylint: disable=unused-argument
     """Print candidate table; return total original size in bytes."""
     total_original = 0
     for info in candidates:
@@ -227,7 +228,6 @@ def cmd_audition(args, view: View):
     return 0
 
 def _extract_waveform_bins_for_wav(wav_path: Path, width: int) -> dict:
-    from core.audio import extract_waveform_bins
     wav_bytes = wav_path.read_bytes()
     bins = extract_waveform_bins(wav_bytes, width=max(64, int(width)))
     if not isinstance(bins, dict):
@@ -267,8 +267,6 @@ def _slot_signature(name: str, size_bytes: int, channels: int, samplerate: int) 
     }
 
 def cmd_fingerprint(args, view: View):
-    from core.waveform_store import WaveformStore
-
     action = str(getattr(args, "fp_action", "") or "").strip().lower()
     if action not in {"write", "read", "verify"}:
         view.error("Invalid fingerprint action")

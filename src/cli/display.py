@@ -11,10 +11,11 @@ import json
 import sys
 from typing import Protocol, runtime_checkable
 
-from core.models import Sample, MAX_SAMPLE_RATE
+from core.models import Sample
 
 
 class Colors:
+    """ANSI escape code constants for terminal colouring."""
     RESET = "\033[0m"
     BOLD = "\033[1m"
     BRIGHT_GREEN = "\033[48;5;22m"
@@ -151,8 +152,8 @@ class TerminalView:
             return
         pct = current / total
         filled = int(30 * pct)
-        bar = "█" * filled + "░" * (30 - filled)
-        sys.stdout.write(f"\r  {bar} {pct*100:.0f}% {message}")
+        progress_bar = "█" * filled + "░" * (30 - filled)
+        sys.stdout.write(f"\r  {progress_bar} {pct*100:.0f}% {message}")
         sys.stdout.flush()
 
     def render_samples(self, samples: list[Sample], start: int, end: int) -> None:

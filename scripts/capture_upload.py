@@ -60,7 +60,7 @@ def main():
         client.put(args.wav, args.slot, name=name)
 
     # Filter to only file operation messages (skip init handshake)
-    with open(out_path, "w") as f:
+    with open(out_path, "w", encoding="utf-8") as f:
         for e in entries:
             f.write(json.dumps(e, separators=(",", ":")) + "\n")
 
