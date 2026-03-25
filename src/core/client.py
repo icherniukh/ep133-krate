@@ -17,8 +17,10 @@ from typing import Any, Mapping, Optional, Callable
 
 try:
     import mido
-except ImportError as exc:
-    raise ImportError("mido library not installed. Run: pip install mido") from exc
+    _mido_available = True
+except ImportError:
+    mido = None  # type: ignore[assignment]
+    _mido_available = False
 
 _log = logging.getLogger(__name__)
 
@@ -39,6 +41,8 @@ from .operations import UploadTransaction
 
 def find_device() -> Optional[str]:
     """Find EP-133 device in available MIDI output ports."""
+    if not _mido_available:
+        return None
     for port in mido.get_output_names():  # pylint: disable=no-member
         if "EP-133" in port or "EP-1320" in port:
             return port
@@ -114,24 +118,38 @@ class EP133Client:
         self,
         device_name: Optional[str] = None,
         trace_hook: Optional[Callable[[str, bytes], None]] = None,
+        transport=None,
     ):
-        self.device_name = device_name or find_device()
-        if not self.device_name:
-            raise DeviceNotFoundError("EP-133 not found. Connect via USB.")
+        self._transport = transport
+        if transport is None:
+            if not _mido_available:
+                raise ImportError("mido library not installed. Run: pip install mido")
+            self.device_name = device_name or find_device()
+            if not self.device_name:
+                raise DeviceNotFoundError("EP-133 not found. Connect via USB.")
+        else:
+            self.device_name = device_name  # informational only; may be None
 
-        self._outport: Optional[mido.ports.Output] = None
-        self._inport: Optional[mido.ports.Input] = None
+        self._outport = None
+        self._inport = None
         self._seq = 0
         self._trace_hook = trace_hook
 
     def connect(self):
         """Open MIDI connection to device."""
+        if self._transport is not None:
+            # External transport — no mido ports to open.
+            self._initialize()
+            return
         self._outport = mido.open_output(self.device_name)  # pylint: disable=no-member
         self._inport = mido.open_input(self.device_name)  # pylint: disable=no-member
         self._initialize()
 
     def close(self):
         """Close MIDI connection."""
+        if self._transport is not None:
+            self._transport.close()
+            return
         if self._outport: self._outport.close()
         if self._inport: self._inport.close()
 
@@ -161,13 +179,13 @@ class EP133Client:
         # 1. Identity Request → wait for Identity Response (Universal MIDI, F0 7E … F7)
         msg1 = bytes([SYSEX_START, 0x7E, 0x7F, 0x06, 0x01, SYSEX_END])
         self._emit_trace("TX", msg1)
-        self._outport.send(mido.Message("sysex", data=msg1[1:-1]))
+        self._port_send(mido.Message("sysex", data=msg1[1:-1]))
         self._recv_next_sysex(timeout=2.0)  # consume identity response
 
         # 2. INIT 1 → wait for TE response with cmd 0x21
         msg2 = bytes([SYSEX_START, *TE_MFG_ID, *DEVICE_FAMILY, SysExCmd.INIT, 0x17, 0x01, SYSEX_END])
         self._emit_trace("TX", msg2)
-        self._outport.send(mido.Message("sysex", data=msg2[1:-1]))
+        self._port_send(mido.Message("sysex", data=msg2[1:-1]))
         resp = self._recv_matching(timeout=2.0, expect_cmd=0x21)
         if resp and len(resp) > 8 and resp[6] == 0x21:
             self._device_info = self._parse_init_response(resp)
@@ -175,7 +193,7 @@ class EP133Client:
         # 3. INIT 2 → wait for TE response with cmd 0x21
         msg3 = bytes([SYSEX_START, *TE_MFG_ID, *DEVICE_FAMILY, SysExCmd.INIT, 0x18, 0x05, 0x00, 0x01, 0x01, 0x00, 0x40, 0x00, 0x00, SYSEX_END])
         self._emit_trace("TX", msg3)
-        self._outport.send(mido.Message("sysex", data=msg3[1:-1]))
+        self._port_send(mido.Message("sysex", data=msg3[1:-1]))
         self._recv_matching(timeout=2.0, expect_cmd=0x21)
 
     @staticmethod
@@ -211,9 +229,17 @@ class EP133Client:
             # Tracing should never interrupt protocol operations.
             pass
 
+    def _port_send(self, msg: "mido.Message") -> None:
+        """Send a mido Message through whichever transport is active."""
+        transport = getattr(self, "_transport", None)
+        if transport is not None:
+            transport.send(msg)
+        else:
+            self._outport.send(msg)
+
     def _send_sysex(self, data: bytes) -> None:
         self._emit_trace("TX", data)
-        self._outport.send(mido.Message("sysex", data=data[1:-1]))
+        self._port_send(mido.Message("sysex", data=data[1:-1]))
 
     def _send_msg(self, msg: SysExMessage, seq: Optional[int] = None) -> int:
         s = seq if seq is not None else self._next_seq()
@@ -222,14 +248,16 @@ class EP133Client:
 
     def _drain_pending(self) -> None:
         self._prefetched_msgs = []
-        for _ in self._inport.iter_pending():
-            pass
+        if getattr(self, "_transport", None) is None:
+            for _ in self._inport.iter_pending():
+                pass
 
     def _iter_pending_messages(self):
         prefetched = getattr(self, "_prefetched_msgs", [])
-        pending = list(self._inport.iter_pending())
-        if pending:
-            prefetched.extend(pending)
+        if getattr(self, "_transport", None) is None:
+            pending = list(self._inport.iter_pending())
+            if pending:
+                prefetched.extend(pending)
         while prefetched:
             yield prefetched.pop(0)
 
@@ -248,6 +276,11 @@ class EP133Client:
         prefetched = getattr(self, "_prefetched_msgs", [])
         if prefetched:
             return prefetched.pop(0)
+
+        # External transport path — delegate blocking receive to the transport.
+        transport = getattr(self, "_transport", None)
+        if transport is not None:
+            return transport.receive(timeout=timeout)
 
         # Fast path for mido.rtmidi Input: block on the underlying queue with timeout.
         parser_queue = getattr(self._inport, "_queue", None)
@@ -294,7 +327,7 @@ class EP133Client:
     def _send_and_wait(self, data: bytes, timeout: float = 2.0, expect_cmd: int | None = None) -> bytes | None:
         self._drain_pending()
         self._emit_trace("TX", data)
-        self._outport.send(mido.Message("sysex", data=data[1:-1]))
+        self._port_send(mido.Message("sysex", data=data[1:-1]))
         return self._recv_matching(timeout=timeout, expect_cmd=expect_cmd)
 
     def _send_and_wait_msg(

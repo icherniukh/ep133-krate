@@ -762,10 +762,11 @@ def test_status_shows_busy_and_idle_marker(monkeypatch):
             assert not status_bar.has_class("active")
             assert "🟢" in str(right.render())
 
-            # Busy op: yellow circle and active class.
+            # Busy op: spinner frame and active class.
             app._handle_event(WorkerEvent(kind="busy", payload={"op": "download"}))
             assert status_bar.has_class("active")
-            assert "🟡" in str(right.render())
+            rendered = str(right.render())
+            assert any(ch in rendered for ch in "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏")
 
             # Error: red circle and error class.
             app._handle_event(WorkerEvent(kind="error", payload={"message": "fail"}))

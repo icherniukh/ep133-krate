@@ -53,9 +53,11 @@ krate put kick.wav 43 --name "kick"     # upload to slot 43
 krate tui
 ```
 
-Arrow keys navigate slots. `Enter` opens the action menu. `?` shows all
-keybindings. Waveforms are rendered in braille using a SHA-256 fingerprint
-cache — slots already loaded skip the MIDI round-trip on subsequent views.
+Arrow keys navigate slots. Single-key shortcuts for every operation:
+upload, download, move, copy, rename, delete, optimize, squash, and
+audition. Multi-select with `Space`, bulk operations on selections.
+`?` shows all keybindings. Waveforms render in braille using a SHA-256
+fingerprint cache — previously viewed slots skip the MIDI round-trip.
 
 <!-- TODO: screenshot.png -->
 
@@ -95,13 +97,11 @@ krate squash --execute
 
 ## Roadmap
 
-krate is Phase 1 of a larger project.
-
 | Phase | Scope | Status |
 |-------|-------|--------|
 | 1 | CLI — full sample management | ✅ complete |
-| 2 | Terminal UI — interactive browser, waveform preview | 🔧 in progress |
-| 3 | Native desktop, mobile, and web apps | planned |
+| 2 | Terminal UI — interactive browser with all operations | ✅ complete |
+| 3 | Native mobile app (iOS via BeeWare) | planned |
 
 The protocol specification in PROTOCOL.md is the foundation for all of it.
 
@@ -178,7 +178,7 @@ cached, the MIDI round-trip is skipped entirely.
 
 ### Test suite
 
-379 unit tests. No device required for any of them.
+486 unit tests. No device required for any of them.
 
 - Capture-based protocol tests verify serialized bytes against real USB traffic
 - Encoding tests assert round-trip symmetry for `U7`, `BE16`, `Packed7`, and
@@ -242,3 +242,9 @@ contributors: `bd list` for the full backlog, `bd ready` for unblocked work.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, capture
 instructions, and architecture decision log.
+
+---
+
+## License
+
+Copyright (c) 2026, Ivan Cherniukh. [MIT](LICENSE)

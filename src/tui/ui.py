@@ -11,7 +11,7 @@ from textual.containers import Horizontal, Vertical, ScrollableContainer
 from textual.screen import ModalScreen
 from textual.widgets import Button, Input, Label, Checkbox, Static
 
-from .state import SlotRow
+from .state import FoldedRegion, SlotRow, VisibleRow
 from core.models import Sample
 
 # Rich hex colour palette per size band — parallel to TerminalView._ANSI_PALETTE
@@ -35,9 +35,17 @@ def _rich_size_color(size_bytes: int) -> str:
     idx = min(len(palette) - 1, int(ratio * len(palette)))
     return f"on {palette[idx]}"
 
-def table_row_values(row: SlotRow, selected: bool = False) -> tuple[Any, ...]:
+def table_row_values(row: VisibleRow, selected: bool = False) -> tuple[Any, ...]:
+    if isinstance(row, FoldedRegion):
+        label = Text(
+            f"── {row.count} empty slots ({row.start_slot}–{row.end_slot}) ──",
+            style="dim italic",
+        )
+        empty = Text("", style="dim")
+        return (empty, empty, label, empty, empty, empty, empty)
+
     marker = Text("●", style="bold green") if selected else Text(" ")
-    
+
     if not row.loaded:
         return (marker, Text(f"{row.slot:03d}", style="dim"), Text("?", style="dim"), Text("?", style="dim"), Text("?", style="dim"), Text("?", style="dim"), Text("?", style="dim"))
 
@@ -149,8 +157,10 @@ class TextInputModal(ModalScreen[str | None]):
 
 class ConfirmModal(ModalScreen[bool]):
     BINDINGS = [
-        Binding("escape", "cancel", "Cancel"),
-        Binding("enter", "ok", "Confirm")
+        Binding("escape", "cancel", "Cancel", priority=True),
+        Binding("enter", "ok", "Confirm", priority=True),
+        Binding("left", "focus_cancel", show=False),
+        Binding("right", "focus_ok", show=False),
     ]
 
     def __init__(self, message: str):
@@ -165,13 +175,19 @@ class ConfirmModal(ModalScreen[bool]):
                 yield Button("Yes", id="ok", variant="error")
 
     def on_mount(self) -> None:
-        self.query_one("#cancel", Button).focus()
+        self.query_one("#ok", Button).focus()
 
     def action_cancel(self) -> None:
         self.dismiss(False)
 
     def action_ok(self) -> None:
-        self._ok()
+        self.dismiss(True)
+
+    def action_focus_cancel(self) -> None:
+        self.query_one("#cancel", Button).focus()
+
+    def action_focus_ok(self) -> None:
+        self.query_one("#ok", Button).focus()
 
     @on(Button.Pressed, "#cancel")
     def _cancel(self) -> None:
@@ -184,8 +200,8 @@ class ConfirmModal(ModalScreen[bool]):
 
 class OptimizeModal(ModalScreen[tuple[bool, int | None, float | None, float] | None]):
     BINDINGS = [
-        Binding("escape", "cancel", "Cancel"),
-        Binding("enter", "ok", "Optimize")
+        Binding("escape", "cancel", "Cancel", priority=True),
+        Binding("enter", "ok", "Optimize", priority=True),
     ]
 
     def __init__(self, message: str):
@@ -259,6 +275,7 @@ HELP_KEYBINDINGS: list[tuple[str, str]] = [
     ("Space", "Toggle slot selection / move cursor down"),
     ("v", "Select slots by expression (e.g. 1-10, 200)"),
     # View
+    ("f", "Toggle fold: collapse consecutive empty slots"),
     ("l", "Toggle log pane"),
     ("Ctrl+R", "Reload inventory from device"),
     ("?", "Show this help overlay"),

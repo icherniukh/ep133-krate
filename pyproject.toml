@@ -4,9 +4,23 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ep133-krate"
+# Versioning: v0.MINOR.PATCH — MINOR = new device features, PATCH = fixes
+# Release: bump here → commit → git tag v0.1.0 → git push --tags
 version = "0.1.0"
 description = "Sample manager for the Teenage Engineering EP-133 KO-II"
+readme = "README.md"
+license = "MIT"
 requires-python = ">=3.11"
+authors = [{name = "Ivan Cherniukh"}]
+keywords = ["midi", "ep133", "sampler", "teenage-engineering", "sysex"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Multimedia :: Sound/Audio",
+]
+
 dependencies = [
     "mido>=1.3.0",
     "python-rtmidi>=1.5.0",
@@ -15,8 +29,21 @@ dependencies = [
     "unidecode>=1.3.0",
 ]
 
+[project.urls]
+Homepage = "https://github.com/icherniukh/ep133-krate"
+Repository = "https://github.com/icherniukh/ep133-krate"
+Issues = "https://github.com/icherniukh/ep133-krate/issues"
+
 [project.scripts]
 krate = "cli.cli_main:main"
+
+[project.optional-dependencies]
+mobile = [
+    "toga>=0.4.0",
+    "httpx>=0.24.0",
+    "fastapi>=0.100.0",
+    "uvicorn>=0.20.0",
+]
 
 [tool.setuptools.packages.find]
 where = ["src"]
