@@ -42,7 +42,7 @@ def _decode_7bit(wire: bytes) -> bytes:
 def _load_capture(path: Path) -> list[bytes]:
     """Return decoded TX file-op payloads from a JSONL capture."""
     payloads = []
-    with open(path) as f:
+    with open(path, encoding="utf-8") as f:
         for line in f:
             line = line.strip()
             if not line or line.startswith("//"):

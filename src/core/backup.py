@@ -35,4 +35,3 @@ def backup_copy(
     dst = backup_dir / f"{slot:03d}_{safe}_{ts}{suffix}.bak"
     dst.write_bytes(src.read_bytes())
     return dst
-

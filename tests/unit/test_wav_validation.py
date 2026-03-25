@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from core.client import EP133Client, EP133Error
+from core.client import EP133Client
 from core.models import MAX_SAMPLE_RATE, BIT_DEPTH, CHANNELS
 from tests.helpers import create_test_wav
 
@@ -41,4 +41,3 @@ def test_put_accepts_non_native_samplerate_without_device():
         assert "Sample rate" not in str(exc_info.value)
     finally:
         path.unlink(missing_ok=True)
-

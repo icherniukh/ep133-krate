@@ -65,7 +65,7 @@ def main():
     if not device and args.command != "tui":
         view.error("EP-133 not found. Connect via USB.")
         return 1
-    args.device = device 
+    args.device = device
 
     commands = {
         "ls": cmd_ls,

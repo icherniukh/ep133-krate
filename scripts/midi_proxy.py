@@ -15,14 +15,21 @@ Usage:
 """
 import argparse
 import json
-import mido
-import mido.ports
 import sys
 import time
 from datetime import datetime
 from pathlib import Path
 
-_original_send = None
+import mido
+import mido.ports
+from mido.ports import BaseOutput
+
+try:
+    from core.types import Packed7 as _Packed7
+except ImportError:
+    _Packed7 = None  # pylint: disable=invalid-name
+
+_original_send = None  # pylint: disable=invalid-name
 _HUNT_KEYWORDS = {
     "get_meta": {"cmds": {0x75}},
     "meta_rsp": {"cmds": {0x35}},
@@ -115,12 +122,8 @@ def _log_sysex(
     if header:
         payload = msg_data[7:]
         if payload[:1] == b"\x05":
-            try:
-                from core.types import Packed7
-            except Exception:
-                Packed7 = None
-            if Packed7:
-                raw_payload = Packed7.unpack(payload[1:])
+            if _Packed7:
+                raw_payload = _Packed7.unpack(payload[1:])
                 finfo = _decode_fileop(raw_payload)
 
     if hunt and _hunt_match(hunt, header, finfo):
@@ -249,8 +252,6 @@ def _parse_args():
 
 
 def main():
-    global _original_send
-
     args = _parse_args()
 
     if args.pretty:
@@ -358,11 +359,6 @@ def main():
                 out_virtual.close()
         else:
             # Monkey-patch the BaseOutput.send method for this process only.
-            try:
-                from mido.ports import BaseOutput
-            except Exception as exc:
-                print(f"Failed to import mido BaseOutput: {exc}")
-                sys.exit(1)
             _original_send = BaseOutput.send
 
             instrumented_send._log_fp = fp
@@ -398,7 +394,8 @@ def main():
         return
 
     open_mode = "ab" if raw_mode else "a"
-    with open(out_path, open_mode) as fp:
+    encoding = None if raw_mode else "utf-8"
+    with open(out_path, open_mode, encoding=encoding) as fp:
         run_capture(fp)
     if hunt:
         _print_hunt_summary(hunt)
@@ -522,7 +519,7 @@ def _format_hex_color(data: bytes, color: bool) -> str:
     parts = []
     for i, b in enumerate(data):
         hx = f"{b:02X}"
-        if i == 0 or i == len(data) - 1:
+        if i in (0, len(data) - 1):
             parts.append(_color(hx, "1;37", color))
         elif i in (1, 2, 3):
             parts.append(_color(hx, "34", color))
@@ -604,8 +601,7 @@ def _decode_fileop(raw: bytes) -> dict:
 
 
 def _encode_vlq(value: int) -> bytes:
-    if value < 0:
-        value = 0
+    value = max(value, 0)
     parts = [value & 0x7F]
     value >>= 7
     while value:
@@ -698,8 +694,6 @@ def _iter_raw_entries(fp):
 def pretty_print(
     path: Path, color: bool = True, limit: int | None = None, raw: bool = False
 ) -> None:
-    from core.types import Packed7
-
     count = 0
     if raw:
         with open(path, "rb") as f:
@@ -726,7 +720,7 @@ def pretty_print(
                     info_parts.append(f"seq=0x{seq:02X}")
                     payload = data[8:-1]
                     if payload[:1] == b"\x05":
-                        raw_payload = Packed7.unpack(payload[1:])
+                        raw_payload = _Packed7.unpack(payload[1:])
                         finfo = _decode_fileop(raw_payload)
                         if finfo.get("op"):
                             info_parts.append(finfo["op"])
@@ -749,7 +743,7 @@ def pretty_print(
                     return
         return
 
-    with open(path, "r") as f:
+    with open(path, "r", encoding="utf-8") as f:
         for line in f:
             line = line.strip()
             if not line:
@@ -780,7 +774,7 @@ def pretty_print(
                 info_parts.append(f"seq=0x{seq:02X}")
                 payload = data[8:-1]
                 if payload[:1] == b"\x05":
-                    raw = Packed7.unpack(payload[1:])
+                    raw = _Packed7.unpack(payload[1:])
                     finfo = _decode_fileop(raw)
                     if finfo.get("op"):
                         info_parts.append(finfo["op"])

@@ -109,16 +109,15 @@ def _ls_parse_range(args, view: View) -> tuple[int, int] | None:
             view.error(f"Range must be within 1-{MAX_SLOTS}")
             return None
         return start, end
-    elif args.page:
+    if args.page:
         page_range = parse_page(args.page)
         if page_range is None:
             view.error("Page must be 1-10")
             return None
         return page_range
-    elif args.all:
+    if args.all:
         return 1, MAX_SLOTS
-    else:
-        return 1, 99
+    return 1, 99
 
 
 def cmd_ls(args, view: View):
@@ -339,7 +338,7 @@ def cmd_copy(args, view: View):
 def _squash_process_with_view(mapping: dict, sounds: dict, client, raw: bool, view: View) -> None:
     total = len(mapping)
     done = [0]
-    def _progress(current: int, _total: int, message: str) -> None:
+    def _progress(current: int, _total: int, _message: str) -> None:
         done[0] = current
 
     try:
@@ -417,7 +416,7 @@ def cmd_squash(args, view: View):
         if dry_run:
             print()
             view.warn("Preview mode")
-            print(f"  Run with --execute to apply changes")
+            print("  Run with --execute to apply changes")
             return 0
 
         if not confirm(f"Execute squash for {len(mapping)} moves?", assume_yes):
@@ -452,6 +451,6 @@ def cmd_group(args, view: View):
             print(f"    {old_slot:03d} → {new_slot:03d}")
 
         view.warn("Preview only")
-        print(f"  (requires download/re-upload to execute)")
+        print("  (requires download/re-upload to execute)")
 
     return 0

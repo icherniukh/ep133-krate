@@ -78,13 +78,13 @@ def cmd_status(args, view: View):
             f"{Sample.format_size(total_size)} / {Sample.format_size(total_mem)} ({pct:.0f}%)"
             + (" (assumed total)" if assumed else ""),
         )
-        bar = _format_bar(total_size, total_mem)
-        if bar:
-            view.kv("", bar)
+        mem_bar = _format_bar(total_size, total_mem)
+        if mem_bar:
+            view.kv("", mem_bar)
 
     return 0
 
-def cmd_fs_ls(args, view: View):
+def cmd_fs_ls(args, view: View):  # pylint: disable=unused-argument
     node_id = int(args.node)
     slot_spec = parse_range(args.range) if args.range else None
     if slot_spec is None:
@@ -126,7 +126,7 @@ def cmd_fs_ls(args, view: View):
                 if m:
                     slot_from_name = int(m.group(1))
                 slot_display = slot_from_name or slot
-                if not is_dir and not (start <= slot_display <= end):
+                if not is_dir and not start <= slot_display <= end:
                     continue
                 slot_str = f"{slot_display:03d}" if not is_dir and slot_display else "DIR"
                 print(
@@ -149,7 +149,7 @@ def cmd_fs_ls(args, view: View):
                 size = int(e.get("size") or 0)
                 name = str(e.get("name") or "")
                 slot = nid - 1000 if (1001 <= nid <= 1999) else 0
-                if not is_dir and not (start <= slot <= end):
+                if not is_dir and not start <= slot <= end:
                     continue
                 slot_str = f"{slot:03d}" if not is_dir and slot else "DIR"
                 print(

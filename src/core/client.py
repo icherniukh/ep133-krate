@@ -10,33 +10,37 @@ from __future__ import annotations
 import logging
 import time
 import json
+import tempfile
+import wave
 from pathlib import Path
-from dataclasses import dataclass
 from queue import Empty
 from typing import Any, Mapping, Optional, Callable
 
 try:
     import mido
-    _mido_available = True
+    _mido_available = True  # pylint: disable=invalid-name
 except ImportError:
     mido = None  # type: ignore[assignment]
-    _mido_available = False
-
-_log = logging.getLogger(__name__)
+    _mido_available = False  # pylint: disable=invalid-name
 
 from .models import (
-    Sample, SampleInfo,
+    Sample,
     EP133Error, DeviceNotFoundError, SlotEmptyError, DownloadCancelledError,
-    SysExCmd, GetType, MAX_SAMPLE_RATE, BIT_DEPTH, CHANNELS, MAX_SLOTS,
+    SysExCmd, MAX_SAMPLE_RATE, BIT_DEPTH,
     SYSEX_START, SYSEX_END, TE_MFG_ID, DEVICE_FAMILY, CMD_FILE,
-    slot_from_sound_entry, decode_node_id,
+    slot_from_sound_entry,
     SysExMessage, SysExResponse,
     DownloadInitRequest, DownloadChunkRequest,
     MetadataGetLegacyRequest, MetadataGetRequest, MetadataSetRequest,
-    FileListRequest, InfoRequest, DeleteRequest, AuditionRequest
+    FileListRequest, DeleteRequest, AuditionRequest,
+    parse_file_list_response,
 )
 from .types import Packed7, U14LE
 from .operations import UploadTransaction
+from .audio import detect_channels
+from .naming import sanitize_sample_name
+
+_log = logging.getLogger(__name__)
 
 
 def find_device() -> Optional[str]:
@@ -47,9 +51,6 @@ def find_device() -> Optional[str]:
         if "EP-133" in port or "EP-1320" in port:
             return port
     return None
-
-
-from .audio import detect_channels
 
 
 def _parse_json_tolerant(data: bytes) -> dict | None:
@@ -150,8 +151,10 @@ class EP133Client:
         if self._transport is not None:
             self._transport.close()
             return
-        if self._outport: self._outport.close()
-        if self._inport: self._inport.close()
+        if self._outport:
+            self._outport.close()
+        if self._inport:
+            self._inport.close()
 
     def __enter__(self):
         self.connect()
@@ -424,7 +427,8 @@ class EP133Client:
                 payload = Packed7.unpack(resp[8:-1])
                 try:
                     return json.loads(payload[4:].rstrip(b"\x00").decode("utf-8"))
-                except: pass
+                except Exception:  # pylint: disable=broad-exception-caught
+                    pass
         return None
 
     def info(self, slot: int, include_size: bool = True, node_entry: dict | None = None) -> Sample:
@@ -433,13 +437,13 @@ class EP133Client:
         else:
             sounds = self.list_sounds()
             entry = sounds.get(slot)
-        
+
         info = Sample.empty(slot)
         if entry:
             info.is_empty = False
             info.name = entry.get("name", info.name)
             info.size_bytes = entry.get("size", 0)
-            
+
             node_id = entry.get("node_id")
             if node_id:
                 meta = self.get_node_metadata(node_id)
@@ -450,22 +454,24 @@ class EP133Client:
                         info.channels = channels_from_meta
                         info.channels_known = True
                     info.samplerate = meta.get("samplerate", info.samplerate)
-        
+
         if include_size and info.size_bytes == 0 and not info.is_empty:
             info.size_bytes = self._get_file_size(slot) or 0
-            
+
         if info.is_empty:
             raise SlotEmptyError(f"Slot {slot} is empty")
-            
+
         return info
 
     def list_sounds(self) -> dict[int, dict]:
         entries = self.list_directory(1000)
         by_slot: dict[int, dict] = {}
         for e in entries:
-            if e.get("is_dir"): continue
+            if e.get("is_dir"):
+                continue
             slot = slot_from_sound_entry(e)
-            if slot: by_slot[slot] = e
+            if slot:
+                by_slot[slot] = e
         return by_slot
 
     def list_directory(self, node_id: int = 1000) -> list[dict]:
@@ -478,7 +484,6 @@ class EP133Client:
             if not resp:
                 break
             _status, payload = resp
-            from core.models import parse_file_list_response
             entries = parse_file_list_response(payload)
             if not entries:
                 break
@@ -504,8 +509,10 @@ class EP133Client:
                 break
             all_bytes.extend(content)
             if b"}" in all_bytes:
-                try: return json.loads(all_bytes.decode("utf-8"))
-                except: pass
+                try:
+                    return json.loads(all_bytes.decode("utf-8"))
+                except Exception:  # pylint: disable=broad-exception-caught
+                    pass
             page += 1
         return _parse_json_tolerant(bytes(all_bytes))
 
@@ -530,9 +537,7 @@ class EP133Client:
 
     def put(self, input_path: Path, slot: int, name: Optional[str] = None,
             progress_callback: Optional[Callable[[int, int], None]] = None, pitch: float = 0) -> None:
-        import wave
-        import tempfile
-        from .ops import prepare_for_upload
+        from .ops import prepare_for_upload  # pylint: disable=import-outside-toplevel
 
         with tempfile.TemporaryDirectory() as td:
             upload_path = prepare_for_upload(input_path, tmp_dir=Path(td))
@@ -542,7 +547,6 @@ class EP133Client:
                 if progress_callback:
                     progress_callback(curr, total)
             meta = self.build_upload_metadata(channels, rate, frames, pitch)
-            from .naming import sanitize_sample_name
             sample_name = sanitize_sample_name(name or input_path.stem)
             tx = UploadTransaction(self, upload_path, slot, sample_name, meta, _cb)
             tx.execute()
@@ -605,7 +609,8 @@ class EP133Client:
     def rename(self, slot: int, new_name: str) -> None:
         sounds = self.list_sounds()
         entry = sounds.get(slot)
-        if not entry: raise SlotEmptyError(f"Slot {slot} empty")
+        if not entry:
+            raise SlotEmptyError(f"Slot {slot} empty")
         node_id = int(entry.get("node_id") or slot)
         self.set_node_metadata(node_id, {"name": new_name})
 
@@ -615,7 +620,6 @@ class EP133Client:
         output_path: Optional[Path] = None,
         cancel_check: Optional[Callable[[], bool]] = None,
     ) -> Path:
-        from core.models import MAX_SAMPLE_RATE
         info = self.info(slot)
         if info.is_empty or info.size_bytes == 0:
             raise SlotEmptyError(f"Slot {slot} is empty or has no size")
@@ -759,12 +763,11 @@ class EP133Client:
         if len(data) >= 4 and data[:4] == b"RIFF":
             output_path.write_bytes(data)
             return
-        import wave
         # pylint: disable=no-member  # wave.open("wb") returns Wave_write; pylint infers Wave_read
         with wave.open(str(output_path), "wb") as wav:
             wav.setnchannels(channels)
-            from core.models import BIT_DEPTH
             wav.setsampwidth(BIT_DEPTH // 8)
             wav.setframerate(samplerate)
-            if data: wav.writeframes(data)
+            if data:
+                wav.writeframes(data)
         # pylint: enable=no-member
