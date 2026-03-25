@@ -157,8 +157,10 @@ class TextInputModal(ModalScreen[str | None]):
 
 class ConfirmModal(ModalScreen[bool]):
     BINDINGS = [
-        Binding("escape", "cancel", "Cancel"),
-        Binding("enter", "ok", "Confirm")
+        Binding("escape", "cancel", "Cancel", priority=True),
+        Binding("enter", "ok", "Confirm", priority=True),
+        Binding("left", "focus_cancel", show=False),
+        Binding("right", "focus_ok", show=False),
     ]
 
     def __init__(self, message: str):
@@ -173,13 +175,19 @@ class ConfirmModal(ModalScreen[bool]):
                 yield Button("Yes", id="ok", variant="error")
 
     def on_mount(self) -> None:
-        self.query_one("#cancel", Button).focus()
+        self.query_one("#ok", Button).focus()
 
     def action_cancel(self) -> None:
         self.dismiss(False)
 
     def action_ok(self) -> None:
-        self._ok()
+        self.dismiss(True)
+
+    def action_focus_cancel(self) -> None:
+        self.query_one("#cancel", Button).focus()
+
+    def action_focus_ok(self) -> None:
+        self.query_one("#ok", Button).focus()
 
     @on(Button.Pressed, "#cancel")
     def _cancel(self) -> None:
@@ -192,8 +200,8 @@ class ConfirmModal(ModalScreen[bool]):
 
 class OptimizeModal(ModalScreen[tuple[bool, int | None, float | None, float] | None]):
     BINDINGS = [
-        Binding("escape", "cancel", "Cancel"),
-        Binding("enter", "ok", "Optimize")
+        Binding("escape", "cancel", "Cancel", priority=True),
+        Binding("enter", "ok", "Optimize", priority=True),
     ]
 
     def __init__(self, message: str):

@@ -170,6 +170,12 @@ class TUIApp(App[None]):
         self._play_duration: float = 0.0
         self._play_timer: Any | None = None
 
+        # Activity spinner
+        _SPINNER_FRAMES = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
+        self._spinner_frames = _SPINNER_FRAMES
+        self._spinner_idx: int = 0
+        self._spinner_timer: Any | None = None
+
     def compose(self) -> ComposeResult:
         with Horizontal(id="main"):
             with Vertical(id="slots_pane"):
@@ -648,17 +654,37 @@ class TUIApp(App[None]):
         details = self.state.details_by_slot.get(slot)
         self.query_one("#details", DetailsWidget).set_slot(slot, row, details)
 
+    def _start_spinner(self) -> None:
+        if self._spinner_timer is None:
+            self._spinner_idx = 0
+            self._spinner_timer = self.set_interval(1 / 12, self._on_spinner_tick)
+
+    def _stop_spinner(self) -> None:
+        if self._spinner_timer is not None:
+            self._spinner_timer.stop()
+            self._spinner_timer = None
+
+    def _on_spinner_tick(self) -> None:
+        self._spinner_idx = (self._spinner_idx + 1) % len(self._spinner_frames)
+        self._update_status(self.state.status)
+
     def _update_status(self, state_text: str) -> None:
         is_active = self.state.busy or self.moving_src is not None or self.copying_src is not None
 
         if self.state.busy:
-            circle = "🟡"
-        elif self._device_online is True:
-            circle = "🟢"
-        elif self._device_online is False:
-            circle = "🔴"
+            frame = self._spinner_frames[self._spinner_idx % len(self._spinner_frames)]
+            circle = f"[bold yellow]{frame}[/]"
+            if self._spinner_timer is None:
+                self._start_spinner()
         else:
-            circle = "⚪"
+            if self._spinner_timer is not None:
+                self._stop_spinner()
+            if self._device_online is True:
+                circle = "🟢"
+            elif self._device_online is False:
+                circle = "🔴"
+            else:
+                circle = "⚪"
 
         n_sel = len(self.state.selected_slots)
         sel_suffix = f"  {n_sel} selected" if n_sel else ""
@@ -863,7 +889,7 @@ class TUIApp(App[None]):
         self._play_slot = slot
         self._play_start = time.monotonic()
         self._play_duration = duration_s
-        self._play_timer = self.set_interval(1 / 24, self._on_playback_tick)
+        self._play_timer = self.set_interval(1 / 60, self._on_playback_tick)
 
     def _stop_playback_animation(self) -> None:
         if self._play_timer is not None:
