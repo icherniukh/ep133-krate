@@ -1246,7 +1246,29 @@ class TUIApp(App[None]):
         sr = row.samplerate or MAX_SAMPLE_RATE
         ch = max(row.channels, 1)
         duration_s = row.size_bytes / (sr * ch * 2) if row.size_bytes > 0 else 0.0
+        duration_s = self._perceptual_duration(slot, duration_s)
         self._queue_request(actions.audition(slot, duration_s=duration_s))
+
+    def _perceptual_duration(self, slot: int, full_duration_s: float) -> float:
+        """Shorten animation duration by trimming inaudible tail using cached waveform bins."""
+        bins = self._waveform_by_slot.get(slot)
+        if not bins:
+            return full_duration_s
+        maxs = bins.get("maxs", [])
+        mins = bins.get("mins", [])
+        if not maxs or not mins:
+            return full_duration_s
+        n = len(maxs)
+        # Find last bin with amplitude above quantization noise floor.
+        threshold = 2  # int8-quantized; ~1.5% of full scale
+        last_active = 0
+        for i in range(n - 1, -1, -1):
+            if max(abs(maxs[i]), abs(mins[i])) > threshold:
+                last_active = i
+                break
+        # Map bin index to time, add a small tail for decay
+        end_fraction = min(1.0, (last_active + 2) / n)
+        return full_duration_s * end_fraction
 
     def action_delete(self) -> None:
         if self.state.selected_slots:
