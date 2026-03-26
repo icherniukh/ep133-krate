@@ -29,19 +29,52 @@ class FoldedRegion:
 VisibleRow = SlotRow | FoldedRegion
 
 
+def find_empty_runs(
+    slots: dict[int, SlotRow],
+    min_run: int = 2,
+) -> list[tuple[int, int]]:
+    """Return all contiguous empty runs of at least *min_run* slots.
+
+    Each entry is ``(start_slot, end_slot)`` inclusive.
+    """
+    ordered = sorted(slots)
+    runs: list[tuple[int, int]] = []
+    run_start: int | None = None
+    run_end: int | None = None
+
+    for s in ordered:
+        if not slots[s].exists:
+            if run_start is None:
+                run_start = s
+            run_end = s
+        else:
+            if run_start is not None and run_end is not None:
+                if run_end - run_start + 1 >= min_run:
+                    runs.append((run_start, run_end))
+                run_start = None
+                run_end = None
+
+    if run_start is not None and run_end is not None:
+        if run_end - run_start + 1 >= min_run:
+            runs.append((run_start, run_end))
+
+    return runs
+
+
 def build_visible_rows(
     slots: dict[int, SlotRow],
-    fold: bool,
+    folded_regions: set[tuple[int, int]],
     min_run: int = 2,
 ) -> list[VisibleRow]:
     """Return the ordered list of rows to display in the slots table.
 
-    When *fold* is False every slot is returned as-is (999 SlotRow items).
-    When *fold* is True, consecutive runs of *min_run* or more empty (not
-    existing) slots are replaced by a single :class:`FoldedRegion` summary
-    row.  Isolated empty slots (run length < *min_run*) remain visible.
+    *folded_regions* is a set of ``(start_slot, end_slot)`` tuples.  Runs
+    that appear in this set are collapsed into :class:`FoldedRegion` summary
+    rows.  All other slots are returned as individual :class:`SlotRow` items.
+
+    When *folded_regions* is empty, every slot is visible (999 rows).
     """
-    if not fold:
+    if not folded_regions:
         return [slots[s] for s in sorted(slots)]
 
     ordered = sorted(slots)
@@ -51,7 +84,7 @@ def build_visible_rows(
 
     def _flush_run(start: int, end: int) -> None:
         length = end - start + 1
-        if length >= min_run:
+        if length >= min_run and (start, end) in folded_regions:
             result.append(FoldedRegion(start_slot=start, end_slot=end, count=length))
         else:
             for s in range(start, end + 1):
