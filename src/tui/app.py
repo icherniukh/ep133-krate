@@ -23,7 +23,7 @@ from core.waveform_store import WaveformStore
 from .waveform_widget import WaveformWidget
 from core.models import Sample, MAX_SAMPLE_RATE
 from .selectors import parse_selector
-from .state import FoldedRegion, SlotRow, TuiState, build_visible_rows
+from .state import FoldedRegion, SlotRow, TuiState, build_visible_rows, find_empty_runs
 from .ui import ConfirmModal, DetailsWidget, HelpModal, OptimizeModal, TextInputModal, table_row_values
 from .worker import DeviceWorker, WorkerEvent
 
@@ -113,6 +113,7 @@ class TUIApp(App[None]):
         Binding("space", "toggle_select", "Select"),
         Binding("v", "select_expr", "Select Expr"),
         Binding("f", "toggle_fold", "Fold"),
+        Binding("F", "fold_all", "Fold All", show=False),
         Binding("l", "toggle_logs", "Logs"),
         Binding("s", "squash", "Squash"),
         Binding("o", "optimize", "Optimize"),
@@ -158,7 +159,7 @@ class TUIApp(App[None]):
         self._waveform_store = WaveformStore()
         self._waveform_precalc_active: bool = False
         self._logs_visible: bool = True
-        self._fold_empty: bool = False
+        self._folded_regions: set[tuple[int, int]] = set()
         self._visible_rows: list[FoldedRegion | SlotRow] = []
         self._log_lines: list[str] = []
         self._progress_current: int = 0
@@ -274,9 +275,16 @@ class TUIApp(App[None]):
         table = self.query_one("#slots", DataTable)
         prev_scroll_x = float(table.scroll_x)
         prev_scroll_y = float(table.scroll_y)
+
         table.clear(columns=False)
 
-        self._visible_rows = build_visible_rows(self.state.slots, self._fold_empty)
+        # Prune stale folded regions (a slot in the range now has content).
+        self._folded_regions = {
+            (s, e) for (s, e) in self._folded_regions
+            if all(not self.state.slots.get(i, SlotRow(slot=i)).exists for i in range(s, e + 1))
+        }
+
+        self._visible_rows = build_visible_rows(self.state.slots, self._folded_regions)
         for item in self._visible_rows:
             if isinstance(item, FoldedRegion):
                 # Key for a folded region: "fold:<start>-<end>"
@@ -313,9 +321,9 @@ class TUIApp(App[None]):
         return max(0, min(len(self._visible_rows) - 1, slot - 1))
 
     def _update_table_rows(self, slot_nums: Iterable[int]) -> None:
-        # When fold is active the table may not have a 1:1 row-per-slot mapping,
+        # When folds are active the table may not have a 1:1 row-per-slot mapping,
         # so fall back to a full rebuild rather than cell-level patching.
-        if self._fold_empty:
+        if self._folded_regions:
             self._refresh_table()
             return
         table = self.query_one("#slots", DataTable)
@@ -333,7 +341,7 @@ class TUIApp(App[None]):
 
     def _update_selection_display(self, prev_selected: set[int]) -> None:
         """Update the selection marker column only for rows whose state changed."""
-        if self._fold_empty:
+        if self._folded_regions:
             # Selection markers may be hidden inside folded regions; full rebuild required.
             self._refresh_table()
             return
@@ -353,7 +361,8 @@ class TUIApp(App[None]):
             item = self._visible_rows[table_row_idx]
             if isinstance(item, SlotRow):
                 self.state.selected_slot = item.slot
-            # FoldedRegion rows don't update selected_slot — keep previous value.
+            elif isinstance(item, FoldedRegion):
+                self.state.selected_slot = item.start_slot
         else:
             self.state.selected_slot = table_row_idx + 1
 
@@ -399,8 +408,8 @@ class TUIApp(App[None]):
         event.prevent_default()
 
     def _current_slot(self) -> int:
-        if self._fold_empty:
-            # When fold is active the table row index no longer equals slot - 1.
+        if self._folded_regions:
+            # When folds are active the table row index no longer equals slot - 1.
             # Use the state's authoritative selected_slot instead.
             return max(1, self.state.selected_slot)
         table = self.query_one("#slots", DataTable)
@@ -688,7 +697,8 @@ class TUIApp(App[None]):
 
         n_sel = len(self.state.selected_slots)
         sel_suffix = f"  {n_sel} selected" if n_sel else ""
-        fold_suffix = "  [fold]" if self._fold_empty else ""
+        n_folds = len(self._folded_regions)
+        fold_suffix = f"  [{n_folds} folded]" if n_folds else ""
         logs_suffix = "" if self._logs_visible else "  logs:hidden"
         total_bytes = sum(row.size_bytes for row in self.state.slots.values() if row.exists)
         max_bytes = 64 * 1024 * 1024
@@ -991,11 +1001,57 @@ class TUIApp(App[None]):
         )
 
     def action_toggle_fold(self) -> None:
-        self._fold_empty = not self._fold_empty
+        table = self.query_one("#slots", DataTable)
+        row_idx = table.cursor_row
+        if row_idx < 0 or row_idx >= len(self._visible_rows):
+            return
+        item = self._visible_rows[row_idx]
+        if isinstance(item, FoldedRegion):
+            # Unfold this region
+            key = (item.start_slot, item.end_slot)
+            self._folded_regions.discard(key)
+            self.state.selected_slot = item.start_slot
+            self._log(f"Unfolded slots {item.start_slot}–{item.end_slot}")
+        elif isinstance(item, SlotRow) and not item.exists:
+            # Find the contiguous empty run containing this slot and fold it
+            run = self._find_empty_run(item.slot)
+            if run:
+                self._folded_regions.add(run)
+                self.state.selected_slot = run[0]
+                self._log(f"Folded slots {run[0]}–{run[1]}")
+            else:
+                return  # single empty slot, below min_run
+        else:
+            return  # occupied slot — no-op
         self._refresh_table()
-        state_label = "on" if self._fold_empty else "off"
-        self._log(f"Fold empty slots: {state_label}")
         self._update_status(self.state.status)
+
+    def action_fold_all(self) -> None:
+        runs = find_empty_runs(self.state.slots)
+        if self._folded_regions and self._folded_regions == set(runs):
+            # Already all folded — unfold all
+            self._folded_regions.clear()
+            self._log("Unfolded all regions")
+        else:
+            self._folded_regions = set(runs)
+            self._log(f"Folded {len(runs)} empty regions")
+        self._refresh_table()
+        self._update_status(self.state.status)
+
+    def _find_empty_run(self, slot: int, min_run: int = 2) -> tuple[int, int] | None:
+        """Find the contiguous empty run containing *slot*. Returns (start, end) or None."""
+        slots = self.state.slots
+        if slot not in slots or slots[slot].exists:
+            return None
+        start = slot
+        while start - 1 in slots and not slots[start - 1].exists:
+            start -= 1
+        end = slot
+        while end + 1 in slots and not slots[end + 1].exists:
+            end += 1
+        if end - start + 1 < min_run:
+            return None
+        return (start, end)
 
     def action_toggle_logs(self) -> None:
         logs = self.query_one("#logs", _LogView)
@@ -1032,10 +1088,6 @@ class TUIApp(App[None]):
             return
         if table.cursor_row >= table.row_count - 1:
             table.move_cursor(row=0, animate=False)
-            return
-        next_row = self._next_slot_row(table.cursor_row, direction=1)
-        if next_row is not None:
-            table.move_cursor(row=next_row, animate=False)
         else:
             table.action_cursor_down()
 
@@ -1048,32 +1100,13 @@ class TUIApp(App[None]):
             return
         if table.cursor_row <= 0:
             table.move_cursor(row=table.row_count - 1, animate=False)
-            return
-        prev_row = self._next_slot_row(table.cursor_row, direction=-1)
-        if prev_row is not None:
-            table.move_cursor(row=prev_row, animate=False)
         else:
             table.action_cursor_up()
 
-    def _next_slot_row(self, current_table_row: int, direction: int) -> int | None:
-        """Return the table row index of the next SlotRow in the given direction.
-
-        Skips FoldedRegion rows so arrow navigation lands on real slots.
-        Returns None when fold is off (caller falls back to default behaviour).
-        """
-        if not self._fold_empty or not self._visible_rows:
-            return None
-        idx = current_table_row + direction
-        while 0 <= idx < len(self._visible_rows):
-            if isinstance(self._visible_rows[idx], SlotRow):
-                return idx
-            idx += direction
-        return None
-
     def _copy_cursor_move(self, direction: int) -> None:
         """Move cursor to next empty slot in the given direction (1=down, -1=up)."""
-        if self._fold_empty:
-            self._fold_empty = False
+        if self._folded_regions:
+            self._folded_regions.clear()
             self._refresh_table()
         table = self.query_one("#slots", DataTable)
         max_slot = len(self.state.slots)
@@ -1227,20 +1260,22 @@ class TUIApp(App[None]):
 
     def _jump_to_empty_slot(self, from_slot: int) -> None:
         """Move cursor to the nearest empty slot, searching forward then backward."""
-        if self._fold_empty:
-            self._fold_empty = False
+        if self._folded_regions:
+            self._folded_regions.clear()
             self._refresh_table()
         table = self.query_one("#slots", DataTable)
         max_slot = len(self.state.slots)
         # Search forward first
         for s in range(from_slot + 1, max_slot + 1):
             if not self.state.slots[s].exists:
-                table.move_cursor(row=s - 1, animate=False)
+                row_idx = self._slot_to_table_row(s)
+                table.move_cursor(row=row_idx, animate=False)
                 return
         # Then backward
         for s in range(from_slot - 1, 0, -1):
             if not self.state.slots[s].exists:
-                table.move_cursor(row=s - 1, animate=False)
+                row_idx = self._slot_to_table_row(s)
+                table.move_cursor(row=row_idx, animate=False)
                 return
         self._log("No empty slots available")
 

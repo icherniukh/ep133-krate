@@ -42,12 +42,14 @@ def _request_ops(app: TUIApp) -> list[str]:
     return [r.op for r in worker.submitted]
 
 
-def _make_ready(app: TUIApp) -> None:
+def _make_ready(app: TUIApp, sounds=None) -> None:
     app._handle_event(WorkerEvent(kind="idle", payload={"op": "refresh_inventory"}))
+    if sounds is None:
+        sounds = {1: {"name": "001.pcm", "size": 1200, "node_id": 1}}
     app._handle_event(
         WorkerEvent(
             kind="inventory",
-            payload={"sounds": {1: {"name": "001.pcm", "size": 1200, "node_id": 1}}},
+            payload={"sounds": sounds},
         )
     )
 
@@ -944,5 +946,108 @@ def test_escape_clears_selection(monkeypatch):
             await pilot.press("escape")
             await pilot.pause()
             assert len(app.state.selected_slots) == 0
+
+    asyncio.run(_run())
+
+
+# ---------------------------------------------------------------------------
+# Fold / unfold selection anchoring
+# ---------------------------------------------------------------------------
+
+def _sparse_sounds():
+    """Slots 1, 10, 20 occupied — gaps at 2-9, 11-19 for folding."""
+    return {
+        1: {"name": "kick.pcm", "size": 1200, "node_id": 1},
+        10: {"name": "snare.pcm", "size": 1400, "node_id": 10},
+        20: {"name": "hat.pcm", "size": 800, "node_id": 20},
+    }
+
+
+def test_fold_all_then_unfold_keeps_selection(monkeypatch):
+    """Fold all with F, navigate to a folded region, unfold with f —
+    selection must land on the region's start_slot, not jump to slot 1."""
+    monkeypatch.setattr("tui.app.DeviceWorker", StubWorker)
+
+    async def _run():
+        app = TUIApp(device_name="EP-133", debug=False)
+        async with app.run_test() as pilot:
+            _make_ready(app, _sparse_sounds())
+
+            # Fold all empty regions
+            await pilot.press("F")
+            await pilot.pause()
+            assert len(app._folded_regions) > 0, "Should have folded regions"
+
+            # Navigate down to a folded region (row 0=slot1, row 1=fold 2-9)
+            await pilot.press("down")
+            await pilot.pause()
+            table = app.query_one("#slots")
+            row_idx = table.cursor_row
+            from tui.state import FoldedRegion
+            item = app._visible_rows[row_idx]
+            assert isinstance(item, FoldedRegion), f"Expected FoldedRegion, got {type(item)}"
+            region_start = item.start_slot
+
+            # Unfold this region
+            await pilot.press("f")
+            await pilot.pause()
+
+            # Selection should be at region's start_slot, not slot 1
+            assert app.state.selected_slot == region_start, (
+                f"Expected selected_slot={region_start}, got {app.state.selected_slot}"
+            )
+
+    asyncio.run(_run())
+
+
+def test_fold_empty_slot_anchors_selection(monkeypatch):
+    """Pressing f on an empty slot folds its run — selection stays at run start."""
+    monkeypatch.setattr("tui.app.DeviceWorker", StubWorker)
+
+    async def _run():
+        app = TUIApp(device_name="EP-133", debug=False)
+        async with app.run_test() as pilot:
+            _make_ready(app, _sparse_sounds())
+
+            # Navigate to slot 5 (empty, in the 2-9 run)
+            # With no folds, row index = slot - 1
+            table = app.query_one("#slots")
+            table.move_cursor(row=4, animate=False)  # slot 5
+            await pilot.pause()
+            assert app.state.selected_slot == 5
+
+            # Fold this region
+            await pilot.press("f")
+            await pilot.pause()
+
+            # Should have created a fold for the 2-9 run
+            assert len(app._folded_regions) == 1
+            region = next(iter(app._folded_regions))
+            assert region == (2, 9)
+            # Selection anchored to start of folded run
+            assert app.state.selected_slot == 2
+
+    asyncio.run(_run())
+
+
+def test_unfold_all_via_shift_f(monkeypatch):
+    """F when everything is folded should unfold all."""
+    monkeypatch.setattr("tui.app.DeviceWorker", StubWorker)
+
+    async def _run():
+        app = TUIApp(device_name="EP-133", debug=False)
+        async with app.run_test() as pilot:
+            _make_ready(app, _sparse_sounds())
+
+            # Fold all
+            await pilot.press("F")
+            await pilot.pause()
+            n_folded = len(app._folded_regions)
+            assert n_folded > 0
+
+            # F again unfolds all
+            await pilot.press("F")
+            await pilot.pause()
+            assert len(app._folded_regions) == 0
 
     asyncio.run(_run())
