@@ -46,6 +46,8 @@ captures/
 
 # Experiments (scratch work)
 experiments/*
+!experiments/ios-midi-probe/
+!experiments/ios-native/
 
 # Backups created by krate optimize/move/copy
 .krate-backups/
