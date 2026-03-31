@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from typing import Optional
+
 
 import toga
 from toga.style import Pack
@@ -82,7 +82,7 @@ class SlotListScreen(toga.Box):
             ]
             self._list_view.data = items
             self._status_label.text = f"{len(slots)} sample(s) loaded."
-        except Exception as exc:
+        except Exception as exc:  # pylint: disable=broad-exception-caught
             self._status_label.text = f"Error: {exc}"
 
     def _fetch_slots(self) -> dict:
@@ -112,7 +112,7 @@ class SlotListScreen(toga.Box):
         try:
             await asyncio.to_thread(self._client.audition, slot)
             self._status_label.text = f"Playing slot {slot}."
-        except Exception as exc:
+        except Exception as exc:  # pylint: disable=broad-exception-caught
             self._status_label.text = f"Audition error: {exc}"
 
 

@@ -11,19 +11,12 @@ import logging
 import time
 import json
 from pathlib import Path
-from dataclasses import dataclass
-from queue import Empty
-from typing import Any, Mapping, Optional, Callable
 
-try:
-    import mido
-    _mido_available = True
-except ImportError:
-    mido = None  # type: ignore[assignment]
-    _mido_available = False
+from typing import Any, Mapping, Optional, Callable
 
 _log = logging.getLogger(__name__)
 
+from .transport import MIDITransport, MIDIDevice
 from .models import (
     Sample, SampleInfo,
     EP133Error, DeviceNotFoundError, SlotEmptyError, DownloadCancelledError,
@@ -41,12 +34,9 @@ from .operations import UploadTransaction
 
 def find_device() -> Optional[str]:
     """Find EP-133 device in available MIDI output ports."""
-    if not _mido_available:
-        return None
-    for port in mido.get_output_names():  # pylint: disable=no-member
-        if "EP-133" in port or "EP-1320" in port:
-            return port
-    return None
+    from .desktop_transport import DesktopMIDITransport
+    device = DesktopMIDITransport.find_ep133()
+    return device.name if device else None
 
 
 from .audio import detect_channels
@@ -118,40 +108,39 @@ class EP133Client:
         self,
         device_name: Optional[str] = None,
         trace_hook: Optional[Callable[[str, bytes], None]] = None,
-        transport=None,
+        transport: Optional[MIDITransport] = None,
     ):
-        self._transport = transport
-        if transport is None:
-            if not _mido_available:
-                raise ImportError("mido library not installed. Run: pip install mido")
+        if transport is not None:
+            self._transport = transport
+            self.device_name = device_name  # informational only; may be None
+        else:
+            # Legacy path: auto-create desktop transport.
             self.device_name = device_name or find_device()
             if not self.device_name:
                 raise DeviceNotFoundError("EP-133 not found. Connect via USB.")
-        else:
-            self.device_name = device_name  # informational only; may be None
+            from .desktop_transport import DesktopMIDITransport
+            self._transport = DesktopMIDITransport()
+            self._auto_device = MIDIDevice(
+                name=self.device_name,
+                source_id=self.device_name,
+                destination_id=self.device_name,
+                has_input=True,
+                has_output=True,
+            )
 
-        self._outport = None
-        self._inport = None
         self._seq = 0
         self._trace_hook = trace_hook
 
     def connect(self):
         """Open MIDI connection to device."""
-        if self._transport is not None:
-            # External transport — no mido ports to open.
-            self._initialize()
-            return
-        self._outport = mido.open_output(self.device_name)  # pylint: disable=no-member
-        self._inport = mido.open_input(self.device_name)  # pylint: disable=no-member
+        auto_device = getattr(self, "_auto_device", None)
+        if auto_device is not None:
+            self._transport.connect(auto_device)
         self._initialize()
 
     def close(self):
         """Close MIDI connection."""
-        if self._transport is not None:
-            self._transport.close()
-            return
-        if self._outport: self._outport.close()
-        if self._inport: self._inport.close()
+        self._transport.close()
 
     def __enter__(self):
         self.connect()
@@ -178,22 +167,19 @@ class EP133Client:
 
         # 1. Identity Request → wait for Identity Response (Universal MIDI, F0 7E … F7)
         msg1 = bytes([SYSEX_START, 0x7E, 0x7F, 0x06, 0x01, SYSEX_END])
-        self._emit_trace("TX", msg1)
-        self._port_send(mido.Message("sysex", data=msg1[1:-1]))
+        self._send_sysex(msg1)
         self._recv_next_sysex(timeout=2.0)  # consume identity response
 
         # 2. INIT 1 → wait for TE response with cmd 0x21
         msg2 = bytes([SYSEX_START, *TE_MFG_ID, *DEVICE_FAMILY, SysExCmd.INIT, 0x17, 0x01, SYSEX_END])
-        self._emit_trace("TX", msg2)
-        self._port_send(mido.Message("sysex", data=msg2[1:-1]))
+        self._send_sysex(msg2)
         resp = self._recv_matching(timeout=2.0, expect_cmd=0x21)
         if resp and len(resp) > 8 and resp[6] == 0x21:
             self._device_info = self._parse_init_response(resp)
 
         # 3. INIT 2 → wait for TE response with cmd 0x21
         msg3 = bytes([SYSEX_START, *TE_MFG_ID, *DEVICE_FAMILY, SysExCmd.INIT, 0x18, 0x05, 0x00, 0x01, 0x01, 0x00, 0x40, 0x00, 0x00, SYSEX_END])
-        self._emit_trace("TX", msg3)
-        self._port_send(mido.Message("sysex", data=msg3[1:-1]))
+        self._send_sysex(msg3)
         self._recv_matching(timeout=2.0, expect_cmd=0x21)
 
     @staticmethod
@@ -229,17 +215,10 @@ class EP133Client:
             # Tracing should never interrupt protocol operations.
             pass
 
-    def _port_send(self, msg: "mido.Message") -> None:
-        """Send a mido Message through whichever transport is active."""
-        transport = getattr(self, "_transport", None)
-        if transport is not None:
-            transport.send(msg)
-        else:
-            self._outport.send(msg)
-
     def _send_sysex(self, data: bytes) -> None:
+        """Send raw SysEx bytes (including F0/F7 framing) via the transport."""
         self._emit_trace("TX", data)
-        self._port_send(mido.Message("sysex", data=data[1:-1]))
+        self._transport.send_sysex(data)
 
     def _send_msg(self, msg: SysExMessage, seq: Optional[int] = None) -> int:
         s = seq if seq is not None else self._next_seq()
@@ -247,87 +226,20 @@ class EP133Client:
         return s
 
     def _drain_pending(self) -> None:
-        self._prefetched_msgs = []
-        if getattr(self, "_transport", None) is None:
-            for _ in self._inport.iter_pending():
-                pass
-
-    def _iter_pending_messages(self):
-        prefetched = getattr(self, "_prefetched_msgs", [])
-        if getattr(self, "_transport", None) is None:
-            pending = list(self._inport.iter_pending())
-            if pending:
-                prefetched.extend(pending)
-        while prefetched:
-            yield prefetched.pop(0)
-
-    def _iter_pending_sysex(self):
-        for msg in self._iter_pending_messages():
-            if msg.type != "sysex":
-                continue
-            raw = bytes([SYSEX_START]) + bytes(msg.data) + bytes([SYSEX_END])
-            self._emit_trace("RX", raw)
-            yield raw
-
-    def _recv_message_blocking(self, timeout: float) -> Optional[mido.Message]:
-        """Receive one MIDI message with timeout, using backend queue blocking when available."""
-        if timeout <= 0:
-            return None
-        prefetched = getattr(self, "_prefetched_msgs", [])
-        if prefetched:
-            return prefetched.pop(0)
-
-        # External transport path — delegate blocking receive to the transport.
-        transport = getattr(self, "_transport", None)
-        if transport is not None:
-            return transport.receive(timeout=timeout)
-
-        # Fast path for mido.rtmidi Input: block on the underlying queue with timeout.
-        parser_queue = getattr(self._inport, "_queue", None)
-        raw_queue = getattr(parser_queue, "_queue", None)
-        if raw_queue is not None and hasattr(raw_queue, "get"):
-            try:
-                return raw_queue.get(timeout=timeout)
-            except Empty:
-                return None
-
-        # Backend-agnostic fallback with light sleep to avoid hot spinning.
-        deadline = time.monotonic() + timeout
-        while time.monotonic() < deadline:
-            if hasattr(self._inport, "receive"):
-                msg = self._inport.receive(block=False)
-                if msg is not None:
-                    return msg
-            else:
-                pending = list(self._inport.iter_pending())
-                if pending:
-                    if len(pending) > 1:
-                        prefetched.extend(pending[1:])
-                    return pending[0]
-            time.sleep(0.001)
-        return None
+        """Discard any stale messages from the transport receive buffer."""
+        while self._transport.receive_sysex(timeout=0.01) is not None:
+            pass
 
     def _recv_next_sysex(self, timeout: float) -> bytes | None:
         """Receive the next SysEx frame within timeout, returning raw bytes including F0/F7."""
-        deadline = time.monotonic() + timeout
-        while time.monotonic() < deadline:
-            for raw in self._iter_pending_sysex():
-                return raw
-            remaining = deadline - time.monotonic()
-            msg = self._recv_message_blocking(remaining)
-            if msg is None:
-                return None
-            if msg.type != "sysex":
-                continue
-            raw = bytes([SYSEX_START]) + bytes(msg.data) + bytes([SYSEX_END])
+        raw = self._transport.receive_sysex(timeout=timeout)
+        if raw is not None:
             self._emit_trace("RX", raw)
-            return raw
-        return None
+        return raw
 
     def _send_and_wait(self, data: bytes, timeout: float = 2.0, expect_cmd: int | None = None) -> bytes | None:
         self._drain_pending()
-        self._emit_trace("TX", data)
-        self._port_send(mido.Message("sysex", data=data[1:-1]))
+        self._send_sysex(data)
         return self._recv_matching(timeout=timeout, expect_cmd=expect_cmd)
 
     def _send_and_wait_msg(
@@ -424,7 +336,8 @@ class EP133Client:
                 payload = Packed7.unpack(resp[8:-1])
                 try:
                     return json.loads(payload[4:].rstrip(b"\x00").decode("utf-8"))
-                except: pass
+                except Exception:  # pylint: disable=broad-exception-caught
+                    pass
         return None
 
     def info(self, slot: int, include_size: bool = True, node_entry: dict | None = None) -> Sample:
@@ -433,13 +346,13 @@ class EP133Client:
         else:
             sounds = self.list_sounds()
             entry = sounds.get(slot)
-        
+
         info = Sample.empty(slot)
         if entry:
             info.is_empty = False
             info.name = entry.get("name", info.name)
             info.size_bytes = entry.get("size", 0)
-            
+
             node_id = entry.get("node_id")
             if node_id:
                 meta = self.get_node_metadata(node_id)
@@ -450,13 +363,13 @@ class EP133Client:
                         info.channels = channels_from_meta
                         info.channels_known = True
                     info.samplerate = meta.get("samplerate", info.samplerate)
-        
+
         if include_size and info.size_bytes == 0 and not info.is_empty:
             info.size_bytes = self._get_file_size(slot) or 0
-            
+
         if info.is_empty:
             raise SlotEmptyError(f"Slot {slot} is empty")
-            
+
         return info
 
     def list_sounds(self) -> dict[int, dict]:
@@ -505,7 +418,8 @@ class EP133Client:
             all_bytes.extend(content)
             if b"}" in all_bytes:
                 try: return json.loads(all_bytes.decode("utf-8"))
-                except: pass
+                except Exception:  # pylint: disable=broad-exception-caught
+                    pass
             page += 1
         return _parse_json_tolerant(bytes(all_bytes))
 

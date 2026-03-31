@@ -390,7 +390,7 @@ def cmd_fingerprint(args, view: View):
                 }
                 try:
                     client.update_slot_metadata(slot, patch)
-                except Exception as exc:
+                except Exception as exc:  # pylint: disable=broad-exception-caught
                     view.warn(f"Fingerprint stored locally, but metadata update failed: {exc}")
 
             view.success(f"Fingerprint cached for slot {slot:03d}")

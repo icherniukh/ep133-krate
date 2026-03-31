@@ -11,7 +11,7 @@ import json
 import sys
 from typing import Protocol, runtime_checkable
 
-from core.models import Sample, MAX_SAMPLE_RATE
+from core.models import Sample
 
 
 class Colors:

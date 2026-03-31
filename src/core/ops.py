@@ -6,7 +6,7 @@ Used by both CLI and TUI — keeps command functions thin.
 
 from __future__ import annotations
 
-import shutil
+
 import subprocess
 import tempfile
 import wave
@@ -21,13 +21,27 @@ from .models import MAX_SAMPLE_RATE
 ProgressCallback = Optional[Callable[[int, int, str], None]]
 
 
-def prepare_for_upload(input_path: Path, tmp_dir: Path | None = None) -> Path:
-    """Ensure a WAV file is in EP-133 compatible format (16-bit, ≤46875 Hz).
+_WAV_EXTENSIONS = {".wav", ".wave"}
 
-    If the file is already compatible, returns input_path unchanged.
-    Otherwise, converts via sox and returns the path to the converted file.
+
+def prepare_for_upload(input_path: Path, tmp_dir: Path | None = None) -> Path:
+    """Ensure an audio file is in EP-133 compatible WAV format (16-bit, ≤46875 Hz).
+
+    Non-WAV formats (AIF, AIFF, FLAC, MP3, etc.) are converted via sox first.
+    If the file is already a compatible WAV, returns input_path unchanged.
     Stereo is preserved (the device supports it).
     """
+    if tmp_dir is None:
+        tmp_dir = input_path.parent
+
+    # Non-WAV formats: convert to WAV first, then re-inspect.
+    if input_path.suffix.lower() not in _WAV_EXTENSIONS:
+        converted = tmp_dir / f"{input_path.stem}_converted.wav"
+        sox_args = ["sox", "-G", str(input_path), "-b", "16", str(converted)]
+        sox_args += ["rate", "-v", str(MAX_SAMPLE_RATE), "dither"]
+        subprocess.run(sox_args, capture_output=True, check=True, timeout=30)
+        return converted
+
     with wave.open(str(input_path), "rb") as w:
         channels = w.getnchannels()
         rate = w.getframerate()
@@ -39,8 +53,6 @@ def prepare_for_upload(input_path: Path, tmp_dir: Path | None = None) -> Path:
     if not needs_requantize and not needs_resample:
         return input_path
 
-    if tmp_dir is None:
-        tmp_dir = input_path.parent
     out_path = tmp_dir / f"{input_path.stem}_converted.wav"
 
     sox_args = ["sox", "-G", str(input_path), "-b", "16", str(out_path)]

@@ -4,12 +4,13 @@ EP-133 KO-II Protocol Layer
 Defines the "Language" of the device using a Descriptor-based DSL.
 Depends only on core.types.py for primitive types.
 """
+from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import IntEnum
 from typing import Any, Dict, Optional, Type, TypeVar, ClassVar
-from abc import ABC, abstractmethod
-from .types import WireType, Packed7, U7, BE16, BE32, U14, U14LE, RawBytes, NullBytes
+from abc import ABC
+from .types import Packed7, U7, BE16, BE32, U14, U14LE, RawBytes, NullBytes
 
 
 # --- Exception Hierarchy ---
@@ -308,7 +309,7 @@ class SysExMessage(metaclass=MessageMeta):
     def pack_payload(self) -> bytes:
         """Serialize all descriptor fields."""
         data = b""
-        for name, field in self._fields:  # pylint: disable=no-member
+        for _, field in self._fields:  # pylint: disable=no-member
             data += field.pack(self)
         return data
 
@@ -503,7 +504,7 @@ def decode_14bit(hi: int, lo: int) -> int:
     """Decode a 14-bit (hi/lo 7-bit) value."""
     return (hi << 7) | lo
 
-def decode_node_id(hi: int, lo: int, name: str | None = None) -> int:
+def decode_node_id(hi: int, lo: int, _name: str | None = None) -> int:
     """Decode node_id from LIST response as BE16 (confirmed from device capture)."""
     return (hi << 8) | lo
 

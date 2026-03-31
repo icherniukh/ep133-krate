@@ -1,15 +1,11 @@
 from __future__ import annotations
 
-import array
-import hashlib
-import io
 import os
 import tempfile
 import threading
 import time
-import wave
 from concurrent.futures import Future, ThreadPoolExecutor
-from dataclasses import asdict, dataclass, field
+from dataclasses import dataclass, field
 from pathlib import Path
 from queue import Empty, Queue
 from typing import Any, Callable
@@ -107,7 +103,7 @@ class DeviceWorker(threading.Thread):
             if handler is None:
                 raise ValueError(f"Unknown operation: {req.op!r}")
             handler(self, req, client, phases, t_start)
-        except Exception as exc:
+        except Exception as exc:  # pylint: disable=broad-exception-caught
             self._emit("error", op=req.op, message=str(exc))
             self._close_client()
         finally:
@@ -224,7 +220,7 @@ class DeviceWorker(threading.Thread):
                 client, src, dst, progress=self._make_progress_cb(req.op)
             )
             self._emit_success(msg, started_at=t_start)
-        except Exception as exc:
+        except Exception as exc:  # pylint: disable=broad-exception-caught
             self._emit("error", op=req.op, message=str(exc))
         finally:
             self._emit_inventory(client, hydrate_slots={dst}, phases=phases)
@@ -243,7 +239,7 @@ class DeviceWorker(threading.Thread):
                 client, src, dst, progress=self._make_progress_cb(req.op)
             )
             self._emit_success(msg, started_at=t_start)
-        except Exception as exc:
+        except Exception as exc:  # pylint: disable=broad-exception-caught
             self._emit("error", op=req.op, message=str(exc))
         finally:
             self._emit_inventory(client, hydrate_slots={src, dst}, phases=phases)
@@ -270,7 +266,7 @@ class DeviceWorker(threading.Thread):
                 mapping, sounds, client, raw=False, progress=self._make_progress_cb(req.op)
             )
             self._emit_success(f"Squashed {total} slots", started_at=t_start)
-        except Exception as exc:
+        except Exception as exc:  # pylint: disable=broad-exception-caught
             self._emit("error", op=req.op, message=f"Squash failed: {exc}")
         finally:
             changed = set(mapping.keys()) | set(mapping.values())
@@ -292,7 +288,7 @@ class DeviceWorker(threading.Thread):
             except SlotEmptyError:
                 done += 1
                 continue
-            except Exception as exc:
+            except Exception as exc:  # pylint: disable=broad-exception-caught
                 self._emit("error", op=req.op, message=f"Skipping slot {slot:03d}: {exc}")
                 done += 1
                 continue
@@ -442,7 +438,7 @@ class DeviceWorker(threading.Thread):
                     )
                     optimized_count += 1
                     changed_slots.add(slot)
-                except Exception as exc:
+                except Exception as exc:  # pylint: disable=broad-exception-caught
                     self._emit("error", op=req.op, message=f"Error on slot {slot:03d}: {exc}")
                 finally:
                     self._emit_slot_refresh(client, slot, phases=phases)
@@ -544,7 +540,7 @@ class DeviceWorker(threading.Thread):
                 samplerate = int(meta.get("samplerate") or 0)
                 if "samplerate" in meta:
                     patch["samplerate"] = samplerate
-            except Exception as exc:
+            except Exception as exc:  # pylint: disable=broad-exception-caught
                 self._emit("log", message=f"hydration failed for slot {slot}: {exc}")
                 continue
 
@@ -588,7 +584,7 @@ class DeviceWorker(threading.Thread):
             phases = {}
         try:
             info = self._timed("device.info", phases, client.info, int(slot), include_size=True)
-        except Exception as exc:
+        except Exception as exc:  # pylint: disable=broad-exception-caught
             self._emit("log", message=f"slot_refresh failed for slot {slot:03d}: {exc}")
             return
         self._emit("slot_refresh", slot=int(slot), details=_sampleinfo_to_dict(info))
@@ -628,7 +624,7 @@ class DeviceWorker(threading.Thread):
                 return wav_path.read_bytes()
         except DownloadCancelledError:
             return None
-        except Exception as exc:
+        except Exception as exc:  # pylint: disable=broad-exception-caught
             self._emit("log", message=f"waveform download failed for slot {slot:03d}: {exc}")
             return None
 
@@ -710,7 +706,7 @@ class DeviceWorker(threading.Thread):
             slot, fp = item
             try:
                 bins = future.result()
-            except Exception as exc:
+            except Exception as exc:  # pylint: disable=broad-exception-caught
                 self._emit("log", message=f"waveform render failed for slot {slot:03d}: {exc}")
                 continue
             if bins:

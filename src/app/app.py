@@ -6,7 +6,7 @@ import asyncio
 import logging
 
 try:
-    import std_nslog  # noqa: F401  # iOS logging bridge; import for side effects.
+    import std_nslog  # noqa: F401  # pylint: disable=unused-import
 except ImportError:
     std_nslog = None  # type: ignore[assignment]
 
@@ -90,7 +90,7 @@ class KrateApp(toga.App):
 
         self.on_running = self._on_running
 
-    async def _on_running(self, app) -> None:
+    async def _on_running(self, _app) -> None:
         devices = await asyncio.to_thread(self._do_scan)
         self._apply_scan_results(devices)
 
@@ -154,7 +154,7 @@ class KrateApp(toga.App):
             self._status_label.text = f"Connected: {device.name}"
             self._slot_screen.on_connected()
             self._upload_screen.on_connected()
-        except Exception as exc:
+        except Exception as exc:  # pylint: disable=broad-exception-caught
             self._status_label.text = f"Connect failed: {exc}"
 
     def _connect_device(self, device) -> "EP133Client":

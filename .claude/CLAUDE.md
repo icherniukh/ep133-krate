@@ -91,3 +91,49 @@ When corrected on an approach, fully internalize the correction. Do not revert i
 
 Run with: `python3 -m pytest tests/unit/ -v`
 Run after any functional change. Do not proceed past a regression.
+
+---
+
+## Mobile / iOS Build (BeeWare + Briefcase)
+
+### Source of truth hierarchy (mobile layer)
+| Question | Source |
+|----------|--------|
+| Briefcase config | `src/ios/pyproject.toml` |
+| App entry point | `src/krate/__main__.py` → `src/mobile/app.py` |
+| iOS transport | `src/mobile/transport/ios.py` (rubicon-objc) |
+| Source symlinks | `src/ios/src/{core,krate,mobile}` → `src/{core,krate,mobile}` |
+
+### Build venv
+- Location: `.venv-mobile/` (Python 3.12, **not** the project root venv)
+- Create: `python3.12 -m venv .venv-mobile && .venv-mobile/bin/pip install briefcase toga rubicon-objc`
+- Never use the root `.venv` for mobile builds — it may contain desktop-only extensions that break Briefcase
+
+### Build commands (run from repo root)
+
+```bash
+make ios-create   # briefcase create iOS  — scaffold Xcode project
+make ios-build    # briefcase build iOS   — compile
+make ios-run      # briefcase run iOS -d 446DA412-2BE7-43A6-BA99-26B85E010A93
+make ios          # all three in sequence
+```
+
+Manual equivalents (cd into `src/ios/` first):
+```bash
+cd src/ios
+../../.venv-mobile/bin/briefcase create iOS
+../../.venv-mobile/bin/briefcase build iOS
+../../.venv-mobile/bin/briefcase run iOS -d 446DA412-2BE7-43A6-BA99-26B85E010A93
+```
+
+### Simulator
+- UUID: `446DA412-2BE7-43A6-BA99-26B85E010A93` — use this exact UUID every time
+- Logs: `make ios-logs` (streams NSLog output from the simulator for the Krate process)
+
+### rubicon-objc correctness rules (iOS transport layer)
+- `NSData → bytes`: use `py_from_ns(ns_data)` — never `ns_data.bytes[:n]` (c_void_p not subscriptable)
+- `bytes → NSData`: use `ns_from_py(data)` — never `ObjCClass("NSData").dataWithBytes_length_()`
+- `NSNumber bool`: call `.boolValue` — `bool(NSNumber(0))` is always `True`
+- `NSArray iteration`: plain `for item in ns_array:` or `ns_array[i]` — `ObjCListInstance` supports both
+- `NSString → str`: `str(ns_str)` or `py_from_ns(ns_str)`
+- `asyncio.to_thread`: safe for pure data operations; avoid for UI mutations or run-loop-sensitive ObjC calls

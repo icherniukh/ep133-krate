@@ -95,7 +95,7 @@ class UploadQueueScreen(toga.Box):
                 next_slot = min(999, slot + 1)
                 self._slot_input.value = next_slot
                 self._refresh_list()
-        except Exception as exc:
+        except Exception as exc:  # pylint: disable=broad-exception-caught
             self._status_label.text = f"File pick error: {exc}"
 
     def _refresh_list(self) -> None:
@@ -127,7 +127,7 @@ class UploadQueueScreen(toga.Box):
             try:
                 await asyncio.to_thread(self._upload_entry, entry)
                 entry["status"] = _STATUS_DONE
-            except Exception as exc:
+            except Exception as exc:  # pylint: disable=broad-exception-caught
                 entry["status"] = _STATUS_ERROR
                 errors += 1
             self._refresh_list()

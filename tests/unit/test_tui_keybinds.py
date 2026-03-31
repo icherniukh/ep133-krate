@@ -435,7 +435,8 @@ def test_c_key_copy_cancel_skips_request(monkeypatch):
             await pilot.pause()
             await pilot.press("escape")
             await pilot.pause()
-            assert _request_ops(app) == before
+            # No copy request should be submitted; waveform requests are fine
+            assert "copy" not in _request_ops(app)
             assert app.copying_src is None
 
     asyncio.run(_run())
