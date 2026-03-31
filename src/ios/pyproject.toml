@@ -6,7 +6,7 @@ license.file = "LICENSE"
 requires-python = ">=3.11"
 authors = [{name = "Ivan Cherniukh"}]
 
-# NOTE: No dependencies here — Briefcase uses [tool.briefcase.app.krate.requires]
+# NOTE: No dependencies here — Briefcase uses [tool.briefcase.app.app.requires]
 # to install iOS-compatible packages only.
 dependencies = []
 
@@ -17,21 +17,20 @@ version = "0.1.0"
 author = "Ivan Cherniukh"
 url = "https://github.com/icherniukh/ep133-krate"
 
-[tool.briefcase.app.krate]
+[tool.briefcase.app.app]
 formal_name = "Krate"
 description = "EP-133 KO-II sample manager"
 module = "app"
 # Source directories — copied into the app bundle.
 # Paths are relative to this pyproject.toml.
-# Symlinks point into the main src/ tree without including this ios/ dir.
-sources = ["src/core", "src/app"]
+sources = ["../core", "../app"]
 requires = [
     "toga>=0.4.0",
     "rubicon-objc>=0.5.0",
     "std-nslog>=0.1.0",
 ]
 
-[tool.briefcase.app.krate.iOS]
+[tool.briefcase.app.app.iOS]
 template = "./ios-template"
 requires = [
     "toga-iOS>=0.4.0",
@@ -48,7 +47,7 @@ info.NSBluetoothPeripheralUsageDescription = "Krate uses Bluetooth for wireless 
 # com.apple.developer.midi — required for CoreMIDI access on iOS
 entitlement."com.apple.developer.midi" = true
 
-[tool.briefcase.app.krate.macOS]
+[tool.briefcase.app.app.macOS]
 requires = [
     "toga-cocoa>=0.4.0",
     "rubicon-objc>=0.5.0",
