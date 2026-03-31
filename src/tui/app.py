@@ -729,15 +729,19 @@ class TUIApp(App[None]):
         left = f"{state_text}{progress_bar}{sel_suffix}{mem_suffix}{fold_suffix}{logs_suffix}{debug_suffix}{wf_suffix}"
         right = f"{self.device_name or 'EP-133'} {circle}"
 
-        self.query_one("#status_left", Static).update(left)
-        self.query_one("#status_right", Static).update(right)
+        from textual.css.query import NoMatches
+        try:
+            self.query_one("#status_left", Static).update(left)
+            self.query_one("#status_right", Static).update(right)
 
-        status_bar = self.query_one("#status")
-        status_bar.remove_class("active", "error")
-        if is_active:
-            status_bar.add_class("active")
-        elif self._device_online is False:
-            status_bar.add_class("error")
+            status_bar = self.query_one("#status")
+            status_bar.remove_class("active", "error")
+            if is_active:
+                status_bar.add_class("active")
+            elif self._device_online is False:
+                status_bar.add_class("error")
+        except NoMatches:
+            pass
 
     def _log(self, line: str) -> None:
         self._log_lines.append(line)
