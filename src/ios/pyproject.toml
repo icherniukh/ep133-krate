@@ -20,6 +20,7 @@ url = "https://github.com/icherniukh/ep133-krate"
 [tool.briefcase.app.krate]
 formal_name = "Krate"
 description = "EP-133 KO-II sample manager"
+module = "app"
 # Source directories — copied into the app bundle.
 # Paths are relative to this pyproject.toml.
 # Symlinks point into the main src/ tree without including this ios/ dir.

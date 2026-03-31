@@ -100,9 +100,9 @@ Run after any functional change. Do not proceed past a regression.
 | Question | Source |
 |----------|--------|
 | Briefcase config | `src/ios/pyproject.toml` |
-| App entry point | `src/krate/__main__.py` → `src/mobile/app.py` |
-| iOS transport | `src/mobile/transport/ios.py` (rubicon-objc) |
-| Source symlinks | `src/ios/src/{core,krate,mobile}` → `src/{core,krate,mobile}` |
+| App entry point | `src/app/__main__.py` → `src/app/app.py` |
+| iOS transport | `src/app/transport/ios.py` (rubicon-objc) |
+| Source symlinks | `src/ios/src/{core,app}` → `src/{core,app}` |
 
 ### Build venv
 - Location: `.venv-mobile/` (Python 3.12, **not** the project root venv)
