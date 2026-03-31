@@ -62,3 +62,23 @@ env/
 .dolt/
 *.db
 .beads-credential-key
+
+# --- Added by Cleanup Plan ---
+# Mobile / App build artifacts
+.venv-mobile/
+src/ios/.briefcase/
+src/ios/src/
+experiments/ios-native/**/*.build/
+
+# Xcode User State
+**/*.xcworkspace/
+**/*.xcuserdatad/
+
+# Backups & Logs
+.ko2-backups/
+captures-backup/
+logs/
+
+# Ensure specific prototypes are tracked
+!experiments/ios-midi-probe/**
+!experiments/ios-native/**

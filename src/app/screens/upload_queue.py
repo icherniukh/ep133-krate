@@ -1,30 +1,13 @@
-"""
-Upload queue screen for the Krate mobile app.
-
-Allows the user to pick an audio file and queue it for upload to the
-EP-133 KO-II via the krate-bridge HTTP service.
-"""
+"""Upload queue screen — pick audio files and send to device."""
 
 from __future__ import annotations
 
 import asyncio
 from pathlib import Path
 
-try:
-    import toga
-    from toga.style import Pack
-    from toga.style.pack import COLUMN, ROW
-except ImportError as exc:  # pragma: no cover
-    raise ImportError(
-        "toga is required for the mobile app. Install with: pip install toga"
-    ) from exc
-
-try:
-    import httpx
-except ImportError as exc:  # pragma: no cover
-    raise ImportError(
-        "httpx is required for the mobile app. Install with: pip install httpx"
-    ) from exc
+import toga
+from toga.style import Pack
+from toga.style.pack import COLUMN, ROW
 
 _STATUS_QUEUED = "queued"
 _STATUS_UPLOADING = "uploading"
@@ -33,24 +16,25 @@ _STATUS_ERROR = "error"
 
 
 class UploadQueueScreen(toga.Box):
-    """Toga Box for managing the audio file upload queue."""
 
     def __init__(
         self,
-        bridge_url: str = "http://localhost:8765",
+        transport=None,
         target_slot: int = 1,
     ) -> None:
-        super().__init__(style=Pack(direction=COLUMN, padding=8))
-        self._bridge_url = bridge_url
+        super().__init__(style=Pack(direction=COLUMN, margin=8))
+        self._transport = transport
+        self._client = None
         self._queue: list[dict] = []
+
         title = toga.Label(
             "Upload Queue",
-            style=Pack(padding_bottom=8, font_size=18),
+            style=Pack(margin_bottom=8, font_size=18),
         )
         self.add(title)
 
-        slot_row = toga.Box(style=Pack(direction=ROW, padding_bottom=8))
-        slot_row.add(toga.Label("Target slot: ", style=Pack(padding_right=4)))
+        slot_row = toga.Box(style=Pack(direction=ROW, margin_bottom=8))
+        slot_row.add(toga.Label("Target slot: ", style=Pack(margin_right=4)))
         self._slot_input = toga.NumberInput(
             min=1,
             max=999,
@@ -63,18 +47,18 @@ class UploadQueueScreen(toga.Box):
         pick_btn = toga.Button(
             "Pick Audio File…",
             on_press=self._on_pick_file,
-            style=Pack(padding_bottom=8),
+            style=Pack(margin_bottom=8),
         )
         self.add(pick_btn)
 
         self._status_label = toga.Label(
             "No files queued.",
-            style=Pack(padding_bottom=8, color="#888888"),
+            style=Pack(margin_bottom=8, color="#888888"),
         )
         self.add(self._status_label)
 
         self._list_view = toga.DetailedList(
-            accessors=["title", "subtitle"],
+            accessors=["title", "subtitle", "icon"],
             style=Pack(flex=1),
         )
         self.add(self._list_view)
@@ -82,9 +66,15 @@ class UploadQueueScreen(toga.Box):
         submit_btn = toga.Button(
             "Upload All",
             on_press=self._on_upload_all,
-            style=Pack(padding_top=8),
+            style=Pack(margin_top=8),
         )
         self.add(submit_btn)
+
+    def set_client(self, client) -> None:
+        self._client = client
+
+    def on_connected(self) -> None:
+        pass
 
     async def _on_pick_file(self, widget: toga.Button) -> None:
         try:
@@ -102,7 +92,6 @@ class UploadQueueScreen(toga.Box):
                     "status": _STATUS_QUEUED,
                 }
                 self._queue.append(entry)
-                # Auto-advance slot for next pick
                 next_slot = min(999, slot + 1)
                 self._slot_input.value = next_slot
                 self._refresh_list()
@@ -122,9 +111,13 @@ class UploadQueueScreen(toga.Box):
         self._status_label.text = f"{count} file(s) in queue." if count else "No files queued."
 
     async def _on_upload_all(self, widget: toga.Button) -> None:
+        if not self._client:
+            self._status_label.text = "Not connected to device."
+            return
         if not self._queue:
             self._status_label.text = "Queue is empty — pick a file first."
             return
+
         errors = 0
         for entry in self._queue:
             if entry["status"] == _STATUS_DONE:
@@ -134,24 +127,17 @@ class UploadQueueScreen(toga.Box):
             try:
                 await asyncio.to_thread(self._upload_entry, entry)
                 entry["status"] = _STATUS_DONE
-            except Exception:
+            except Exception as exc:
                 entry["status"] = _STATUS_ERROR
                 errors += 1
             self._refresh_list()
+
         if errors:
             self._status_label.text = f"Upload complete with {errors} error(s)."
         else:
             self._status_label.text = "All uploads complete."
 
     def _upload_entry(self, entry: dict) -> None:
-        """POST the audio file to the bridge /upload endpoint."""
         path: Path = entry["path"]
         slot: int = entry["slot"]
-        with httpx.Client(base_url=self._bridge_url, timeout=120.0) as client:
-            with open(path, "rb") as fh:
-                resp = client.post(
-                    "/upload",
-                    files={"file": (path.name, fh, "audio/wav")},
-                    params={"slot": slot},
-                )
-            resp.raise_for_status()
+        self._client.put(path, slot)
