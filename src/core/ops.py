@@ -24,6 +24,21 @@ ProgressCallback = Optional[Callable[[int, int, str], None]]
 _WAV_EXTENSIONS = {".wav", ".wave"}
 
 
+def _convert_wav_with_sox(
+    source: Path,
+    destination: Path,
+    *,
+    resample: bool,
+) -> Path:
+    """Invokes SoX to convert audio to 16-bit WAV, optionally resampling."""
+    sox_args = ["sox", "-G", str(source), "-b", "16", str(destination)]
+    if resample:
+        sox_args += ["rate", "-v", str(MAX_SAMPLE_RATE)]
+    sox_args += ["dither"]
+    subprocess.run(sox_args, capture_output=True, check=True, timeout=30)
+    return destination
+
+
 def prepare_for_upload(input_path: Path, tmp_dir: Path | None = None) -> Path:
     """Ensure an audio file is in EP-133 compatible WAV format (16-bit, ≤46875 Hz).
 
@@ -34,12 +49,19 @@ def prepare_for_upload(input_path: Path, tmp_dir: Path | None = None) -> Path:
     if tmp_dir is None:
         tmp_dir = input_path.parent
 
-    # Non-WAV formats: convert to WAV first, then re-inspect.
+    # Non-WAV formats: convert to 16-bit WAV first, then inspect the result.
+    # This avoids guessing the source sample rate from `sox --i` and accidentally
+    # upsampling files that are already within the device limit.
     if input_path.suffix.lower() not in _WAV_EXTENSIONS:
         converted = tmp_dir / f"{input_path.stem}_converted.wav"
-        sox_args = ["sox", "-G", str(input_path), "-b", "16", str(converted)]
-        sox_args += ["rate", "-v", str(MAX_SAMPLE_RATE), "dither"]
-        subprocess.run(sox_args, capture_output=True, check=True, timeout=30)
+        _convert_wav_with_sox(input_path, converted, resample=False)
+
+        with wave.open(str(converted), "rb") as w:
+            rate = w.getframerate()
+
+        if rate > MAX_SAMPLE_RATE:
+            resampled = tmp_dir / f"{input_path.stem}_converted_resampled.wav"
+            converted = _convert_wav_with_sox(converted, resampled, resample=True)
         return converted
 
     with wave.open(str(input_path), "rb") as w:
@@ -55,13 +77,7 @@ def prepare_for_upload(input_path: Path, tmp_dir: Path | None = None) -> Path:
 
     out_path = tmp_dir / f"{input_path.stem}_converted.wav"
 
-    sox_args = ["sox", "-G", str(input_path), "-b", "16", str(out_path)]
-    if needs_resample:
-        sox_args += ["rate", "-v", str(MAX_SAMPLE_RATE)]
-    sox_args += ["dither"]
-
-    subprocess.run(sox_args, capture_output=True, check=True, timeout=30)
-    return out_path
+    return _convert_wav_with_sox(input_path, out_path, resample=needs_resample)
 
 
 def optimize_sample(
