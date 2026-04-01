@@ -182,13 +182,13 @@ Build raw payload first, then apply packed7. Never pre-split values before packe
 Slot/node fields are BE16 inside the raw payload.
 
 
---- MOBILE APP AGENT INSTRUCTIONS ---
+--- GUI APP AGENT INSTRUCTIONS ---
 
-# Mobile App — Agent Instructions
+# GUI App — Agent Instructions
 
 ## Overview
 
-The mobile app provides direct MIDI communication with the EP-133 KO-II from iOS (and later Android). It reuses `src/core/` (models, Packed7, protocol logic) rather than reimplementing in Swift/Kotlin.
+The GUI app provides direct MIDI communication with the EP-133 KO-II from iOS, macOS, and later Android. It reuses `src/core/` (models, Packed7, protocol logic) rather than reimplementing in Swift/Kotlin.
 
 **Stack:** BeeWare (Toga + Briefcase) for cross-platform Python GUI.
 

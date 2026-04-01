@@ -94,9 +94,8 @@ Run after any functional change. Do not proceed past a regression.
 
 ---
 
-## Mobile / iOS Build (BeeWare + Briefcase)
-
-### Source of truth hierarchy (mobile layer)
+## GUI / iOS Build (BeeWare + Briefcase)
+### Source of truth hierarchy (app layer)
 | Question | Source |
 |----------|--------|
 | Briefcase config | `src/ios/pyproject.toml` |

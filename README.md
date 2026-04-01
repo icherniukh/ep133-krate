@@ -101,7 +101,7 @@ krate squash --execute
 |-------|-------|--------|
 | 1 | CLI — full sample management | ✅ complete |
 | 2 | Terminal UI — interactive browser with all operations | ✅ complete |
-| 3 | Native mobile app (iOS via BeeWare) | planned |
+| 3 | Native GUI app (iOS/macOS via BeeWare) | 🚧 in progress |
 
 The protocol specification in PROTOCOL.md is the foundation for all of it.
 
