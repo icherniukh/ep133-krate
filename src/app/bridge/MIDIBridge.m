@@ -293,24 +293,32 @@ static BOOL IsNetworkSession(NSString *name) {
         offset += chunkLen;
     }
 
-    MIDIEventList eventList;
-    MIDIEventPacket *packet = MIDIEventListInit(&eventList, kMIDIProtocol_1_0);
+    // Allocate memory for the MIDIEventList.
+    // UMP SysEx7 packets use 2 words (64 bits) per chunk, so we need space for 2 uint32_t per chunk.
+    size_t listSize = sizeof(MIDIEventList) + numChunks * (sizeof(MIDIEventPacket) + 2 * sizeof(uint32_t));
+    uint8_t *buffer = malloc(listSize);
+    if (!buffer) return NO;
+    
+    MIDIEventList *eventList = (MIDIEventList *)buffer;
+    MIDIEventPacket *packet = MIDIEventListInit(eventList, kMIDIProtocol_1_0);
 
     for (NSUInteger i = 0; i < numChunks; i++) {
         uint32_t words[2] = { umpWords[i * 2], umpWords[i * 2 + 1] };
-        packet = MIDIEventListAdd(&eventList,
-                                  sizeof(MIDIEventList),
+        packet = MIDIEventListAdd(eventList,
+                                  listSize,
                                   packet,
                                   0,
                                   2,
                                   words);
         if (packet == NULL) {
             os_log_error(_midiLog(), "MIDIEventListAdd failed at chunk %lu", (unsigned long)i);
+            free(buffer);
             return NO;
         }
     }
 
-    OSStatus sendStatus = MIDISendEventList(_outputPort, _connectedDest, &eventList);
+    OSStatus sendStatus = MIDISendEventList(_outputPort, _connectedDest, eventList);
+    free(buffer);
     if (sendStatus != noErr) {
         os_log_error(_midiLog(), "MIDISendEventList failed: %d", (int)sendStatus);
         return NO;

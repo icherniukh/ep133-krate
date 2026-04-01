@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import time
+from collections import deque
 from typing import Callable, Optional
 
 from core.transport import MIDITransport, MIDIDevice
@@ -28,6 +29,7 @@ class IOSMIDITransport(MIDITransport):
         self._bridge = ObjCClass("MIDIBridge").alloc().init()
         self._device: Optional[MIDIDevice] = None
         self._callback: Optional[Callable[[bytes], None]] = None
+        self._rx_queue: deque[bytes] = deque()
 
     def discover_devices(self) -> list[MIDIDevice]:
         raw_devices = self._bridge.discoverDevices()
@@ -60,6 +62,7 @@ class IOSMIDITransport(MIDITransport):
     def disconnect(self) -> None:
         self._bridge.disconnect()
         self._device = None
+        self._rx_queue.clear()
 
     def send_sysex(self, data: bytes) -> None:
         _, ns_from_py, __ = _objc()
@@ -70,25 +73,28 @@ class IOSMIDITransport(MIDITransport):
 
     def receive_sysex(self, timeout: float = 1.0) -> Optional[bytes]:
         _, __, py_from_ns = _objc()
+        
+        if self._rx_queue:
+            msg = self._rx_queue.pop(0)
+            if self._callback:
+                self._callback(msg)
+            return msg
+
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
             messages = self._bridge.drainReceivedMessages()
             # NSArray (ObjCListInstance): None if nil, len() gives count.
             if messages is not None and len(messages) > 0:
-                first: Optional[bytes] = None
                 for i in range(len(messages)):
                     ns_data = messages[i]        # ObjCListInstance supports [i]
                     raw: bytes = py_from_ns(ns_data)
-                    if i == 0:
-                        first = raw
-                    else:
-                        _log.debug(
-                            "iOS: extra message in batch (index %d, %d bytes) — queuing not yet implemented",
-                            i, len(raw),
-                        )
-                if self._callback and first:
-                    self._callback(first)
-                return first
+                    self._rx_queue.append(raw)
+                
+                if self._rx_queue:
+                    msg = self._rx_queue.pop(0)
+                    if self._callback:
+                        self._callback(msg)
+                    return msg
             time.sleep(0.005)
         return None
 

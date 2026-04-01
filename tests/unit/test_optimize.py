@@ -1,5 +1,6 @@
 import array
 import shutil
+import subprocess
 import wave
 from pathlib import Path
 from types import SimpleNamespace
@@ -12,7 +13,7 @@ import cli.cmd_audio
 import cli.cmd_system
 import core.ops
 from core.client import EP133Client, SlotEmptyError
-from core.ops import backup_copy, optimize_sample
+from core.ops import backup_copy, optimize_sample, prepare_for_upload
 from cli.display import SilentView
 from core.models import MAX_SAMPLE_RATE
 from tests.helpers import create_test_wav
@@ -36,6 +37,17 @@ def create_stereo_wav(path: Path, framerate: int = 44100, duration_sec: float = 
             val = int(16000 * (i / frames))
             data.append(val)   # L channel
             data.append(-val)  # R channel
+        w.writeframes(data.tobytes())
+
+
+def create_mono_wav(path: Path, framerate: int = 44100, duration_sec: float = 0.2):
+    """Create a mono 16-bit WAV for conversion tests."""
+    with wave.open(str(path), "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(framerate)
+        frames = int(framerate * duration_sec)
+        data = array.array("h", ((i % 200) * 100 for i in range(frames)))
         w.writeframes(data.tobytes())
 
 
@@ -117,6 +129,38 @@ def test_optimize_sample_reports_correct_sizes(tmp_path):
     assert success
     assert orig_size == input_wav.stat().st_size
     assert opt_size == output_wav.stat().st_size
+
+
+@pytest.mark.skipif(not _sox_available(), reason="sox not installed")
+def test_prepare_for_upload_non_wav_preserves_sub_native_rate(tmp_path):
+    """Non-WAV inputs below the device max must not be upsampled."""
+    input_wav = tmp_path / "mono44k.wav"
+    input_aiff = tmp_path / "mono44k.aiff"
+    create_mono_wav(input_wav, framerate=44100)
+    subprocess.run(["sox", str(input_wav), str(input_aiff)], check=True, capture_output=True)
+
+    output_wav = prepare_for_upload(input_aiff, tmp_dir=tmp_path)
+
+    with wave.open(str(output_wav), "rb") as w:
+        assert w.getframerate() == 44100
+        assert w.getnchannels() == 1
+        assert w.getsampwidth() == 2
+
+
+@pytest.mark.skipif(not _sox_available(), reason="sox not installed")
+def test_prepare_for_upload_non_wav_downsamples_above_native_rate(tmp_path):
+    """Non-WAV inputs above the device max must be downsampled."""
+    input_wav = tmp_path / "mono96k.wav"
+    input_aiff = tmp_path / "mono96k.aiff"
+    create_mono_wav(input_wav, framerate=96000)
+    subprocess.run(["sox", str(input_wav), str(input_aiff)], check=True, capture_output=True)
+
+    output_wav = prepare_for_upload(input_aiff, tmp_dir=tmp_path)
+
+    with wave.open(str(output_wav), "rb") as w:
+        assert w.getframerate() == MAX_SAMPLE_RATE
+        assert w.getnchannels() == 1
+        assert w.getsampwidth() == 2
 
 
 # --- cmd_optimize: integration via mocked client ---
