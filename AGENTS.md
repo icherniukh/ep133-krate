@@ -157,10 +157,13 @@ For more details, see README.md and docs/QUICKSTART.md.
 src/cli/    — CLI layer: cli_main.py, parser.py, display.py, cmd_audio.py,
               cmd_slots.py, cmd_system.py, cmd_transfer.py, formatters.py,
               naming.py, prompts.py, sysinfo.py
-src/core/   — Core layer: client.py, models.py, types.py, operations.py,
-              ops.py, audio.py, backup.py
+src/core/   — Core layer: client.py, transport.py, desktop_transport.py,
+              models.py, types.py, operations.py, ops.py, audio.py, backup.py,
+              waveform_store.py
 src/tui/    — TUI layer: app.py, ui.py, worker.py, waveform_widget.py,
               waveform_store.py, actions.py, selectors.py, state.py
+src/app/    — In-progress Toga/BeeWare app layer and platform transports;
+              intended to reuse src/core, not yet feature-parity with CLI/TUI
 krate.py    — thin entry-point shim → src/cli/cli_main.main()
 ```
 
@@ -168,7 +171,9 @@ krate.py    — thin entry-point shim → src/cli/cli_main.main()
 
 All `cmd_*` functions receive `view: View` (from `src/cli/display.py`).
 Never use bare `print()` in command functions. Use `view.success()`, `view.error()`,
-`view.kv()`, etc. Three implementations: `TerminalView`, `SilentView`, `JsonView`.
+`view.kv()`, etc. If output shape is not covered cleanly by the existing methods,
+extend the view layer rather than printing directly from a command. Three
+implementations: `TerminalView`, `SilentView`, `JsonView`.
 Tests use `Mock(spec=View)` — no stdout patching.
 
 ### Descriptor DSL for protocol messages

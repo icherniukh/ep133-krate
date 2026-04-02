@@ -13,12 +13,6 @@ from typing import Any, Callable
 from core.client import EP133Client, DownloadCancelledError, SlotEmptyError
 from core.models import MAX_SAMPLE_RATE
 
-import sys
-from pathlib import Path as _Path
-_src = str(_Path(__file__).resolve().parent.parent / "src")
-if _src not in sys.path:
-    sys.path.insert(0, _src)
-
 from core.audio import extract_waveform_bins, extract_fingerprint
 from core.ops import (
     backup_copy,

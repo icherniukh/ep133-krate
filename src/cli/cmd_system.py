@@ -98,14 +98,15 @@ def cmd_fs_ls(args, view: View):
         if args.raw:
             entries = client.list_directory_raw(node_id=node_id)  # pylint: disable=no-member
             if not entries:
-                print("  (no entries)")
+                view.info("(no entries)")
                 return 0
 
-            print(f"  Node {node_id}: {len(entries)} entries (raw)\n")
-            print(
+            view.info(f"Node {node_id}: {len(entries)} entries (raw)")
+            view.info("")
+            view.info(
                 f"  {'Hi':>2}  {'Lo':>2}  {'N14':>5}  {'N16':>5}  {'Dec':>5}  {'Slot':>4}  {'Flags':>5}  {'Size':>7}  Name"
             )
-            print(
+            view.info(
                 f"  {'-'*2}  {'-'*2}  {'-'*5}  {'-'*5}  {'-'*5}  {'-'*4}  {'-'*5}  {'-'*7}  {'-'*30}"
             )
 
@@ -129,18 +130,19 @@ def cmd_fs_ls(args, view: View):
                 if not is_dir and not (start <= slot_display <= end):
                     continue
                 slot_str = f"{slot_display:03d}" if not is_dir and slot_display else "DIR"
-                print(
+                view.info(
                     f"  {hi:02X}  {lo:02X}  {n14:>5}  {n16:>5}  {dec:>5}  {slot_str:>4}  0x{flags:02X}  {Sample.format_size(size):>7}  {name}"
                 )
         else:
             entries = client.list_directory(node_id=node_id)
             if not entries:
-                print("  (no entries)")
+                view.info("(no entries)")
                 return 0
 
-            print(f"  Node {node_id}: {len(entries)} entries\n")
-            print(f"  {'Slot':>4}  {'Node':>4}  {'Flags':>5}  {'Size':>7}  Name")
-            print(f"  {'-'*4}  {'-'*4}  {'-'*5}  {'-'*7}  {'-'*30}")
+            view.info(f"Node {node_id}: {len(entries)} entries")
+            view.info("")
+            view.info(f"  {'Slot':>4}  {'Node':>4}  {'Flags':>5}  {'Size':>7}  Name")
+            view.info(f"  {'-'*4}  {'-'*4}  {'-'*5}  {'-'*7}  {'-'*30}")
 
             for e in entries:
                 is_dir = bool(e.get("is_dir"))
@@ -152,7 +154,7 @@ def cmd_fs_ls(args, view: View):
                 if not is_dir and not (start <= slot <= end):
                     continue
                 slot_str = f"{slot:03d}" if not is_dir and slot else "DIR"
-                print(
+                view.info(
                     f"  {slot_str:>4}  {nid:>4}  0x{flags:02X}  {Sample.format_size(size):>7}  {name}"
                 )
 
@@ -190,11 +192,11 @@ def cmd_audit(args, view: View):
         sounds = client.list_sounds()
 
         view.section(f"Metadata audit {start:03d}-{end:03d}")
-        print()
-        print(
+        view.info("")
+        view.info(
             f"  {'Slot':>4}  {'FS Name':<18}  {'Node Name':<18}  {'Meta Name':<18}  Flags"
         )
-        print(f"  {'-'*4}  {'-'*18}  {'-'*18}  {'-'*18}  {'-'*12}")
+        view.info(f"  {'-'*4}  {'-'*18}  {'-'*18}  {'-'*18}  {'-'*12}")
 
         rows = 0
         dump_rows = []
@@ -254,7 +256,7 @@ def cmd_audit(args, view: View):
             issue = bool(flags)
             if show_all or issue:
                 rows += 1
-                print(
+                view.info(
                     f"  {slot:>4}  "
                     f"{_short(fs_name, 18):<18}  "
                     f"{_short(node_name, 18):<18}  "
@@ -282,14 +284,14 @@ def cmd_audit(args, view: View):
                     }
                 )
 
-        print()
-        print(f"  Slots scanned: {end - start + 1}")
-        print(f"  Rows shown:    {rows}")
-        print(f"  Stale meta:    {stale}")
-        print(f"  Node meta missing: {node_missing}")
-        print(f"  Node name empty:  {node_name_empty}")
+        view.info("")
+        view.kv("Slots scanned", str(end - start + 1))
+        view.kv("Rows shown", str(rows))
+        view.kv("Stale meta", str(stale))
+        view.kv("Node meta missing", str(node_missing))
+        view.kv("Node name empty", str(node_name_empty))
         if compare_fields:
-            print(f"  Field mismatch: {field_mismatch}")
+            view.kv("Field mismatch", str(field_mismatch))
 
         if dump_path:
             try:
@@ -299,9 +301,11 @@ def cmd_audit(args, view: View):
                         f.write(
                             f"{slot}\t{fs_name}\t{node_name}\t{meta_name}\t{flags}\n"
                         )
-                print(f"\n  Wrote audit file: {dump_path}")
+                view.info("")
+                view.success(f"Wrote audit file: {dump_path}")
             except OSError as e:
-                print(f"\n  ❌ Failed to write audit file: {e}")
+                view.info("")
+                view.error(f"Failed to write audit file: {e}")
 
         if dump_json:
             try:
@@ -311,8 +315,10 @@ def cmd_audit(args, view: View):
                             json.dumps(row, sort_keys=True, separators=(",", ":"))
                             + "\n"
                         )
-                print(f"\n  Wrote audit JSONL: {dump_json}")
+                view.info("")
+                view.success(f"Wrote audit JSONL: {dump_json}")
             except OSError as e:
-                print(f"\n  ❌ Failed to write audit JSONL: {e}")
+                view.info("")
+                view.error(f"Failed to write audit JSONL: {e}")
 
     return 0

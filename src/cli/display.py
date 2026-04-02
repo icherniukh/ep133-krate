@@ -69,6 +69,19 @@ class TerminalView:
         [88, 52],
     ]
 
+    def __init__(self) -> None:
+        self._progress_active = False
+
+    def _finish_progress(self) -> None:
+        if self._progress_active:
+            sys.stdout.write("\n")
+            sys.stdout.flush()
+            self._progress_active = False
+
+    def _print_line(self, message: str = "") -> None:
+        self._finish_progress()
+        print(message)
+
     # --- Terminal Formatting Strategies ---
 
     def _size_color(self, size_bytes: int) -> str:
@@ -109,42 +122,44 @@ class TerminalView:
         )
 
     def _row(self, info: Sample) -> None:
-        print(self._format_row(info))
+        self._print_line(self._format_row(info))
 
     def _table_header(self) -> None:
-        print(f"  {'Slot':>4}  {'Name':<32}  {'CH':>2}  {'Size':>8}  {'s':>9}")
-        print(f"  {'-'*4}  {'-'*32}  {'--':>2}  {'-'*8}  {'-'*9}")
+        self._print_line(f"  {'Slot':>4}  {'Name':<32}  {'CH':>2}  {'Size':>8}  {'s':>9}")
+        self._print_line(f"  {'-'*4}  {'-'*32}  {'--':>2}  {'-'*8}  {'-'*9}")
 
     def _oversized_warning(self, samples: list[Sample]) -> None:
         oversized = [s for s in samples if s.size_bytes > 100 * 1024]
         if oversized:
-            print(
+            self._print_line(
                 f"\n  {Colors.FG_YELLOW}⚠ {len(oversized)} samples over 100KB{Colors.RESET}"
             )
-            print(f"  Run {Colors.FG_GREEN}ko2 optimize-all{Colors.RESET} to optimize")
+            self._print_line(
+                f"  Run {Colors.FG_GREEN}ko2 optimize-all{Colors.RESET} to optimize"
+            )
 
     # --- public protocol methods ---
 
     def warn(self, message: str) -> None:
-        print(f"  {Colors.FG_YELLOW}⚠ {message}{Colors.RESET}")
+        self._print_line(f"  {Colors.FG_YELLOW}⚠ {message}{Colors.RESET}")
 
     def info(self, message: str) -> None:
-        print(f"  {message}")
+        self._print_line(f"  {message}" if message else "")
 
     def section(self, title: str) -> None:
-        print(f"{Colors.CYAN}{title}{Colors.RESET}")
+        self._print_line(f"{Colors.CYAN}{title}{Colors.RESET}")
 
     def step(self, message: str) -> None:
-        print(f"  {Colors.FG_DIM}{message}{Colors.RESET}")
+        self._print_line(f"  {Colors.FG_DIM}{message}{Colors.RESET}")
 
     def success(self, message: str) -> None:
-        print(f"  {Colors.FG_GREEN}✓{Colors.RESET} {message}")
+        self._print_line(f"  {Colors.FG_GREEN}✓{Colors.RESET} {message}")
 
     def error(self, message: str) -> None:
-        print(f"  ❌ {message}")
+        self._print_line(f"  ❌ {message}")
 
     def kv(self, label: str, value: str) -> None:
-        print(f"  {label:<14} {value}")
+        self._print_line(f"  {label:<14} {value}")
 
     def progress(self, current: int, total: int, message: str = "") -> None:
         if total <= 0:
@@ -152,30 +167,31 @@ class TerminalView:
         pct = current / total
         filled = int(30 * pct)
         bar = "█" * filled + "░" * (30 - filled)
+        self._progress_active = True
         sys.stdout.write(f"\r  {bar} {pct*100:.0f}% {message}")
         sys.stdout.flush()
 
     def render_samples(self, samples: list[Sample], start: int, end: int) -> None:
         used = [s for s in samples if s.size_bytes]
         total_size = sum(s.size_bytes for s in used)
-        print(f"\n  Slots {start:03d}-{end:03d}")
-        print(f"  Found {len(used)} samples, {Sample.format_size(total_size)} total\n")
+        self._print_line(f"\n  Slots {start:03d}-{end:03d}")
+        self._print_line(f"  Found {len(used)} samples, {Sample.format_size(total_size)} total\n")
         self._table_header()
         for info in samples:
             self._row(info)
         self._oversized_warning(samples)
 
     def sample_detail(self, info: Sample) -> None:
-        print(f"📵 Slot {info.slot:03d}")
-        print(f"   Name: {info.name}")
+        self._print_line(f"📵 Slot {info.slot:03d}")
+        self._print_line(f"   Name: {info.name}")
         if info.sym:
-            print(f"   Symbol: {info.sym}")
-        print(f"   Rate: {info.samplerate} Hz")
-        print(f"   Format: {info.format}")
-        print(f"   Channels: {info.channels}")
+            self._print_line(f"   Symbol: {info.sym}")
+        self._print_line(f"   Rate: {info.samplerate} Hz")
+        self._print_line(f"   Format: {info.format}")
+        self._print_line(f"   Channels: {info.channels}")
         if info.size_bytes:
-            print(f"   Size: {info.formatted_size}")
-            print(f"   Duration: {info.duration_str}s")
+            self._print_line(f"   Size: {info.formatted_size}")
+            self._print_line(f"   Duration: {info.duration_str}s")
 
 
 

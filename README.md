@@ -172,7 +172,7 @@ patching, no subprocess, no fixture complexity.
 
 `EP133Client` is synchronous and blocking. The Textual TUI runs on an async
 event loop. All device I/O goes through `DeviceWorker`, which runs client
-calls in a background thread via `run_worker(fn, thread=True)`. The worker
+calls in a background thread. The worker
 accepts a `waveform_cache_checker` callback — if the fingerprint is already
 cached, the MIDI round-trip is skipped entirely.
 
@@ -218,14 +218,17 @@ Contributions in the form of USB captures are welcome. See
 ```
 src/
   cli/        # Argument parsing, view construction, 16 cmd_* functions
-  core/       # EP133Client, wire types, protocol models, operations
+  core/       # EP133Client, transport abstractions, wire types, protocol models,
+              # operations, audio helpers, waveform cache
   tui/        # Textual app, DeviceWorker, waveform cache and rendering
+  app/        # In-progress Toga/BeeWare UI surface; not yet feature-parity with
+              # CLI/TUI, but intended to reuse the same core transport/client layer
 krate.py      # Entry point
 PROTOCOL.md   # Reverse-engineered protocol specification
 ```
 
 Dependencies: mido (MIDI I/O), textual (TUI), sox (audio conversion via
-subprocess). The core layer has no knowledge of the CLI or TUI layers.
+subprocess). The core layer has no knowledge of the CLI, TUI, or app layers.
 
 ---
 
