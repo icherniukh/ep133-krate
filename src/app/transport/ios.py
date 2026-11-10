@@ -75,7 +75,7 @@ class IOSMIDITransport(MIDITransport):
         _, __, py_from_ns = _objc()
         
         if self._rx_queue:
-            msg = self._rx_queue.pop(0)
+            msg = self._rx_queue.popleft()
             if self._callback:
                 self._callback(msg)
             return msg
@@ -91,7 +91,7 @@ class IOSMIDITransport(MIDITransport):
                     self._rx_queue.append(raw)
                 
                 if self._rx_queue:
-                    msg = self._rx_queue.pop(0)
+                    msg = self._rx_queue.popleft()
                     if self._callback:
                         self._callback(msg)
                     return msg

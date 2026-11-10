@@ -7,7 +7,7 @@ All tests run without real MIDI hardware by mocking transports.
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 
 import pytest
 
@@ -34,6 +34,83 @@ class TestMIDITransportABC:
 
         with pytest.raises(TypeError):
             Incomplete()  # type: ignore[abstract]
+
+
+# ---------------------------------------------------------------------------
+# iOS receive queue (pure-Python bridge; no ObjC or MIDI access)
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def ios_receiver(monkeypatch):
+    from app.transport import ios
+
+    bridge = MagicMock()
+    bridge.alloc.return_value.init.return_value = bridge
+    py_from_ns = MagicMock(side_effect=bytes)
+    monkeypatch.setattr(
+        ios, "_objc",
+        lambda: (MagicMock(return_value=bridge), MagicMock(), py_from_ns),
+    )
+    return ios.IOSMIDITransport(), bridge, py_from_ns
+
+
+class TestIOSMIDITransportReceive:
+    @pytest.mark.parametrize("with_callback", [False, True])
+    def test_cached_messages_are_consumed_fifo(self, ios_receiver, with_callback):
+        transport, bridge, py_from_ns = ios_receiver
+        messages = [b"\xf0\x01\xf7", b"\xf0\x02\xf7"]
+        transport._rx_queue.extend(messages)
+        delivered = []
+        if with_callback:
+            transport.set_receive_callback(delivered.append)
+
+        for index, message in enumerate(messages):
+            assert transport.receive_sysex(timeout=0) == message
+            assert list(transport._rx_queue) == messages[index + 1:]
+            assert delivered == (messages[:index + 1] if with_callback else [])
+
+        bridge.drainReceivedMessages.assert_not_called()
+        py_from_ns.assert_not_called()
+
+    @pytest.mark.parametrize("with_callback", [False, True])
+    def test_drained_batch_is_consumed_fifo(self, ios_receiver, with_callback):
+        transport, bridge, py_from_ns = ios_receiver
+        messages = [b"\xf0\x01\xf7", b"\xf0\x02\xf7", b"\xf0\x03\xf7"]
+        native_messages = [bytearray(message) for message in messages]
+        bridge.drainReceivedMessages.return_value = native_messages
+        delivered = []
+        if with_callback:
+            transport.set_receive_callback(delivered.append)
+
+        for index, message in enumerate(messages):
+            received = transport.receive_sysex(timeout=1 if index == 0 else 0)
+            assert isinstance(received, bytes)
+            assert received == message
+            assert list(transport._rx_queue) == messages[index + 1:]
+            assert delivered == (messages[:index + 1] if with_callback else [])
+
+        bridge.drainReceivedMessages.assert_called_once_with()
+        assert py_from_ns.call_args_list == [call(message) for message in native_messages]
+
+    @pytest.mark.parametrize("empty_batch", [None, []])
+    def test_empty_receive_times_out(self, ios_receiver, monkeypatch, empty_batch):
+        from app.transport import ios
+
+        transport, bridge, py_from_ns = ios_receiver
+        bridge.drainReceivedMessages.return_value = empty_batch
+        callback = MagicMock()
+        transport.set_receive_callback(callback)
+        clock = MagicMock()
+        clock.monotonic.side_effect = [10.0, 10.0, 11.0]
+        monkeypatch.setattr(ios, "time", clock)
+
+        assert transport.receive_sysex(timeout=0.5) is None
+        assert not transport._rx_queue
+        bridge.drainReceivedMessages.assert_called_once_with()
+        clock.sleep.assert_called_once_with(0.005)
+        callback.assert_not_called()
+        py_from_ns.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
