@@ -87,6 +87,10 @@ class DeviceWorker(threading.Thread):
             self._close_client()
 
     def _process_request(self, req: WorkerRequest) -> None:
+        if req.op == "waveform" and not self._request_queue.empty():
+            # Navigation previews must not delay later user commands.
+            self._defer_waveform(req)
+            return
         self._user_request_pending.clear()
         t_start = time.perf_counter()
         phases: dict[str, float] = {}
@@ -159,6 +163,7 @@ class DeviceWorker(threading.Thread):
     def _handle_delete(self, req: WorkerRequest, client: EP133Client, phases: dict[str, float], t_start: float) -> None:
         slot = int(req.payload["slot"])
         self._timed("device.delete", phases, client.delete, slot)
+        self._waveform_precalc_slots = [s for s in self._waveform_precalc_slots if s != slot]
         self._emit_success(f"Deleted slot {slot:03d}", started_at=t_start)
         # Slot is gone — skip list_sounds; clear it directly.
         self._emit("slot_removed", slot=slot)
@@ -169,6 +174,7 @@ class DeviceWorker(threading.Thread):
         for idx, slot in enumerate(slots, start=1):
             self._emit_progress(req.op, idx, n, f"Deleting slot {slot:03d}")
             self._timed("device.delete", phases, client.delete, slot)
+            self._waveform_precalc_slots = [s for s in self._waveform_precalc_slots if s != slot]
         self._emit_success(f"Deleted {n} slot{'s' if n != 1 else ''}", started_at=t_start)
         self._emit_inventory(client, hydrate_slots=set(slots), phases=phases)
 
@@ -192,11 +198,27 @@ class DeviceWorker(threading.Thread):
         width = int(req.payload.get("width") or 60)
         height = int(req.payload.get("height") or 9)
         self._waveform_precalc_slots = [s for s in self._waveform_precalc_slots if s != slot]
-        preview = self._build_waveform_preview(client, slot=slot, width=width, height=height, phases=phases)
+        def interrupted() -> bool:
+            return self._user_request_pending.is_set() or not self._request_queue.empty()
+
+        preview = self._build_waveform_preview(
+            client, slot=slot, width=width, height=height, phases=phases,
+            cancel_check=interrupted,
+        )
+        if not preview and interrupted():
+            self._defer_waveform(req)
+            return
         if preview:
             self._emit("waveform", slot=slot, bins=preview.get("bins"), fp=preview.get("fp"))
         else:
             self._emit("waveform", slot=slot, bins=None, fp=None)
+
+    def _defer_waveform(self, req: WorkerRequest) -> None:
+        slot = int(req.payload["slot"])
+        self._waveform_precalc_slots = [s for s in self._waveform_precalc_slots if s != slot]
+        # The most recently deferred preview gets the first idle retry.
+        self._waveform_precalc_slots.insert(0, slot)
+        self._emit("waveform_cancelled", slot=slot)
 
     def _make_progress_cb(self, op: str) -> Callable[[int, int, str], None]:
         def _progress(curr: int, total: int, msg: str) -> None:
@@ -591,10 +613,13 @@ class DeviceWorker(threading.Thread):
         width: int,
         height: int,
         phases: dict[str, float],
+        cancel_check: Callable[[], bool] | None = None,
     ) -> dict[str, Any] | None:
         width = max(96, min(640, int(width)))
         _ = int(height)  # Reserved for future render-specific hinting.
-        wav_bytes = self._download_slot_wav_bytes(client, slot=slot, phases=phases)
+        wav_bytes = self._download_slot_wav_bytes(
+            client, slot=slot, phases=phases, cancel_check=cancel_check,
+        )
         if not wav_bytes:
             return None
         bins = extract_waveform_bins(wav_bytes, width=width)

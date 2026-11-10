@@ -539,6 +539,13 @@ class TUIApp(App[None]):
                 self._update_waveform(slot)
             return
 
+        if kind == "waveform_cancelled":
+            slot = int(payload["slot"])
+            self._waveform_pending.discard(slot)
+            if slot == self.state.selected_slot:
+                self._update_waveform(slot)
+            return
+
         if kind == "waveform":
             self._device_online = True
             slot = int(payload.get("slot") or self.state.selected_slot)
