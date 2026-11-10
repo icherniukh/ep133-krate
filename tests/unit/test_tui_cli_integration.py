@@ -1,5 +1,4 @@
 import cli.cli_main
-import importlib
 import types
 
 import cli.cmd_transfer
@@ -25,7 +24,7 @@ def test_tui_command_dispatch(monkeypatch):
     _FakeApp.ran = False
 
     fake_module = types.SimpleNamespace(TUIApp=_FakeApp)
-    monkeypatch.setattr(importlib, "import_module", lambda name: fake_module)
+    monkeypatch.setattr(cli.cli_main, "importlib", types.SimpleNamespace(import_module=lambda name: fake_module))
     monkeypatch.setattr("cli.cli_main.find_device", lambda: "EP-133")
     monkeypatch.setattr("sys.argv", ["ko2.py", "tui"])
 
@@ -42,7 +41,7 @@ def test_tui_command_passes_debug_flags(monkeypatch):
     _FakeApp.ran = False
 
     fake_module = types.SimpleNamespace(TUIApp=_FakeApp)
-    monkeypatch.setattr(importlib, "import_module", lambda name: fake_module)
+    monkeypatch.setattr(cli.cli_main, "importlib", types.SimpleNamespace(import_module=lambda name: fake_module))
     monkeypatch.setattr("cli.cli_main.find_device", lambda: "EP-133")
     monkeypatch.setattr("sys.argv", [
         "ko2.py",
@@ -65,7 +64,7 @@ def test_tui_command_passes_dialog_log_flag(monkeypatch):
     _FakeApp.ran = False
 
     fake_module = types.SimpleNamespace(TUIApp=_FakeApp)
-    monkeypatch.setattr(importlib, "import_module", lambda name: fake_module)
+    monkeypatch.setattr(cli.cli_main, "importlib", types.SimpleNamespace(import_module=lambda name: fake_module))
     monkeypatch.setattr("cli.cli_main.find_device", lambda: "EP-133")
     monkeypatch.setattr("sys.argv", [
         "ko2.py",
@@ -87,7 +86,7 @@ def test_tui_import_error_is_user_friendly(monkeypatch, capsys):
     def _raise(_name):
         raise ImportError("missing textual")
 
-    monkeypatch.setattr(importlib, "import_module", _raise)
+    monkeypatch.setattr(cli.cli_main, "importlib", types.SimpleNamespace(import_module=_raise))
     monkeypatch.setattr("cli.cli_main.find_device", lambda: "EP-133")
     monkeypatch.setattr("sys.argv", ["ko2.py", "tui"])
 

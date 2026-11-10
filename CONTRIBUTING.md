@@ -8,7 +8,7 @@ app, CLI, and TUI features are all welcome.
 
 ```bash
 python -m venv .venv && source .venv/bin/activate
-pip install -e .
+pip install -e '.[desktop]'
 brew install sox  # macOS
 apt install sox   # Linux
 ```
@@ -22,6 +22,23 @@ pytest
 # End-to-end tests (requires a connected EP-133)
 pytest -m e2e --device "EP-133"
 ```
+
+## Releases
+
+1. Set the release version in `pyproject.toml`, run the unit suite, and merge
+   the release commit to `main`.
+2. Tag that commit `v<version>` (for example, `v0.1.0`) and push that tag.
+3. The release workflow verifies main ancestry and the tag/version match, runs
+   unit tests, builds/checks Python wheel and source packages, and smoke-tests
+   the installed wheel before creating a GitHub Release with generated notes.
+
+PyPI publishing is optional: configure the repository secret `PYPI_TOKEN` to
+publish there too. No `ENABLE_RELEASE` variable is required. This workflow does
+not build native iOS apps or prove device/firmware compatibility.
+
+Desktop CLI/TUI users install `ep133-krate[desktop]` (or `.[desktop]` from source)
+to include the MIDI backend. The base package omits desktop-only dependencies
+so shared core code can be used by other platforms.
 
 ## What's working
 

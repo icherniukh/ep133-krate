@@ -22,7 +22,7 @@ community doesn't have to start from scratch.
 git clone https://github.com/icherniukh/ep133-krate
 cd ep133-krate
 python -m venv .venv && source .venv/bin/activate   # uv: uv venv && source .venv/bin/activate
-pip install -e .
+pip install -e '.[desktop]'
 brew install sox    # macOS
 apt install sox     # Linux
 ```
