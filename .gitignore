@@ -64,6 +64,9 @@ env/
 .dolt/
 *.db
 .beads-credential-key
+/.beads.gate.lock
+/.beads/dolt-server-config.yaml
+/.beads/export-state.json
 
 # --- Added by Cleanup Plan ---
 # Mobile / App build artifacts
@@ -87,3 +90,6 @@ logs/
 
 # bv (beads viewer) local config and caches
 .bv/
+
+# Local Pi profile and installed tooling (managed outside this repository)
+/.pi/
