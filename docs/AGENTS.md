@@ -36,117 +36,15 @@ cp -rf source dest          # NOT: cp -r source dest
 - `apt-get` - use `-y` flag
 - `brew` - use `HOMEBREW_NO_AUTO_UPDATE=1` env var
 
-<!-- BEGIN BEADS INTEGRATION -->
-## Issue Tracking with bd (beads)
+<!-- BEGIN BEADS INTEGRATION v:1 profile:minimal -->
+## Beads Issue Tracker
 
-**IMPORTANT**: This project uses **bd (beads)** for ALL issue tracking. Do NOT use markdown TODOs, task lists, or other tracking methods.
+This project uses **bd (beads)** for issue tracking.
 
-### Why bd?
-
-- Dependency-aware: Track blockers and relationships between issues
-- Version-controlled: Built on Dolt with cell-level merge
-- Agent-optimized: JSON output, ready work detection, discovered-from links
-- Prevents duplicate tracking systems and confusion
-
-### Quick Start
-
-**Check for ready work:**
-
-```bash
-bd ready --json
-```
-
-**Create new issues:**
-
-```bash
-bd create "Issue title" --description="Detailed context" -t bug|feature|task -p 0-4 --json
-bd create "Issue title" --description="What this issue is about" -p 1 --deps discovered-from:bd-123 --json
-```
-
-**Claim and update:**
-
-```bash
-bd update <id> --claim --json
-bd update bd-42 --priority 1 --json
-```
-
-**Complete work:**
-
-```bash
-bd close bd-42 --reason "Completed" --json
-```
-
-### Issue Types
-
-- `bug` - Something broken
-- `feature` - New functionality
-- `task` - Work item (tests, docs, refactoring)
-- `epic` - Large feature with subtasks
-- `chore` - Maintenance (dependencies, tooling)
-
-### Priorities
-
-- `0` - Critical (security, data loss, broken builds)
-- `1` - High (major features, important bugs)
-- `2` - Medium (default, nice-to-have)
-- `3` - Low (polish, optimization)
-- `4` - Backlog (future ideas)
-
-### Workflow for AI Agents
-
-1. **Check ready work**: `bd ready` shows unblocked issues
-2. **Claim your task atomically**: `bd update <id> --claim`
-3. **Work on it**: Implement, test, document
-4. **Discover new work?** Create linked issue:
-   - `bd create "Found bug" --description="Details about what was found" -p 1 --deps discovered-from:<parent-id>`
-5. **Complete**: `bd close <id> --reason "Done"`
-
-### Auto-Sync
-
-bd automatically syncs with git:
-
-- Exports to `.beads/issues.jsonl` after changes (5s debounce)
-- Imports from JSONL when newer (e.g., after `git pull`)
-- No manual export/import needed!
-
-### Important Rules
-
-- ✅ Use bd for ALL task tracking
-- ✅ Always use `--json` flag for programmatic use
-- ✅ Link discovered work with `discovered-from` dependencies
-- ✅ Check `bd ready` before asking "what should I work on?"
-- ❌ Do NOT create markdown TODO lists
-- ❌ Do NOT use external issue trackers
-- ❌ Do NOT duplicate tracking systems
-
-For more details, see README.md and docs/QUICKSTART.md.
-
-## Landing the Plane (Session Completion)
-
-**When ending a work session**, you MUST complete ALL steps below. Work is NOT complete until `git push` succeeds.
-
-**MANDATORY WORKFLOW:**
-
-1. **File issues for remaining work** - Create issues for anything that needs follow-up
-2. **Run quality gates** (if code changed) - Tests, linters, builds
-3. **Update issue status** - Close finished work, update in-progress items
-4. **PUSH TO REMOTE** - This is MANDATORY:
-   ```bash
-   git pull --rebase
-   bd sync
-   git push
-   git status  # MUST show "up to date with origin"
-   ```
-5. **Clean up** - Clear stashes, prune remote branches
-6. **Verify** - All changes committed AND pushed
-7. **Hand off** - Provide context for next session
-
-**CRITICAL RULES:**
-- Work is NOT complete until `git push` succeeds
-- NEVER stop before pushing - that leaves work stranded locally
-- NEVER say "ready to push when you are" - YOU must push
-- If push fails, resolve and retry until it succeeds
-
+- Run `bd prime` for the current workflow context.
+- Core commands: `bd ready`, `bd show <id>`, `bd update <id> --claim`, `bd close <id>`.
+- Use `bd` for persistent task tracking instead of markdown TODO lists.
+- Use `bd remember` only for evergreen facts not already captured well in issue descriptions.
 <!-- END BEADS INTEGRATION -->
 
 ## Key architectural decisions
@@ -176,7 +74,8 @@ Tests use `Mock(spec=View)` — no stdout patching.
 - `src/core/types.py` — wire primitives (`U7`, `BE16`, `Packed7`)
 - `src/core/models.py` — declarative message definitions
 - `src/core/operations.py` — multi-step transactions
-- `src/core/client.py` — transport only, no protocol knowledge
+- `src/core/client.py` — current protocol/session entry point; owns device
+  conversation invariants today and is under architectural review
 
 Build raw payload first, then apply packed7. Never pre-split values before packed7.
 Slot/node fields are BE16 inside the raw payload.
@@ -185,6 +84,25 @@ Slot/node fields are BE16 inside the raw payload.
 --- GUI APP AGENT INSTRUCTIONS ---
 
 # GUI App — Agent Instructions
+
+## Current Direction
+
+`src/app` is the primary product under development, not a throwaway prototype.
+CLI and TUI remain first-class, maintained frontends. The authoritative
+architecture decision for new work is
+`docs/architecture/ARCH-002-app-first-core-ui.md`.
+
+Use the older implementation notes below as background only. If they conflict
+with the current app-first boundary model, the architecture note wins.
+
+Current design rules:
+
+- support `src/app`, CLI, and TUI through shared architecture
+- preserve existing CLI/TUI behavior and test coverage during extraction
+- keep protocol/session invariants out of UI code
+- treat direct screen-to-`EP133Client` calls as transitional wiring
+- extract shared application workflows out of `DeviceWorker`
+- treat the app Debug view/tab as a first-class internal product surface
 
 ## Overview
 
@@ -255,7 +173,13 @@ The screens depend only on `EP133Client` (injected by `app.py`), never on transp
 
 `EP133Client` already supports transport injection (`transport=` parameter). The `MIDITransport` base class includes a compatibility shim that translates `send(mido.Message)` / `receive(timeout)` calls to `send_sysex(bytes)` / `receive_sysex(timeout)`.
 
-**Flow:** `app.py` creates `EP133Client(transport=MIDITransport)` on connect. The client runs its INIT handshake through the transport. Screens call `client.list_sounds()`, `client.audition()`, `client.put()` — all protocol logic in `src/core/` is used as-is.
+Historical flow: `app.py` creates `EP133Client(transport=create_transport(...))`
+at app startup or connect time, and screens call client methods directly.
+
+Target flow: app screens bind to shared application workflows that sit above the
+protocol/session boundary. Protocol mechanics stay concentrated in `src/core`;
+screen code should not become the place where orchestration, timing, recovery,
+or performance instrumentation logic accumulates.
 
 ### iOS Transport (`transport/ios.py`)
 
@@ -326,5 +250,6 @@ See `PROTOCOL.md` for full details. Key points for transport implementers:
 - Python 3.11+ (BeeWare Briefcase 0.4.x supports 3.10–3.14)
 - Follow `src/` module layout: `src/app/` is a peer of `src/cli/`, `src/core/`, `src/tui/`
 - Transport methods are synchronous — screens use `asyncio.to_thread()` for non-blocking UI
-- No bare `print()` in screen code — use Toga widgets for output
-- Tests: `tests/unit/test_mobile_*.py` with mocked transport
+- No bare `print()` in screen code for product behavior — use Toga widgets,
+  app state, or the dedicated Debug view surfaces
+- Transport tests: `tests/unit/test_app_transport.py` with mocked transport

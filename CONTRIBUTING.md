@@ -2,7 +2,7 @@
 
 This is a reverse-engineering project. Protocol understanding is incomplete —
 contributions in the form of device captures, protocol analysis, tests, and
-CLI/TUI features are all welcome.
+app, CLI, and TUI features are all welcome.
 
 ## Development setup
 
@@ -55,6 +55,25 @@ python midi_proxy.py --pretty captures/sniffer-<name>.jsonl
 
 ## Architecture decisions
 
+### App-first core/UI boundaries (2026-04-02)
+
+`src/app` is the primary product surface. The repository is being reorganized
+around an app-first boundary model. CLI and TUI remain first-class,
+maintained frontends; shared changes must preserve their behavior and test
+coverage as well as support the app:
+
+- transport owns platform MIDI I/O only
+- protocol/session logic owns device conversation correctness
+- shared application workflows sit above protocol/session logic
+- UI layers bind to shared workflows instead of owning orchestration
+
+`EP133Client` should be treated as the current protocol/session entry point,
+not as a thin transport-only wrapper. `DeviceWorker` should be treated as the
+current execution adapter, not as the permanent home of shared business
+workflows.
+
+See [`docs/architecture/ARCH-002-app-first-core-ui.md`](docs/architecture/ARCH-002-app-first-core-ui.md).
+
 ### View-oriented CLI output (2026-03-02)
 
 `krate` commands receive `view: View` as an injected parameter. `View` is a protocol
@@ -75,6 +94,6 @@ Protocol messages are defined declaratively using field descriptors:
 - `src/core/types.py` — primitive types (`U7`, `BE16`, `Packed7`)
 - `src/core/models.py` — message structures using `U7Field`, `BE16Field`, `JsonField`
 - `src/core/operations.py` — stateful multi-step operations (e.g., `UploadTransaction`)
-- `src/core/client.py` — thin transport layer, knows nothing about `Packed7` or JSON packing
+- `src/core/client.py` — current protocol/session entry point
 
 This gives 100% serialization/deserialization symmetry with no transport leakage.

@@ -1,5 +1,9 @@
 # BeeWare Mobile Frontend — Research & Design Overview
 
+Note: this is a historical research/design document from the initial BeeWare
+investigation phase. The current authoritative app-first boundary decision is
+[`docs/architecture/ARCH-002-app-first-core-ui.md`](../architecture/ARCH-002-app-first-core-ui.md).
+
 ## Context
 
 ko2-tools Phase 3 (Mobile) needs a plan. The goal is an iOS app for managing EP-133 KO-II samples. This document captures research findings, workflow requirements, and the recommended architecture for adding a BeeWare mobile frontend to the existing repo.
