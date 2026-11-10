@@ -84,3 +84,6 @@ logs/
 # Ensure specific prototypes are tracked
 !experiments/ios-midi-probe/**
 !experiments/ios-native/**
+
+# bv (beads viewer) local config and caches
+.bv/
