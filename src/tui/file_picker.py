@@ -24,15 +24,18 @@ def _is_yazi_available() -> bool:
     return shutil.which("yazi") is not None
 
 
+_AUDIO_EXTENSIONS = {".wav", ".wave", ".aif", ".aiff"}
+
+
 class _WavTree(DirectoryTree):
-    """DirectoryTree that shows only directories and .wav files."""
+    """DirectoryTree that shows only directories and supported audio files."""
 
     def __init__(self, *args, selected: set[Path] | None = None, **kwargs):
         super().__init__(*args, **kwargs)
         self._selected: set[Path] = selected or set()
 
     def filter_paths(self, paths):
-        return [p for p in paths if p.is_dir() or p.suffix.lower() == ".wav"]
+        return [p for p in paths if p.is_dir() or p.suffix.lower() in _AUDIO_EXTENSIONS]
 
     def render_label(self, node, base_style, style):
         label = super().render_label(node, base_style, style)
@@ -166,7 +169,7 @@ async def _pick_with_yazi(app, start_dir: Path | None) -> list[Path]:
         paths = [Path(p) for p in text.splitlines() if p.strip()]
         app._log(f"[yazi] parsed {len(paths)} path(s)")
         return paths
-    except Exception as exc:
+    except Exception as exc:  # pylint: disable=broad-exception-caught
         app._log(f"[yazi] error: {exc!r}")
         return []
     finally:

@@ -47,8 +47,8 @@ class UploadTransaction(Transaction):
         # 1. Read and validate WAV
         with wave.open(str(self.input_path), "rb") as wav:
             frames = wav.getnframes()
-            samplerate = wav.getframerate()
-            channels = wav.getnchannels()
+            _samplerate = wav.getframerate()
+            _channels = wav.getnchannels()
             raw_data = wav.readframes(frames)
 
         audio_data = raw_data

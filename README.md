@@ -3,10 +3,12 @@
 The EP-133 KO-II has no public API and no documented protocol. Managing
 samples means using the official EP Sample Tool — until now.
 
-**krate** is a full sample manager for the EP-133 — CLI and terminal UI today,
-with native desktop and mobile apps on the roadmap. The MIDI SysEx protocol
-was reverse-engineered from USB captures of the official app. The full
-specification is published in [PROTOCOL.md](PROTOCOL.md) — opcodes, byte
+**krate** is a full sample manager for the EP-133. The BeeWare app in
+`src/app` is now the primary product under active development; the CLI and
+terminal UI remain first-class, maintained frontends for automation,
+reverse-engineering, and power-user workflows. The MIDI SysEx protocol was
+reverse-engineered from USB captures of the official app. The full specification
+is published in [PROTOCOL.md](PROTOCOL.md) — opcodes, byte
 layouts, session state machine, confirmed findings and honest gaps — so the
 community doesn't have to start from scratch.
 
@@ -20,7 +22,7 @@ community doesn't have to start from scratch.
 git clone https://github.com/icherniukh/ep133-krate
 cd ep133-krate
 python -m venv .venv && source .venv/bin/activate   # uv: uv venv && source .venv/bin/activate
-pip install -e .
+pip install -e '.[desktop]'
 brew install sox    # macOS
 apt install sox     # Linux
 ```
@@ -101,7 +103,7 @@ krate squash --execute
 |-------|-------|--------|
 | 1 | CLI — full sample management | ✅ complete |
 | 2 | Terminal UI — interactive browser with all operations | ✅ complete |
-| 3 | Native mobile app (iOS via BeeWare) | planned |
+| 3 | BeeWare/Toga app (`src/app`) for iOS/macOS | 🚧 primary product in progress |
 
 The protocol specification in PROTOCOL.md is the foundation for all of it.
 
@@ -147,11 +149,11 @@ Protocol messages are defined declaratively using field descriptors:
 - `src/core/operations.py` — stateful multi-step transactions (e.g.
   `UploadTransaction`: PUT_INIT → data chunks → sentinel → VERIFY →
   METADATA_SET → VERIFY)
-- `src/core/client.py` — thin transport layer, no knowledge of `Packed7`
-  or JSON packing
+- `src/core/client.py` — current protocol/session entry point; owns initialization,
+  response matching, and recovery, alongside workflow/file policy being reviewed
 
-Serialization and deserialization are symmetric by construction. The transport
-layer is completely isolated from encoding concerns.
+Serialization and deserialization are symmetric by construction. Platform MIDI
+I/O is separated from protocol encoding through the transport abstraction.
 
 ### Testable CLI output (View protocol)
 
@@ -168,17 +170,24 @@ protocol with 10 domain-semantic methods: `section`, `step`, `success`,
 Every command function is unit-testable via `Mock(spec=View)` — no stdout
 patching, no subprocess, no fixture complexity.
 
-### TUI threading
+### Frontend execution model
 
 `EP133Client` is synchronous and blocking. The Textual TUI runs on an async
 event loop. All device I/O goes through `DeviceWorker`, which runs client
-calls in a background thread via `run_worker(fn, thread=True)`. The worker
+calls in a background thread. The worker
 accepts a `waveform_cache_checker` callback — if the fingerprint is already
 cached, the MIDI round-trip is skipped entirely.
 
+The app in `src/app` is the primary product surface. The current repository is
+in the middle of an app-first architecture shift: protocol/session invariants
+remain concentrated in `src/core`, while reusable user-facing workflows are
+planned for extraction from TUI-specific execution code so the app, TUI, and CLI
+can share them without regressing existing frontend behavior or test coverage.
+See [`docs/architecture/ARCH-002-app-first-core-ui.md`](docs/architecture/ARCH-002-app-first-core-ui.md).
+
 ### Test suite
 
-486 unit tests. No device required for any of them.
+The unit suite runs without a device; hardware end-to-end tests are separate.
 
 - Capture-based protocol tests verify serialized bytes against real USB traffic
 - Encoding tests assert round-trip symmetry for `U7`, `BE16`, `Packed7`, and
@@ -217,15 +226,19 @@ Contributions in the form of USB captures are welcome. See
 
 ```
 src/
-  cli/        # Argument parsing, view construction, 16 cmd_* functions
-  core/       # EP133Client, wire types, protocol models, operations
-  tui/        # Textual app, DeviceWorker, waveform cache and rendering
+  app/        # Primary Toga/BeeWare product surface
+  cli/        # Command-line frontend and automation surface
+  core/       # Transport, protocol/session logic, shared device operations,
+              # audio helpers, waveform cache
+  tui/        # Textual frontend and power-user tooling
 krate.py      # Entry point
 PROTOCOL.md   # Reverse-engineered protocol specification
 ```
 
 Dependencies: mido (MIDI I/O), textual (TUI), sox (audio conversion via
-subprocess). The core layer has no knowledge of the CLI or TUI layers.
+subprocess). The core layer is intended to own transport, protocol/session
+behavior, and shared workflows without depending on the CLI, TUI, or app UI
+layers.
 
 ---
 
@@ -235,13 +248,15 @@ Protocol reverse-engineering is ongoing. Useful contributions:
 
 - USB traffic captures from the official EP Sample Tool
 - Tests and analysis for the protocol gaps listed above
-- CLI and TUI feature work
+- App, CLI, and TUI feature work
 
 The project tracks issues with beads <!-- TODO: link beads repo -->. Core
 contributors: `bd list` for the full backlog, `bd ready` for unblocked work.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, capture
-instructions, and architecture decision log.
+instructions, and architecture decision log. The current app-first boundary
+decision is documented in
+[`docs/architecture/ARCH-002-app-first-core-ui.md`](docs/architecture/ARCH-002-app-first-core-ui.md).
 
 ---
 

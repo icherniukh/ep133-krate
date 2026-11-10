@@ -45,7 +45,9 @@ captures/
 *.tsv
 
 # Experiments (scratch work)
-experiments/
+experiments/*
+!experiments/ios-midi-probe/
+!experiments/ios-native/
 
 # Backups created by krate optimize/move/copy
 .krate-backups/
@@ -62,3 +64,32 @@ env/
 .dolt/
 *.db
 .beads-credential-key
+/.beads.gate.lock
+/.beads/dolt-server-config.yaml
+/.beads/export-state.json
+
+# --- Added by Cleanup Plan ---
+# Mobile / App build artifacts
+.venv-mobile/
+src/ios/.briefcase/
+src/ios/src/
+experiments/ios-native/**/*.build/
+
+# Xcode User State
+**/*.xcworkspace/
+**/*.xcuserdatad/
+
+# Backups & Logs
+.ko2-backups/
+captures-backup/
+logs/
+
+# Ensure specific prototypes are tracked
+!experiments/ios-midi-probe/**
+!experiments/ios-native/**
+
+# bv (beads viewer) local config and caches
+.bv/
+
+# Local Pi profile and installed tooling (managed outside this repository)
+/.pi/

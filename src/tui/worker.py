@@ -1,27 +1,17 @@
 from __future__ import annotations
 
-import array
-import hashlib
-import io
 import os
 import tempfile
 import threading
 import time
-import wave
 from concurrent.futures import Future, ThreadPoolExecutor
-from dataclasses import asdict, dataclass, field
+from dataclasses import dataclass, field
 from pathlib import Path
 from queue import Empty, Queue
 from typing import Any, Callable
 
 from core.client import EP133Client, DownloadCancelledError, SlotEmptyError
 from core.models import MAX_SAMPLE_RATE
-
-import sys
-from pathlib import Path as _Path
-_src = str(_Path(__file__).resolve().parent.parent / "src")
-if _src not in sys.path:
-    sys.path.insert(0, _src)
 
 from core.audio import extract_waveform_bins, extract_fingerprint
 from core.ops import (
@@ -97,6 +87,10 @@ class DeviceWorker(threading.Thread):
             self._close_client()
 
     def _process_request(self, req: WorkerRequest) -> None:
+        if req.op == "waveform" and not self._request_queue.empty():
+            # Navigation previews must not delay later user commands.
+            self._defer_waveform(req)
+            return
         self._user_request_pending.clear()
         t_start = time.perf_counter()
         phases: dict[str, float] = {}
@@ -107,7 +101,7 @@ class DeviceWorker(threading.Thread):
             if handler is None:
                 raise ValueError(f"Unknown operation: {req.op!r}")
             handler(self, req, client, phases, t_start)
-        except Exception as exc:
+        except Exception as exc:  # pylint: disable=broad-exception-caught
             self._emit("error", op=req.op, message=str(exc))
             self._close_client()
         finally:
@@ -169,6 +163,7 @@ class DeviceWorker(threading.Thread):
     def _handle_delete(self, req: WorkerRequest, client: EP133Client, phases: dict[str, float], t_start: float) -> None:
         slot = int(req.payload["slot"])
         self._timed("device.delete", phases, client.delete, slot)
+        self._waveform_precalc_slots = [s for s in self._waveform_precalc_slots if s != slot]
         self._emit_success(f"Deleted slot {slot:03d}", started_at=t_start)
         # Slot is gone — skip list_sounds; clear it directly.
         self._emit("slot_removed", slot=slot)
@@ -179,6 +174,7 @@ class DeviceWorker(threading.Thread):
         for idx, slot in enumerate(slots, start=1):
             self._emit_progress(req.op, idx, n, f"Deleting slot {slot:03d}")
             self._timed("device.delete", phases, client.delete, slot)
+            self._waveform_precalc_slots = [s for s in self._waveform_precalc_slots if s != slot]
         self._emit_success(f"Deleted {n} slot{'s' if n != 1 else ''}", started_at=t_start)
         self._emit_inventory(client, hydrate_slots=set(slots), phases=phases)
 
@@ -202,11 +198,27 @@ class DeviceWorker(threading.Thread):
         width = int(req.payload.get("width") or 60)
         height = int(req.payload.get("height") or 9)
         self._waveform_precalc_slots = [s for s in self._waveform_precalc_slots if s != slot]
-        preview = self._build_waveform_preview(client, slot=slot, width=width, height=height, phases=phases)
+        def interrupted() -> bool:
+            return self._user_request_pending.is_set() or not self._request_queue.empty()
+
+        preview = self._build_waveform_preview(
+            client, slot=slot, width=width, height=height, phases=phases,
+            cancel_check=interrupted,
+        )
+        if not preview and interrupted():
+            self._defer_waveform(req)
+            return
         if preview:
             self._emit("waveform", slot=slot, bins=preview.get("bins"), fp=preview.get("fp"))
         else:
             self._emit("waveform", slot=slot, bins=None, fp=None)
+
+    def _defer_waveform(self, req: WorkerRequest) -> None:
+        slot = int(req.payload["slot"])
+        self._waveform_precalc_slots = [s for s in self._waveform_precalc_slots if s != slot]
+        # The most recently deferred preview gets the first idle retry.
+        self._waveform_precalc_slots.insert(0, slot)
+        self._emit("waveform_cancelled", slot=slot)
 
     def _make_progress_cb(self, op: str) -> Callable[[int, int, str], None]:
         def _progress(curr: int, total: int, msg: str) -> None:
@@ -224,7 +236,7 @@ class DeviceWorker(threading.Thread):
                 client, src, dst, progress=self._make_progress_cb(req.op)
             )
             self._emit_success(msg, started_at=t_start)
-        except Exception as exc:
+        except Exception as exc:  # pylint: disable=broad-exception-caught
             self._emit("error", op=req.op, message=str(exc))
         finally:
             self._emit_inventory(client, hydrate_slots={dst}, phases=phases)
@@ -243,7 +255,7 @@ class DeviceWorker(threading.Thread):
                 client, src, dst, progress=self._make_progress_cb(req.op)
             )
             self._emit_success(msg, started_at=t_start)
-        except Exception as exc:
+        except Exception as exc:  # pylint: disable=broad-exception-caught
             self._emit("error", op=req.op, message=str(exc))
         finally:
             self._emit_inventory(client, hydrate_slots={src, dst}, phases=phases)
@@ -270,7 +282,7 @@ class DeviceWorker(threading.Thread):
                 mapping, sounds, client, raw=False, progress=self._make_progress_cb(req.op)
             )
             self._emit_success(f"Squashed {total} slots", started_at=t_start)
-        except Exception as exc:
+        except Exception as exc:  # pylint: disable=broad-exception-caught
             self._emit("error", op=req.op, message=f"Squash failed: {exc}")
         finally:
             changed = set(mapping.keys()) | set(mapping.values())
@@ -292,7 +304,7 @@ class DeviceWorker(threading.Thread):
             except SlotEmptyError:
                 done += 1
                 continue
-            except Exception as exc:
+            except Exception as exc:  # pylint: disable=broad-exception-caught
                 self._emit("error", op=req.op, message=f"Skipping slot {slot:03d}: {exc}")
                 done += 1
                 continue
@@ -442,7 +454,7 @@ class DeviceWorker(threading.Thread):
                     )
                     optimized_count += 1
                     changed_slots.add(slot)
-                except Exception as exc:
+                except Exception as exc:  # pylint: disable=broad-exception-caught
                     self._emit("error", op=req.op, message=f"Error on slot {slot:03d}: {exc}")
                 finally:
                     self._emit_slot_refresh(client, slot, phases=phases)
@@ -544,7 +556,7 @@ class DeviceWorker(threading.Thread):
                 samplerate = int(meta.get("samplerate") or 0)
                 if "samplerate" in meta:
                     patch["samplerate"] = samplerate
-            except Exception as exc:
+            except Exception as exc:  # pylint: disable=broad-exception-caught
                 self._emit("log", message=f"hydration failed for slot {slot}: {exc}")
                 continue
 
@@ -588,7 +600,7 @@ class DeviceWorker(threading.Thread):
             phases = {}
         try:
             info = self._timed("device.info", phases, client.info, int(slot), include_size=True)
-        except Exception as exc:
+        except Exception as exc:  # pylint: disable=broad-exception-caught
             self._emit("log", message=f"slot_refresh failed for slot {slot:03d}: {exc}")
             return
         self._emit("slot_refresh", slot=int(slot), details=_sampleinfo_to_dict(info))
@@ -601,10 +613,13 @@ class DeviceWorker(threading.Thread):
         width: int,
         height: int,
         phases: dict[str, float],
+        cancel_check: Callable[[], bool] | None = None,
     ) -> dict[str, Any] | None:
         width = max(96, min(640, int(width)))
         _ = int(height)  # Reserved for future render-specific hinting.
-        wav_bytes = self._download_slot_wav_bytes(client, slot=slot, phases=phases)
+        wav_bytes = self._download_slot_wav_bytes(
+            client, slot=slot, phases=phases, cancel_check=cancel_check,
+        )
         if not wav_bytes:
             return None
         bins = extract_waveform_bins(wav_bytes, width=width)
@@ -628,7 +643,7 @@ class DeviceWorker(threading.Thread):
                 return wav_path.read_bytes()
         except DownloadCancelledError:
             return None
-        except Exception as exc:
+        except Exception as exc:  # pylint: disable=broad-exception-caught
             self._emit("log", message=f"waveform download failed for slot {slot:03d}: {exc}")
             return None
 
@@ -710,7 +725,7 @@ class DeviceWorker(threading.Thread):
             slot, fp = item
             try:
                 bins = future.result()
-            except Exception as exc:
+            except Exception as exc:  # pylint: disable=broad-exception-caught
                 self._emit("log", message=f"waveform render failed for slot {slot:03d}: {exc}")
                 continue
             if bins:

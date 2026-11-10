@@ -278,11 +278,18 @@ class TUIApp(App[None]):
 
         table.clear(columns=False)
 
-        # Prune stale folded regions (a slot in the range now has content).
-        self._folded_regions = {
-            (s, e) for (s, e) in self._folded_regions
-            if all(not self.state.slots.get(i, SlotRow(slot=i)).exists for i in range(s, e + 1))
-        }
+        # Reconcile folded regions with the current slot state:
+        # - Drop folds where any slot in the range now has content.
+        # - Expand folds whose empty run grew (e.g. after a deletion) so they
+        #   track the full contiguous empty run they now belong to.
+        all_runs = {(s, e) for s, e in find_empty_runs(self.state.slots)}
+        new_regions: set[tuple[int, int]] = set()
+        for (s, e) in self._folded_regions:
+            for run_s, run_e in all_runs:
+                if run_s <= s and e <= run_e:
+                    new_regions.add((run_s, run_e))
+                    break
+        self._folded_regions = new_regions
 
         self._visible_rows = build_visible_rows(self.state.slots, self._folded_regions)
         for item in self._visible_rows:
@@ -376,7 +383,13 @@ class TUIApp(App[None]):
             self._update_status("Copy mode (Esc to cancel, Enter to paste)")
 
         self._update_details(self.state.selected_slot)
-        self._update_waveform(self.state.selected_slot)
+        # Don't queue waveform downloads during move/copy preview — the worker
+        # is single-threaded and a queued waveform download would delay the
+        # move/copy operation that follows.
+        if self.moving_src is None and self.copying_src is None:
+            self._ensure_waveform(self.state.selected_slot)
+        else:
+            self._update_waveform(self.state.selected_slot)
 
     def on_resize(self) -> None:
         self.query_one("#waveform", WaveformWidget).refresh()
@@ -523,6 +536,13 @@ class TUIApp(App[None]):
             self._update_table_rows([slot])
             if slot == self.state.selected_slot:
                 self._update_details(slot)
+                self._update_waveform(slot)
+            return
+
+        if kind == "waveform_cancelled":
+            slot = int(payload["slot"])
+            self._waveform_pending.discard(slot)
+            if slot == self.state.selected_slot:
                 self._update_waveform(slot)
             return
 
@@ -716,15 +736,19 @@ class TUIApp(App[None]):
         left = f"{state_text}{progress_bar}{sel_suffix}{mem_suffix}{fold_suffix}{logs_suffix}{debug_suffix}{wf_suffix}"
         right = f"{self.device_name or 'EP-133'} {circle}"
 
-        self.query_one("#status_left", Static).update(left)
-        self.query_one("#status_right", Static).update(right)
+        from textual.css.query import NoMatches
+        try:
+            self.query_one("#status_left", Static).update(left)
+            self.query_one("#status_right", Static).update(right)
 
-        status_bar = self.query_one("#status")
-        status_bar.remove_class("active", "error")
-        if is_active:
-            status_bar.add_class("active")
-        elif self._device_online is False:
-            status_bar.add_class("error")
+            status_bar = self.query_one("#status")
+            status_bar.remove_class("active", "error")
+            if is_active:
+                status_bar.add_class("active")
+            elif self._device_online is False:
+                status_bar.add_class("error")
+        except NoMatches:
+            pass
 
     def _log(self, line: str) -> None:
         self._log_lines.append(line)
@@ -956,8 +980,11 @@ class TUIApp(App[None]):
         if self.moving_src is not None:
             src = self.moving_src
             dst = self.state.selected_slot
-            self.moving_src = None
+            # Clear moving_src AFTER _refresh_table so that any RowHighlighted
+            # events fired during the rebuild still see moving_src set and don't
+            # trigger waveform downloads ahead of the move request.
             self._refresh_table()
+            self.moving_src = None
             self.refresh_bindings()
             if src != dst:
                 self._queue_request(actions.move(src, dst))
@@ -968,8 +995,8 @@ class TUIApp(App[None]):
         if self.copying_src is not None:
             src = self.copying_src
             dst = self.state.selected_slot
-            self.copying_src = None
             self._refresh_table()
+            self.copying_src = None
             self.refresh_bindings()
             if src != dst and not self.state.slots[dst].exists:
                 self._queue_request(actions.copy(src, dst))
@@ -1183,6 +1210,7 @@ class TUIApp(App[None]):
         if not self.state.slots[slot].exists:
             self._log(f"Slot {slot:03d} is empty")
             return
+        self.state.selected_slots.clear()
         self.moving_src = slot
         self._refresh_table()
         self.refresh_bindings()

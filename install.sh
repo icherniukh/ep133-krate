@@ -3,5 +3,5 @@
 set -euo pipefail
 
 REPO="$(cd "$(dirname "$0")" && pwd)"
-pip install --force-reinstall -e "$REPO"
+pip install --force-reinstall -e "${REPO}[desktop]"
 echo "krate installed from $REPO ($(krate --version 2>/dev/null || echo 'version unknown'))"

@@ -44,7 +44,7 @@ def cmd_optimize(args, view: View):
                 in_depth = w.getsampwidth() * 8
                 duration = w.getnframes() / w.getframerate()
 
-            print(
+            view.info(
                 f"  {in_channels}ch  {in_rate} Hz  {in_depth}-bit  "
                 f"{Sample.format_size(original_size)}  {duration:.2f}s"
             )
@@ -65,7 +65,9 @@ def cmd_optimize(args, view: View):
 
             backup_path = backup_copy(temp_path, slot=slot, name_hint=info.name)
             view.kv("Backup:", str(backup_path))
-            print(f"  {Sample.format_size(original_size)} → {Sample.format_size(opt_size)}  ({savings_pct:.1f}% saved)")
+            view.info(
+                f"  {Sample.format_size(original_size)} → {Sample.format_size(opt_size)}  ({savings_pct:.1f}% saved)"
+            )
 
             if savings < 5 * 1024 and speed is None and downsample_rate is None:
                 view.warn("Savings too small (<5KB), skipping upload")
@@ -106,7 +108,6 @@ def _optimize_all_scan(sounds: dict, client, min_size: int, view: View) -> list:
     probe_stereo = []
     if to_probe:
         view.step(f"{len(to_probe)} samples without channel metadata — probing...")
-        print()
         for info in to_probe:
             channels, probed_size = client.probe_channels(info.slot)
             if probed_size:
@@ -114,7 +115,7 @@ def _optimize_all_scan(sounds: dict, client, min_size: int, view: View) -> list:
             if channels > 1:
                 info.channels = 2
                 probe_stereo.append(info)
-                print(f"    Slot {info.slot:03d}: {info.name[:30]:<30} stereo detected")
+                view.info(f"  Slot {info.slot:03d}: {info.name[:30]:<30} stereo detected")
 
     return meta_stereo + probe_stereo
 
@@ -147,13 +148,13 @@ def _optimize_all_process(candidates: list, client, view: View) -> tuple[int, in
                 continue
 
             if msg == "already optimal":
-                print(f"  ⊘ Already optimal (channel count confirmed in WAV header)")
+                view.step("Already optimal (channel count confirmed in WAV header)")
                 continue
 
             savings = original_size - opt_size
 
             if savings < 5 * 1024:
-                print(f"  ⊘ Skipped (savings: {Sample.format_size(savings)})")
+                view.step(f"Skipped (savings: {Sample.format_size(savings)})")
                 continue
 
             try:
@@ -168,15 +169,15 @@ def _optimize_all_process(candidates: list, client, view: View) -> tuple[int, in
 
 def _optimize_all_report(optimized: int, total: int, total_savings: int, view: View) -> None:
     view.section("=" * 40)
-    print(f"  Optimized: {optimized}/{total} samples")
-    print(f"  Total savings: {Sample.format_size(total_savings)}")
+    view.kv("Optimized", f"{optimized}/{total} samples")
+    view.kv("Total savings", Sample.format_size(total_savings))
 
 def _optimize_all_display_candidates(candidates: list, view: View) -> int:
     """Print candidate table; return total original size in bytes."""
     total_original = 0
     for info in candidates:
         total_original += info.size_bytes
-        print(
+        view.info(
             f"    Slot {info.slot:03d}: {info.name[:30]:<30} {Sample.format_size(info.size_bytes)}"
         )
     return total_original
@@ -188,7 +189,6 @@ def cmd_optimize_all(args, view: View):
 
     with EP133Client(args.device) as client:
         view.section("Scanning...")
-        print()
 
         sounds = client.list_sounds()
         if slot_filter is not None:
@@ -200,16 +200,17 @@ def cmd_optimize_all(args, view: View):
             view.success("No stereo samples found")
             return 0
 
-        print(f"\n  Found {len(candidates)} stereo samples:\n")
+        view.info("")
+        view.info(f"Found {len(candidates)} stereo samples:")
+        view.info("")
         total_original = _optimize_all_display_candidates(candidates, view)
-        print(f"\n  Total: {Sample.format_size(total_original)}")
+        view.kv("Total", Sample.format_size(total_original))
 
         assume_yes = bool(args.yes)
         if not confirm(f"Optimize {len(candidates)} samples?", assume_yes):
             view.step("Cancelled")
             return 0
 
-        print()
         optimized, total_savings = _optimize_all_process(candidates, client, view)
         _optimize_all_report(optimized, len(candidates), total_savings, view)
 
@@ -390,7 +391,7 @@ def cmd_fingerprint(args, view: View):
                 }
                 try:
                     client.update_slot_metadata(slot, patch)
-                except Exception as exc:
+                except Exception as exc:  # pylint: disable=broad-exception-caught
                     view.warn(f"Fingerprint stored locally, but metadata update failed: {exc}")
 
             view.success(f"Fingerprint cached for slot {slot:03d}")

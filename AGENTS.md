@@ -36,117 +36,15 @@ cp -rf source dest          # NOT: cp -r source dest
 - `apt-get` - use `-y` flag
 - `brew` - use `HOMEBREW_NO_AUTO_UPDATE=1` env var
 
-<!-- BEGIN BEADS INTEGRATION -->
-## Issue Tracking with bd (beads)
+<!-- BEGIN BEADS INTEGRATION v:1 profile:minimal -->
+## Beads Issue Tracker
 
-**IMPORTANT**: This project uses **bd (beads)** for ALL issue tracking. Do NOT use markdown TODOs, task lists, or other tracking methods.
+This project uses **bd (beads)** for issue tracking.
 
-### Why bd?
-
-- Dependency-aware: Track blockers and relationships between issues
-- Version-controlled: Built on Dolt with cell-level merge
-- Agent-optimized: JSON output, ready work detection, discovered-from links
-- Prevents duplicate tracking systems and confusion
-
-### Quick Start
-
-**Check for ready work:**
-
-```bash
-bd ready --json
-```
-
-**Create new issues:**
-
-```bash
-bd create "Issue title" --description="Detailed context" -t bug|feature|task -p 0-4 --json
-bd create "Issue title" --description="What this issue is about" -p 1 --deps discovered-from:bd-123 --json
-```
-
-**Claim and update:**
-
-```bash
-bd update <id> --claim --json
-bd update bd-42 --priority 1 --json
-```
-
-**Complete work:**
-
-```bash
-bd close bd-42 --reason "Completed" --json
-```
-
-### Issue Types
-
-- `bug` - Something broken
-- `feature` - New functionality
-- `task` - Work item (tests, docs, refactoring)
-- `epic` - Large feature with subtasks
-- `chore` - Maintenance (dependencies, tooling)
-
-### Priorities
-
-- `0` - Critical (security, data loss, broken builds)
-- `1` - High (major features, important bugs)
-- `2` - Medium (default, nice-to-have)
-- `3` - Low (polish, optimization)
-- `4` - Backlog (future ideas)
-
-### Workflow for AI Agents
-
-1. **Check ready work**: `bd ready` shows unblocked issues
-2. **Claim your task atomically**: `bd update <id> --claim`
-3. **Work on it**: Implement, test, document
-4. **Discover new work?** Create linked issue:
-   - `bd create "Found bug" --description="Details about what was found" -p 1 --deps discovered-from:<parent-id>`
-5. **Complete**: `bd close <id> --reason "Done"`
-
-### Auto-Sync
-
-bd automatically syncs with git:
-
-- Exports to `.beads/issues.jsonl` after changes (5s debounce)
-- Imports from JSONL when newer (e.g., after `git pull`)
-- No manual export/import needed!
-
-### Important Rules
-
-- ✅ Use bd for ALL task tracking
-- ✅ Always use `--json` flag for programmatic use
-- ✅ Link discovered work with `discovered-from` dependencies
-- ✅ Check `bd ready` before asking "what should I work on?"
-- ❌ Do NOT create markdown TODO lists
-- ❌ Do NOT use external issue trackers
-- ❌ Do NOT duplicate tracking systems
-
-For more details, see README.md and docs/QUICKSTART.md.
-
-## Landing the Plane (Session Completion)
-
-**When ending a work session**, you MUST complete ALL steps below. Work is NOT complete until `git push` succeeds.
-
-**MANDATORY WORKFLOW:**
-
-1. **File issues for remaining work** - Create issues for anything that needs follow-up
-2. **Run quality gates** (if code changed) - Tests, linters, builds
-3. **Update issue status** - Close finished work, update in-progress items
-4. **PUSH TO REMOTE** - This is MANDATORY:
-   ```bash
-   git pull --rebase
-   bd sync
-   git push
-   git status  # MUST show "up to date with origin"
-   ```
-5. **Clean up** - Clear stashes, prune remote branches
-6. **Verify** - All changes committed AND pushed
-7. **Hand off** - Provide context for next session
-
-**CRITICAL RULES:**
-- Work is NOT complete until `git push` succeeds
-- NEVER stop before pushing - that leaves work stranded locally
-- NEVER say "ready to push when you are" - YOU must push
-- If push fails, resolve and retry until it succeeds
-
+- Run `bd prime` for the current workflow context.
+- Core commands: `bd ready`, `bd show <id>`, `bd update <id> --claim`, `bd close <id>`.
+- Use `bd` for persistent task tracking instead of markdown TODO lists.
+- Use `bd remember` only for evergreen facts not already captured well in issue descriptions.
 <!-- END BEADS INTEGRATION -->
 
 ## Key architectural decisions
@@ -157,10 +55,13 @@ For more details, see README.md and docs/QUICKSTART.md.
 src/cli/    — CLI layer: cli_main.py, parser.py, display.py, cmd_audio.py,
               cmd_slots.py, cmd_system.py, cmd_transfer.py, formatters.py,
               naming.py, prompts.py, sysinfo.py
-src/core/   — Core layer: client.py, models.py, types.py, operations.py,
-              ops.py, audio.py, backup.py
+src/core/   — Core layer: client.py, transport.py, desktop_transport.py,
+              models.py, types.py, operations.py, ops.py, audio.py, backup.py,
+              waveform_store.py
 src/tui/    — TUI layer: app.py, ui.py, worker.py, waveform_widget.py,
               waveform_store.py, actions.py, selectors.py, state.py
+src/app/    — Primary Toga/BeeWare product surface and platform app shell;
+              consumes shared core functionality; dedicated Debug UI is planned
 krate.py    — thin entry-point shim → src/cli/cli_main.main()
 ```
 
@@ -168,7 +69,9 @@ krate.py    — thin entry-point shim → src/cli/cli_main.main()
 
 All `cmd_*` functions receive `view: View` (from `src/cli/display.py`).
 Never use bare `print()` in command functions. Use `view.success()`, `view.error()`,
-`view.kv()`, etc. Three implementations: `TerminalView`, `SilentView`, `JsonView`.
+`view.kv()`, etc. If output shape is not covered cleanly by the existing methods,
+extend the view layer rather than printing directly from a command. Three
+implementations: `TerminalView`, `SilentView`, `JsonView`.
 Tests use `Mock(spec=View)` — no stdout patching.
 
 ### Descriptor DSL for protocol messages
@@ -176,7 +79,22 @@ Tests use `Mock(spec=View)` — no stdout patching.
 - `src/core/types.py` — wire primitives (`U7`, `BE16`, `Packed7`)
 - `src/core/models.py` — declarative message definitions
 - `src/core/operations.py` — multi-step transactions
-- `src/core/client.py` — transport only, no protocol knowledge
+- `src/core/client.py` — current protocol/session entry point; owns device
+  conversation invariants today and is under architectural review
 
 Build raw payload first, then apply packed7. Never pre-split values before packed7.
 Slot/node fields are BE16 inside the raw payload.
+
+### App-First Architecture
+
+`src/app` is the primary product surface. CLI and TUI remain first-class,
+maintained frontends, not secondary or legacy surfaces. Shared architecture
+must serve all three, preserving CLI/TUI behavior and test coverage.
+
+Authoritative boundary guidance lives in
+`docs/architecture/ARCH-002-app-first-core-ui.md`:
+
+- transport owns platform MIDI I/O
+- protocol/session logic owns device conversation correctness
+- shared application workflows sit above protocol/session logic
+- UI layers bind to shared workflows rather than owning orchestration directly

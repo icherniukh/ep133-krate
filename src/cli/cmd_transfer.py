@@ -41,9 +41,8 @@ def cmd_put(args, view: View):
             pitch = getattr(args, "pitch", 0.0)
             view.step(f"Uploading {input_path.name} → slot {args.slot}...")
             def _print_progress(curr, total):
-                print(f"\r  Uploading... {curr/total*100:.1f}%", end="", flush=True)
+                view.progress(curr, total, "Uploading...")
             client.put(input_path, args.slot, name=name, progress_callback=_print_progress, pitch=pitch)
-            print(" done")
             view.success(f"Uploaded to slot {args.slot}")
         except EP133Error as e:
             view.error(f"Error: {e}")

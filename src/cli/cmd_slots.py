@@ -75,9 +75,6 @@ def _ls_scan_fs(client, start: int, end: int, name_source: str, view: View) -> t
             )
         )
 
-    if total_slots:
-        print()
-
     return samples, True
 
 def _ls_scan_slots(client, start: int, end: int, view: View) -> list:
@@ -93,7 +90,6 @@ def _ls_scan_slots(client, start: int, end: int, view: View) -> list:
                 samples.append(Sample.empty(slot))
         except SlotEmptyError:
             samples.append(Sample.empty(slot))
-    print()
     return samples
 
 def _ls_parse_range(args, view: View) -> tuple[int, int] | None:
@@ -206,8 +202,6 @@ def cmd_info(args, view: View):
                     samples.append(info)
                 except SlotEmptyError:
                     empty_count += 1
-            print()
-
             if samples:
                 view.render_samples(samples, start, end)
             else:
@@ -375,11 +369,11 @@ def _squash_parse_range(args, view: View) -> tuple[int, int] | None:
     return start, end
 
 
-def _squash_display_plan(mapping: dict, sounds: dict, client, raw: bool) -> None:
+def _squash_display_plan(mapping: dict, sounds: dict, client, raw: bool, view: View) -> None:
     for old_slot, new_slot in mapping.items():
         entry = sounds.get(old_slot)
         name = resolve_transfer_name(client, old_slot, entry, raw)
-        print(f"    {old_slot:03d} → {new_slot:03d}  {name[:30]:<30}")
+        view.info(f"  {old_slot:03d} → {new_slot:03d}  {name[:30]:<30}")
 
 
 def cmd_squash(args, view: View):
@@ -411,22 +405,19 @@ def cmd_squash(args, view: View):
             return 0
 
         view.info(f"Will move {len(mapping)} samples:")
-        print()
-        _squash_display_plan(mapping, sounds, client, raw)
+        view.info("")
+        _squash_display_plan(mapping, sounds, client, raw, view)
 
         if dry_run:
-            print()
             view.warn("Preview mode")
-            print(f"  Run with --execute to apply changes")
+            view.step("Run with --execute to apply changes")
             return 0
 
         if not confirm(f"Execute squash for {len(mapping)} moves?", assume_yes):
             view.step("Cancelled")
             return 0
 
-        print()
         view.section("Executing...")
-        print()
 
         _squash_process_with_view(mapping, sounds, client, raw, view)
         _squash_report(mapping, view)
@@ -449,9 +440,9 @@ def cmd_group(args, view: View):
 
         view.info(f"Grouping {direction}:")
         for old_slot, new_slot in mapping.items():
-            print(f"    {old_slot:03d} → {new_slot:03d}")
+            view.info(f"  {old_slot:03d} → {new_slot:03d}")
 
         view.warn("Preview only")
-        print(f"  (requires download/re-upload to execute)")
+        view.step("(requires download/re-upload to execute)")
 
     return 0
