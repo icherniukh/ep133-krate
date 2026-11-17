@@ -15,7 +15,7 @@ import asyncio
 import pytest
 
 from tui.app import TUIApp
-from tui.ui import ConfirmModal, HelpModal, OptimizeModal, TextInputModal
+from tui.ui import ConfirmModal, HELP_KEYBINDINGS, HelpModal, OptimizeModal, TextInputModal
 from tui.worker import WorkerEvent
 
 
@@ -768,9 +768,13 @@ def test_enter_submits_rename_modal(monkeypatch):
     asyncio.run(_run())
 
 
-def test_enter_confirms_confirm_modal(monkeypatch):
-    """Pressing Enter in a ConfirmModal must confirm (dismiss True),
-    not trigger the app's view_details action."""
+@pytest.mark.parametrize(
+    "focus_keys,confirmed",
+    [((), False), (("right",), True), (("right", "left"), False)],
+    ids=["cancel-by-default", "confirm-after-right", "cancel-after-left"],
+)
+def test_confirmation_enter_uses_focused_button(monkeypatch, focus_keys, confirmed):
+    """Enter activates the focused button without leaking to app actions."""
     monkeypatch.setattr("tui.app.DeviceWorker", StubWorker)
 
     async def _run():
@@ -781,17 +785,29 @@ def test_enter_confirms_confirm_modal(monkeypatch):
             await pilot.press("s")
             await pilot.pause()
             assert isinstance(app.screen, ConfirmModal)
+            assert app.focused.id == "cancel"
+
+            if focus_keys:
+                await pilot.press(*focus_keys)
+            assert app.focused.id == ("ok" if confirmed else "cancel")
 
             await pilot.press("enter")
             await pilot.pause()
 
-            # Modal should be dismissed — confirm modal focuses Cancel by
-            # default, so Enter on Cancel dismisses with False (no squash).
-            # The key point: we're NOT still on ConfirmModal and no
-            # view_details action fired.
             assert not isinstance(app.screen, ConfirmModal)
+            assert _request_ops(app).count("squash") == int(confirmed)
+            assert "fetch_details" not in _request_ops(app)
 
     asyncio.run(_run())
+
+
+def test_help_navigation_matches_app_bindings():
+    help_entries = dict(HELP_KEYBINDINGS)
+    bindings = {binding.key: binding.action for binding in TUIApp.BINDINGS}
+    assert help_entries["j / ↓"] == "Cursor down"
+    assert help_entries["k / ↑"] == "Cursor up"
+    assert bindings["j"] == "cursor_down"
+    assert bindings["k"] == "cursor_up"
 
 
 def test_space_toggles_checkbox_in_optimize_modal(monkeypatch):

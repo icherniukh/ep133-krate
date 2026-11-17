@@ -158,7 +158,6 @@ class TextInputModal(ModalScreen[str | None]):
 class ConfirmModal(ModalScreen[bool]):
     BINDINGS = [
         Binding("escape", "cancel", "Cancel", priority=True),
-        Binding("enter", "ok", "Confirm", priority=True),
         Binding("left", "focus_cancel", show=False),
         Binding("right", "focus_ok", show=False),
     ]
@@ -175,7 +174,7 @@ class ConfirmModal(ModalScreen[bool]):
                 yield Button("Yes", id="ok", variant="error")
 
     def on_mount(self) -> None:
-        self.query_one("#ok", Button).focus()
+        self.query_one("#cancel", Button).focus()
 
     def action_cancel(self) -> None:
         self.dismiss(False)
@@ -257,8 +256,8 @@ class OptimizeModal(ModalScreen[tuple[bool, int | None, float | None, float] | N
 # All keybindings shown in the help overlay.  Each entry is (key_display, description).
 HELP_KEYBINDINGS: list[tuple[str, str]] = [
     # Navigation
-    ("j / ↑", "Cursor up"),
-    ("k / ↓", "Cursor down"),
+    ("k / ↑", "Cursor up"),
+    ("j / ↓", "Cursor down"),
     ("Ctrl+U", "Page up"),
     ("Ctrl+D", "Page down"),
     # Sample operations
