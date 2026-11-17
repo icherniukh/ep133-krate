@@ -54,3 +54,5 @@
 # - github.repo
 
 no-git-ops: true
+sync:
+    remote: "gs://bd-server/ep133-krate"
