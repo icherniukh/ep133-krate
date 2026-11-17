@@ -10,9 +10,9 @@ appear beside the relevant evidence.
   upstream bench report for one more.
 - **OS 2.5.1** has upstream hardware evidence for **13 of 15**. Two operations
   lack an explicit 2.5.1 exchange in the sources reviewed.
-- **Krate** implements **10 of 15** directly, uses **one** inside upload, and
-  has no dedicated support for **four**. Generic node listing and metadata
-  access can serve as building blocks for those four.
+- **Krate** implements **11 of 15** directly, uses **one** inside upload, and
+  has no dedicated support for **three**. Generic node listing and metadata
+  access can serve as building blocks for those three.
 
 **Capture** means a checked-in EP-133 exchange from a session identified by
 GREET. **Bench** means a published hardware result scoped to the version
@@ -27,7 +27,7 @@ Wire layouts are in [PROTOCOL.md](../PROTOCOL.md).
 | FILE LIST | [Capture](../captures/sniffer-readmeta.jsonl#L8-L13) | [Bench](https://github.com/kmorrill/ep-series-sysex/blob/main/docs/file-protocol.md#the-node--file-id-tree) | Generic node listing |
 | METADATA GET | [Capture](../captures/sniffer-rename54-txrx.jsonl#L124-L129) | [Bench](https://github.com/kmorrill/ep-series-sysex/blob/main/docs/file-protocol.md#metadata) | Generic node reads |
 | METADATA SET | [Capture](../captures/sniffer-rename54-txrx.jsonl#L119-L121) | [Bench](https://github.com/kmorrill/ep-series-sysex/blob/main/docs/file-protocol.md#metadata) | Generic node writes |
-| Storage query | [Capture](../captures/sniffer-readmeta.jsonl#L12-L19) | [Client code](https://github.com/seajaysec/ep-unity/blob/main/web/lib/kotu.bundle.js#L767-L775) available; version-stamped exchange still needed | Estimated in CLI |
+| Storage query | [Capture](../captures/sniffer-readmeta.jsonl#L12-L19) | [Client code](https://github.com/seajaysec/ep-unity/blob/main/web/lib/kotu.bundle.js#L767-L775) available; version-stamped exchange still needed | Live capacity and free space in `krate status` |
 | FILE STAT | [Capture](../tests/fixtures/sniffer-upload-kick-official.jsonl#L466-L467) | [Bench tree walk](https://github.com/kmorrill/ep-series-sysex/blob/main/docs/file-protocol.md#the-node--file-id-tree) | Used inside upload |
 | Sample audition | [Capture](../captures/sniffer-rename54-txrx.jsonl#L117-L118) | [Bench](https://github.com/kmorrill/ep-series-sysex/blob/main/docs/file-protocol.md#play--audition-0x05-0x01) | Implemented |
 | Sample GET | [Capture](../captures/sniffer-rename54-txrx.jsonl#L15-L25), [whole-file excerpt](../captures/evidence-download-state-bug.jsonl#L5-L34) | [Bench](https://github.com/kmorrill/ep-series-sysex/blob/main/docs/file-protocol.md#beyond-project-io) | Implemented; page encoding needs byte comparison |
@@ -84,6 +84,13 @@ Three reads in the metadata capture return **62,853,120 bytes capacity** and
 capacity and **6,661,776 bytes free**. These are measurements of one device,
 with free space changing across sessions.
 [Repeated reads](../captures/sniffer-readmeta.jsonl#L12-L19), [Post-upload exchange](../tests/fixtures/sniffer-upload-kick-official.jsonl#L477-L479)
+
+GREET `sku` identifies the hardware revision. Krate's 2.0.5 capture shows
+`TE032AS001` (64 MiB), and ep-unity reports hardware testing on `TE032AS002`
+(128 MiB). That project also uses `/sounds` for sample capacity. Its published
+report gives the board sizes, while a firmware-stamped 128 MiB reply with the
+exact `max_capacity` value remains open.
+[Krate GREET](../captures/sniffer-readmeta.jsonl#L5-L6), [ep-unity hardware report](https://github.com/seajaysec/ep-unity/blob/main/README.md#two-skus-board-revision-and-firmware-lineage)
 
 ### Pad assignment and trim
 

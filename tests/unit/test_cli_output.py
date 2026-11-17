@@ -82,6 +82,41 @@ class FakeClient:
         self._log.append(("rename", slot, new_name))
 
 
+@pytest.mark.parametrize("capacity,free", [(62_853_120, 2_856_216), (130_000_000, 0)])
+def test_cmd_status_uses_device_storage(monkeypatch, capacity, free):
+    client = FakeClient({1: {"size": 100}})
+    client.device_info = Mock(return_value=None)
+    client.get_node_metadata = Mock(return_value={
+        "max_capacity": capacity,
+        "free_space_in_bytes": free,
+    })
+    monkeypatch.setattr(cli.cmd_system, "EP133Client", lambda *_: client)
+    view = make_view()
+
+    assert cli.cmd_system.cmd_status(_args(), view) == 0
+
+    client.get_node_metadata.assert_called_once_with(1000)
+    assert call("Capacity", f"{capacity:,} bytes") in view.kv.call_args_list
+    assert call("Free", f"{free:,} bytes") in view.kv.call_args_list
+    memory = dict(args for args, _ in view.kv.call_args_list)["Memory"]
+    assert f"({100 * (capacity - free) / capacity:.0f}%)" in memory
+
+
+@pytest.mark.parametrize("storage", [None, {"max_capacity": 100, "free_space_in_bytes": 101}])
+def test_cmd_status_labels_fallback_without_valid_storage(monkeypatch, storage):
+    client = FakeClient()
+    client.device_info = Mock(return_value=None)
+    client.get_node_metadata = Mock(return_value=storage)
+    monkeypatch.setattr(cli.cmd_system, "EP133Client", lambda *_: client)
+    view = make_view()
+
+    assert cli.cmd_system.cmd_status(_args(), view) == 0
+
+    fields = dict(args for args, _ in view.kv.call_args_list)
+    assert "Capacity" not in fields and "Free" not in fields
+    assert "assumed total" in fields["Memory"]
+
+
 # ---------------------------------------------------------------------------
 # cmd_get
 # ---------------------------------------------------------------------------

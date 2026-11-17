@@ -2,7 +2,7 @@ import re
 import json
 
 from core.client import EP133Client
-from core.models import Sample, MAX_SLOTS, decode_14bit, decode_node_id
+from core.models import Sample, MAX_SLOTS, UPLOAD_PARENT_NODE, decode_14bit, decode_node_id
 from cli.display import View
 from cli.parser import parse_range
 from cli.parser import parse_page
@@ -63,20 +63,36 @@ def cmd_status(args, view: View):
             return 1
 
         used = len(sounds)
-        total_size = sum(int(e.get("size") or 0) for e in sounds.values())
         empty = MAX_SLOTS - used
         view.kv("Samples", f"{used} used, {empty} empty")
 
-        total_mem = _extract_total_memory(info)
-        assumed = False
-        if total_mem is None:
-            total_mem = 64 * 1024 * 1024
-            assumed = True
-        pct = (total_size / total_mem) * 100 if total_mem else 0.0
+        try:
+            storage = client.get_node_metadata(UPLOAD_PARENT_NODE)
+        except Exception:
+            storage = None
+
+        capacity = free = None
+        if isinstance(storage, dict):
+            capacity = storage.get("max_capacity")
+            free = storage.get("free_space_in_bytes")
+
+        if type(capacity) is int and type(free) is int and capacity > 0 and 0 <= free <= capacity:
+            total_mem = capacity
+            total_size = capacity - free
+            view.kv("Capacity", f"{capacity:,} bytes")
+            view.kv("Free", f"{free:,} bytes")
+            suffix = ""
+        else:
+            total_size = sum(int(e.get("size") or 0) for e in sounds.values())
+            total_mem = _extract_total_memory(info)
+            suffix = " (estimated usage)" if total_mem else " (assumed total)"
+            total_mem = total_mem or 64 * 1024 * 1024
+
+        pct = (total_size / total_mem) * 100
         view.kv(
             "Memory",
             f"{Sample.format_size(total_size)} / {Sample.format_size(total_mem)} ({pct:.0f}%)"
-            + (" (assumed total)" if assumed else ""),
+            + suffix,
         )
         bar = _format_bar(total_size, total_mem)
         if bar:

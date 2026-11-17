@@ -44,7 +44,8 @@ upstream activation write to a local trace.
 ## 4. Hardware variants and metadata edits
 
 - On 2.5.1, capture complete GREET and `/sounds` storage exchanges on the
-  available 64 MB and 128 MB variants. Record the reported byte counts.
+  available 64 MB unit. Record the reported byte counts. A published
+  firmware-stamped 128 MB capture can fill the corresponding evidence gap.
 - Compare the short and long PLAY requests on each firmware against the
   same sample and trim settings.
 - Use `--hunt meta_set` while changing one pad loop or trim control at a

@@ -77,9 +77,9 @@ The repository's older slot-audit path sometimes returns stale metadata.
 ### Storage and audition
 
 Read METADATA GET page 0 on `/sounds` with `07 02 03 E8 00 00`. The JSON
-contains `max_capacity`, `free_space_in_bytes`, and `formats`. Krate's CLI
-status currently derives usage from sample sizes and assumes 64 MiB when
-capacity is unavailable. [Storage exchange on 2.0.5](captures/sniffer-readmeta.jsonl#L12-L15)
+contains `max_capacity`, `free_space_in_bytes`, and `formats`. `krate status`
+reports capacity and free bytes from this reply and labels its estimate if
+the query is unavailable. [Storage exchange on 2.0.5](captures/sniffer-readmeta.jsonl#L12-L15)
 
 The official tool sends `05 01 <slot:u16be> 00 00 00 00 00 00 03 E8` on
 2.0.5. Krate uses this form. The four-byte form is bench-tested upstream
