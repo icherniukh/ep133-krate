@@ -555,13 +555,8 @@ class EP133Client:
                 samplerate=int(info.samplerate or MAX_SAMPLE_RATE),
             )
         finally:
-            # Reset device state after download so subsequent commands (e.g. delete)
-            # are processed. Without this the device stays in download mode and
-            # silently ignores the next command. Confirmed from TUI capture analysis:
-            # DELETE sent immediately after _download_data receives stale GET responses
-            # instead of a DELETE ACK. put() has always called _initialize() for the
-            # same reason. Must fire on both success and exception paths to prevent
-            # partial-download state from causing silent drops on the next call.
+            # Reinitialize on exit while interrupted-transfer recovery is unverified.
+            # See docs/protocol-evidence.md for successful post-GET commands on 2.0.5.
             self._initialize()
 
         return output_path
@@ -638,7 +633,7 @@ class EP133Client:
 
         Returns (channels, size_bytes).  channels is 1 or 2.  size_bytes is the
         raw PCM byte count from the init response, or 0 on failure.
-        Does NOT complete the download — the device silently discards the session.
+        Only requests the first page of the transfer.
         """
         seq = 0x2E
         init_resp = self._send_file_request(

@@ -231,14 +231,9 @@ Wraps `mido` + `rtmidi` for development/testing on macOS/Linux. This lets us ite
 
 ## Wire Format Reference
 
-See `PROTOCOL.md` for full details. Key points for transport implementers:
+Use [PROTOCOL.md](../PROTOCOL.md) for startup, real-device frame layouts,
+and the links to firmware-specific evidence.
 
-- **INIT sequence** (raw, NOT packed7):
-  - `F0 7E 7F 06 01 F7` — Identity Request
-  - `F0 00 20 76 33 40 61 17 01 F7` — TE INIT 1
-  - `F0 00 20 76 33 40 61 18 05 00 01 01 00 40 00 00 F7` — TE INIT 2
-- **File operations** use packed7 payloads: build raw payload, then `Packed7.pack()`, then wrap in SysEx
-- **TE manufacturer ID:** `00 20 76`, device family: `33 40`
 - **UMP SysEx7** (iOS `MIDISendEventList`): strip F0/F7, fragment into 6-byte chunks with status nibbles (0x1=start, 0x2=continue, 0x3=end, 0x0=complete)
 
 ## Existing Swift Reference

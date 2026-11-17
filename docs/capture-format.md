@@ -1,72 +1,52 @@
-# Capture Formats (midi_proxy.py)
+# MIDI capture and file formats
 
-This repo uses `midi_proxy.py` to capture MIDI SysEx traffic. Captures can be
-written as JSONL/TSV/plain text, or in a raw binary format.
-
-## Tool Choice
-
-Use `midi_proxy.py` for all captures and pretty-printing. The older
-`midi_sniffer.py` has been removed.
-
-## Raw Binary Format (`--format raw`)
-
-Each record is:
-
-- 1 byte: direction (`T` for TX, `R` for RX)
-- 8 bytes: timestamp (milliseconds since epoch, little-endian uint64)
-- 4 bytes: message length in bytes (little-endian uint32)
-- N bytes: full SysEx message (`F0 ... F7`)
-
-Records are concatenated back-to-back with no separators.
-
-### Example parse (Python)
-
-```python
-def iter_records(fp):
-    while True:
-        direction = fp.read(1)
-        if not direction:
-            return
-        ts_ms = int.from_bytes(fp.read(8), "little")
-        length = int.from_bytes(fp.read(4), "little")
-        data = fp.read(length)
-        yield direction, ts_ms, data
-```
-
-## Capture vs Pretty Print
-
-Capture writes a file:
+Install the desktop dependencies from [the development setup](../CONTRIBUTING.md#development-setup).
+From the repository root, proxy both directions and connect the Sample Tool
+to the virtual port. Give each run a fresh filename since capture appends to
+an existing JSONL or raw file.
 
 ```bash
-python midi_proxy.py --proxy --format raw captures/sniffer-raw.bin
+python scripts/midi_proxy.py --proxy --spoof captures/sniffer-example.jsonl
+python scripts/midi_proxy.py --pretty --limit 50 captures/sniffer-example.jsonl
 ```
 
-Pretty-print reads an existing capture:
+Preserve the startup exchange. Record the model, hardware variant, firmware
+from GREET, client, and action for each capture. Keep the full TX/RX frames.
+Current proxy labels and `--hunt` matching are helpful for finding requests.
+For replies and events, verify the raw bytes against the
+[frame layout](../PROTOCOL.md#message-structure). The preview decoder can
+interpret the status byte as Packed7 and give a misleading operation label.
+
+## JSON Lines (default)
+
+Each line records `ts` (local clock time), `dir` (`TX` or `RX`), `len`
+(full frame length in bytes), and `hex` (complete SysEx including `F0` and
+`F7`). Known Teenage Engineering headers can also include `mfg`, `family`,
+and `cmd`. The `cmd` field is the high part of the request ID in this tool.
+TSV and plain-text export are also available.
+
+## Raw binary
+
+Each record consists of these fields in order, with no separator.
+
+| Length | Field |
+|---:|---|
+| 1 byte | Direction, ASCII `T` or `R` |
+| 8 bytes | Unix timestamp in milliseconds, unsigned little-endian |
+| 4 bytes | SysEx frame length, unsigned little-endian |
+| Variable | Complete SysEx frame, including `F0` and `F7` |
 
 ```bash
-python midi_proxy.py --pretty --format raw captures/sniffer-raw.bin
+python scripts/midi_proxy.py --proxy --spoof --format raw captures/sniffer-example.bin
+python scripts/midi_proxy.py --pretty --format raw captures/sniffer-example.bin
 ```
 
-## Pretty Printing Raw Captures
+Some old `.bin` files contain concatenated SysEx frames with no record
+headers. Inspect their framing before treating them as the proxy's raw format.
 
-```bash
-python midi_proxy.py --pretty --format raw captures/sniffer-raw.bin
-```
+## Standard MIDI file
 
-## MIDI File Format (`--format mid`)
-
-Writes a standard SMF Type 1 `.mid` file so regular MIDI tools can open it.
-
-- Track 0: meta (track name `META`) and a tempo event.
-- Track 1: `TX` SysEx events.
-- Track 2: `RX` SysEx events.
-- PPQN: `1000`, tempo: `1,000,000` us/quarter (1 tick = 1 ms).
-- SysEx events use `0xF0` with data that omits the leading `0xF0` byte and
-  includes the trailing `0xF7` if present in the captured message.
-
-## About `.syx` Files
-
-`.syx` files are typically just a concatenation of raw SysEx messages
-(`F0 ... F7`) with no timestamps or direction. The current raw format preserves
-direction + time for protocol analysis. If you want a `.syx` export mode, we
-can add a `--format syx` option to emit the bare SysEx stream.
+`--format mid` writes SMF Type 1 with three tracks (`META`, `TX`, `RX`).
+Timing is 1,000 ticks per quarter note at 1,000,000 µs per quarter, or 1 ms
+per tick. SysEx events store the bytes following `F0`, with the final
+`F7` included. Open the file in a MIDI tool for inspection.

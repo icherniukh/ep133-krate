@@ -50,25 +50,12 @@ so shared core code can be used by other platforms.
 - Fingerprint and waveform cache operations
 - SysEx capture proxy with pretty-printing and filtering
 
-## Protocol gaps
+## Protocol research
 
-The authoritative gap list lives in [PROTOCOL.md § Known Issues](PROTOCOL.md#known-issues).
-See `docs/capture-wishlist.md` for capture scenarios and exact commands needed to fill them.
-
-## Capturing protocol traffic
-
-Protocol gaps are filled by sniffing traffic from the official EP Sample Tool.
-See `docs/capture-wishlist.md` for specific scenarios, steps, and commands.
-
-Quick reference:
-
-```bash
-# Intercept both directions
-python midi_proxy.py --proxy --spoof captures/sniffer-<name>.jsonl
-
-# Replay/inspect a capture
-python midi_proxy.py --pretty captures/sniffer-<name>.jsonl
-```
+See the [wire reference](PROTOCOL.md), [firmware and evidence matrix](docs/protocol-evidence.md),
+and [open capture scenarios](docs/capture-wishlist.md). Follow the
+[capture guide](docs/capture-format.md) to record both directions and stamp
+the device model and firmware.
 
 ## Architecture decisions
 
@@ -113,4 +100,5 @@ Protocol messages are defined declaratively using field descriptors:
 - `src/core/operations.py` — stateful multi-step operations (e.g., `UploadTransaction`)
 - `src/core/client.py` — current protocol/session entry point
 
-This gives 100% serialization/deserialization symmetry with no transport leakage.
+The descriptors handle wire encoding and decoding. The transport sends and
+receives the resulting frames.

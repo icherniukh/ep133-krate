@@ -1,153 +1,119 @@
-# EP-133 KO-II Protocol Evidence & Research Archive
+# EP-133 protocol evidence and firmware coverage
 
-## 1. Protocol audit & confidence matrix
+## Operation coverage
 
-*Ground truth: device captures in `captures/`, 45 unit tests, confirmed device tests.*
+This inventory counts **15 named EP-133 operations**. Its scope is the
+operations listed in the matrix. Field-level and firmware-specific gaps
+appear beside the relevant evidence.
 
-```
-SOLID            SPECULATION      BLIND GUESS      UNKNOWN
-~43%             ~27%             ~13%             ~17%
-████████████     ███████          ████             █████
-```
+- **OS 2.0.5** has local TX/RX evidence for **12 of 15** operations and an
+  upstream bench report for one more.
+- **OS 2.5.1** has upstream hardware evidence for **13 of 15**. Two operations
+  lack an explicit 2.5.1 exchange in the sources reviewed.
+- **Krate** implements **10 of 15** directly, uses **one** inside upload, and
+  has no dedicated support for **four**. Generic node listing and metadata
+  access can serve as building blocks for those four.
 
-### Validation matrix
+**Capture** means a checked-in EP-133 exchange from a session identified by
+GREET. **Bench** means a published hardware result scoped to the version
+in the column. Both refer to the variants described in the linked evidence.
+Wire layouts are in [PROTOCOL.md](../PROTOCOL.md).
 
-| Operation | Implementation | RCY alignment | Wire evidence | Status | Notes |
-|---|---|---|---|---|---|
-| Device info (GET_INFO 0x77) | `EP133Client.device_info()` | Unknown | `captures/sniffer-02-20-audit1.log` (raw SysEx 0x21, product info) | 🟡 | Response contains JSON-like payload |
-| Slot meta (GET_META 0x75) | `EP133Client.get_meta_legacy()` | N/A | `captures/sniffer-02-20-audit1.log` (raw SysEx 0x35), `captures/2026-02-20-audit-001-099.jsonl` (decoded), `captures/2026-02-20-audit-100-199.jsonl` (decoded) | ⚠️ | Legacy API can return stale/ghost metadata |
-| File list (/sounds) | `EP133Client.list_directory()` | Match | `captures/sniffer-02-20-audit1.log` (raw SysEx 0x2A), `captures/2026-02-20-audit-001-099.jsonl` (decoded) | ✅ | Uses 0x6A + FileOp.LIST |
-| Node meta GET | `EP133Client.get_node_metadata()` | Match | `captures/2026-02-20-audit-001-099.jsonl` (decoded), `captures/sniffer-readmeta.jsonl` (raw SysEx) | ✅ | Uses FileOp.METADATA GET |
-| Node meta SET | `EP133Client.rename()` | Match | `captures/sniffer-rename.jsonl` (raw SysEx) | ✅ | Official tool uses FileOp.METADATA SET with JSON name |
-| Download (GET) | `EP133Client.get()` | Partial | _pending_ | 🟡 | Works in practice |
-| Upload (PUT) | `EP133Client.put()` | Partial | `captures/sniffer-slot26.jsonl`, `tests/fixtures/sniffer-upload21.jsonl`, `tests/fixtures/sniffer-upload-kick-official.jsonl`, `captures/sniffer-upload-clean-hi.bin` | ✅ | Official tool upload + META SET captured |
-| Delete | `EP133Client.delete()` | Match | `captures/sniffer-delete-hi.bin` | ✅ | Big-endian slot confirmed (467) |
-| Pad assign/trim | Not implemented | Unknown | `captures/sniffer-padtrim.jsonl` | 🟡 | Uses FileOp.METADATA SET on pad nodes (see below) |
-| Project switch | Not implemented | Match | _pending_ | ⚠️ | Protocol documented, no CLI yet |
+| Operation | EP-133 OS 2.0.5 | EP-133 OS 2.5.1 | Krate |
+|---|---|---|---|
+| USB MIDI identity | [Capture](../captures/sniffer-readmeta.jsonl#L3-L4) | [Bench](https://github.com/kmorrill/ep-series-sysex/blob/main/docs/sysex-protocol.md#firmware-version--midi-universal-identity-request) | Startup |
+| GREET product fields | [Capture](../captures/sniffer-readmeta.jsonl#L5-L6) | GREET command documented; full version-stamped reply still needed | Startup |
+| FILE INIT | [Capture](../captures/sniffer-readmeta.jsonl#L7-L9) | [Bench](https://github.com/kmorrill/ep-series-sysex/blob/main/docs/file-protocol.md#sub-commands) | Startup |
+| FILE LIST | [Capture](../captures/sniffer-readmeta.jsonl#L8-L13) | [Bench](https://github.com/kmorrill/ep-series-sysex/blob/main/docs/file-protocol.md#the-node--file-id-tree) | Generic node listing |
+| METADATA GET | [Capture](../captures/sniffer-rename54-txrx.jsonl#L124-L129) | [Bench](https://github.com/kmorrill/ep-series-sysex/blob/main/docs/file-protocol.md#metadata) | Generic node reads |
+| METADATA SET | [Capture](../captures/sniffer-rename54-txrx.jsonl#L119-L121) | [Bench](https://github.com/kmorrill/ep-series-sysex/blob/main/docs/file-protocol.md#metadata) | Generic node writes |
+| Storage query | [Capture](../captures/sniffer-readmeta.jsonl#L12-L19) | [Client code](https://github.com/seajaysec/ep-unity/blob/main/web/lib/kotu.bundle.js#L767-L775) available; version-stamped exchange still needed | Estimated in CLI |
+| FILE STAT | [Capture](../tests/fixtures/sniffer-upload-kick-official.jsonl#L466-L467) | [Bench tree walk](https://github.com/kmorrill/ep-series-sysex/blob/main/docs/file-protocol.md#the-node--file-id-tree) | Used inside upload |
+| Sample audition | [Capture](../captures/sniffer-rename54-txrx.jsonl#L117-L118) | [Bench](https://github.com/kmorrill/ep-series-sysex/blob/main/docs/file-protocol.md#play--audition-0x05-0x01) | Implemented |
+| Sample GET | [Capture](../captures/sniffer-rename54-txrx.jsonl#L15-L25), [whole-file excerpt](../captures/evidence-download-state-bug.jsonl#L5-L34) | [Bench](https://github.com/kmorrill/ep-series-sysex/blob/main/docs/file-protocol.md#beyond-project-io) | Implemented; page encoding needs byte comparison |
+| Sample PUT | [Capture](../tests/fixtures/sniffer-upload-kick-official.jsonl), [PCM byte test](../tests/unit/test_upload_capture.py) | [Bench](https://github.com/kmorrill/ep-series-sysex/blob/main/docs/file-protocol.md#beyond-project-io) | Implemented |
+| Sample DELETE | [Capture](../captures/evidence-download-state-bug.jsonl#L35-L38) | [Bench library flow](https://github.com/kmorrill/ep-series-sysex/blob/main/docs/file-protocol.md#beyond-project-io). The separate wrong-payload comparison used EP-40. | Implemented |
+| Project activation | [Bench](https://github.com/kmorrill/ep-series-sysex/blob/main/epsysex/fileclient.py#L563-L569), [local active project readback](../tests/fixtures/sniffer-upload-kick-official.jsonl#L5-L13) | [Bench](https://github.com/kmorrill/ep-series-sysex/blob/main/docs/file-protocol.md#project-reload--activation-sequence) | No dedicated operation |
+| Project TAR GET | Version-stamped exchange still needed | [Bench](https://github.com/kmorrill/ep-series-sysex/blob/main/docs/file-protocol.md#reading-a-project-tar) | No dedicated operation |
+| Project TAR PUT | Version-stamped exchange still needed | [Bench write, reload and playback](https://github.com/kmorrill/ep-series-sysex/blob/main/docs/file-protocol.md#writing-a-project-tar) | No dedicated operation |
 
----
+## Firmware changes from 2.0.5 to 2.5.1
 
-## 2. Wire validation & capture logs
+| Release | Manufacturer-documented changes relevant here |
+|---|---|
+| **2.0.5** · 2025-12-03 | Sample Tool and MIDI fixes, audio stability improvements, and restored continuous SYNC OUT. [Official download notes](https://teenage.engineering/downloads/ep-133) |
+| **2.5** · 2026-06-24 | USB audio, reverse playback, selectable recording sample rates and up to 40 seconds of mono recording. Adds TRS MIDI identity replies, sustain (CC 64) and FX control (CC 12/13). Scale and key now save per project. Teenage Engineering also reports more reliable file transfers, better trim retention on Sample Tool export/import, and a fix for a project-switch crash. [Official 2.5 release notes](https://teenage.engineering/guides/ep-133/whats-new) |
+| **2.5.1** · 2026-07-03 | Fixes for cropping long samples, a tempo shortcut, and intermittent Android USB audio. The published notes give no SysEx field or opcode changes. [Official download notes](https://teenage.engineering/downloads/ep-133) |
 
-To capture new evidence, run: `python midi_proxy.py --proxy captures/sniffer-<name>.jsonl`
+- **USB identity** works in both versions. Both sources report zero version
+  bytes. TRS identity support is new in 2.5. [2.0.5 exchange](../captures/sniffer-readmeta.jsonl#L3-L6), [2.5.1 bench](https://github.com/kmorrill/ep-series-sysex/blob/main/docs/sysex-protocol.md#firmware-version--midi-universal-identity-request)
+- **Core FILE operations** have evidence in both versions for INIT, LIST,
+  STAT, metadata, audition, sample GET/PUT/DELETE and project activation.
+  The GET byte-order discrepancy already occurs between two clients on the
+  same 2.0.5 unit. The long 2.0.5 PLAY request and short 2.5.1 request differ
+  by client and lack a same-request cross-version test. [GET and PLAY layouts](../PROTOCOL.md#file-operations)
+- **Project archive compatibility is member-specific.** Upstream tested a
+  2.0.5-era `scenes` member on 2.5.1 and reported silent external playback.
+  The tested legacy `settings` and `fx_settings` members worked. Keep native
+  templates per firmware when authoring. The `settings` tail bytes differ
+  in the published corpora, but neither their meaning nor the actual
+  project-scale offsets are established. [Scene transplant result](https://github.com/kmorrill/ep-series-sysex/blob/main/docs/project-format.md#scenes-member-712-b), [Open settings fields](https://github.com/kmorrill/ep-series-sysex/blob/main/docs/coverage.md#settings)
+- **Session failures still need paired tests.** Upstream reports overlapping
+  FILE operations and interrupted streams can leave device state unreliable.
+  The 2.5 reliability release note does not establish which recovery
+  sequences are required on 2.5.1. [Bench error observations](https://github.com/kmorrill/ep-series-sysex/blob/main/docs/errors.md)
 
-### 2026-02-21 official app hunter capture (open app)
-Hunter summary after opening the official sample tool (no user actions):
-- Observed FileOp.METADATA and FileOp.LIST traffic (plus VERIFY).
-- **No GET_META (0x75) or META_RSP (0x35) observed.**
-- Subsequent session with light interaction: `META_GET: 994`, `META_SET: 12`.
-- Device IDs observed for META ops include `0x60`–`0x6A` (rotating).
+## Capture findings
 
-### 2026-02-20 pad assignment + trim capture
-*Capture: `captures/sniffer-padtrim.jsonl` (slot 74 upload + pad assign + trim)*
+### Download completion and recovery
 
-- Uses `SysExCmd 0x7F/0x60` (requests) and `0x3F/0x20` (responses) during upload.
-- Metadata SET sequence (decoded raw):
-  - Node `74`: sets core sample params (`sound.*`, `channels`, `samplerate`).
-  - Node `9500`: `{"active":9502}` (selects active pad slot).
-  - Node `9502`: `{"sym":74}` (assigns sample slot to pad node).
-  - Node `9502`: `{"sample.start":0,"sample.end":8006}` (initial trim).
-  - Node `9502`: `{"sample.start":2318,"sample.end":8006}` (trim edit).
-- Multiple Metadata GETs for nodes `74`, `1000`, `2000`, `9100`, `9500`, `9502`.
-- User report: this capture was pad labeled `8` in group `D` (pad layout is 0-9 plus `.` and `Enter`, mapping unknown).
+The original annotations in the archived download excerpt misidentified
+unsolicited events as stale GET replies. The raw bytes show the following
+exchanges on OS 2.0.5.
 
-### 2026-02-20 pad assign + rename (TX+RX)
-*Capture: `captures/sniffer-rename54-txrx.jsonl`*
-- TX METADATA SET:
-  - Node `9506`: `{"sym":53}` (assign sample slot 53 to pad node).
-  - Node `53`: `{"name":"53_name))"}` (rename sample).
-- TX METADATA GET:
-  - Node `53`: pages `0` and `1` (before and after rename).
-- RX metadata JSON confirms pre-rename: `name:"pr - kicks 9"` and post-rename: `name:"53_name))"`.
-- User report: sample slot `53` was used; pad label was `6` in group `D`.
+| Capture lines | Decoded exchange |
+|---|---|
+| [33–38](../captures/evidence-download-state-bug.jsonl#L33-L38) | After the last GET page, DELETE slot 914 uses request bytes `7E 4C`. The device emits `0A 03 92` (FILE_DELETED), then replies `3E 4C 05 00`. The next event is updated free space on `/sounds`. |
+| [95–100](../captures/evidence-download-state-bug.jsonl#L95-L100) | DELETE slot 700 uses `7E 60`, emits `0A 02 BC`, and receives matching success reply `3E 60 05 00`. Another free-space update follows. |
+| [114–118](../captures/sniffer-rename54-txrx.jsonl#L114-L118) | The official tool receives page 49, finishing a 16,000-byte preview. It immediately sends PLAY and gets status zero without an intervening INIT. |
 
-### Pad mapping (complete — confirmed by captures + reference impl pattern)
-- All 4 groups follow the same physical-to-file inversion with a regular +100 group offset.
-- Group A (9201–9212): fully confirmed from `captures/sniffer-padmap-A.jsonl`.
-- Group B (9301–9312): Pad 8→9302, Pad 0→9311 confirmed from `captures/sniffer-padmap-B.bin`; remaining pads follow identical pattern.
-- Group C (9401–9412): Pad 8→9402, Pad 0→9411 confirmed from `captures/sniffer-padmap-C.bin`; remaining pads follow identical pattern.
-- Group D (9501–9512): Pad 8→9502 confirmed from `captures/sniffer-padtrim.jsonl`, Pad 6→9506 from `captures/sniffer-rename54-txrx.jsonl`; remaining pads follow identical pattern.
-- Formula: `node = 2000 + (project * 1000) + 100 + group_offset + file_num` where group_offset A=100, B=200, C=300, D=400.
+### Storage measurements
 
----
+Three reads in the metadata capture return **62,853,120 bytes capacity** and
+**2,856,216 bytes free**. Another session after upload reports the same
+capacity and **6,661,776 bytes free**. These are measurements of one device,
+with free space changing across sessions.
+[Repeated reads](../captures/sniffer-readmeta.jsonl#L12-L19), [Post-upload exchange](../tests/fixtures/sniffer-upload-kick-official.jsonl#L477-L479)
 
-## 3. Upload deep-dive & encoding quirks
+### Pad assignment and trim
 
-### 2026-02-20 official tool upload captures (slot 26, slot 21)
-*Captures: `captures/sniffer-slot26.jsonl`, `tests/fixtures/sniffer-upload21.jsonl`, and `tests/fixtures/sniffer-upload-kick-official.jsonl`*
-- Upload init is `SysExCmd 0x7E` (slot 21) and also `0x7F` (slot 26), with seq byte following.
-- Payload uses `CMD_FILE 0x05` + packed7(raw_payload):
-  - `02 00 05 slot_hi slot_lo node_hi node_lo size_be name 00 json`
-- Name + JSON metadata are embedded in upload init (no separate rename needed).
-- PUT_DATA uses `02 01` with a 16-bit chunk index stepping by `0x0100`.
-- Additional short ops after data:
-  - `0x0B 00 <slot>` (verify, observed twice)
-  - `0x01 01 00 40 00 00` (re-init, observed once)
-  - `0x07 02 ...` (metadata op, observed with slot + node variants)
+On 2.0.5 the official tool selected pad node 9502 with `active` on group
+node 9500, assigned slot 74 with `sym`, then changed `sample.start` from 0 to
+2318 while `sample.end` stayed at 8006. A second capture associates Group D
+pad label `6` with node 9506 and assigns slot 53. The dated Group A capture
+covers all 12 nodes. Bare SysEx dumps show active nodes 9302, 9308, 9309 and
+9311 for Group B, and 9402 and 9411 for Group C. Firmware is untagged in those
+dumps. The original notes identify physical labels `8` and `0` in both.
+[Pad 8 trim edits](../captures/sniffer-padtrim.jsonl#L141-L144), [Pad 6 assignment](../captures/sniffer-rename54-txrx.jsonl#L5), [Group A capture](../captures/sniffer-padmap-A.jsonl), [Group B dump](../captures/sniffer-padmap-B.bin), [Group C dump](../captures/sniffer-padmap-C.bin)
 
-**Open questions:**
-- Why official tool sometimes uses `SysExCmd 0x7F` vs `0x7E` for upload.
-- Meaning of `0x0B` and `0x01` ops beyond verify/reinit.
+### Metadata audit
 
-### Packed7 transport layer
-- Protocol fields are built first as raw payload bytes (`op`, `subop`, `slot_hi slot_lo`, etc.), then packed7 is applied for MIDI transport.
-- Every 7 raw payload bytes become 8 wire bytes: one packed7 control byte + seven 7-bit-clean data bytes.
-- Control bit `i` corresponds to payload byte `i` (0..6); final group may contain fewer than 7 payload bytes.
+The February 20 audit compared filenames from LIST, node metadata, and
+Krate's older query path. The recorded stale counts were 3 for slots 1–99
+and 57 for slots 100–199. Name differences were 37 and 22 respectively.
+Firmware is untagged in the exports. The counts describe those two audits.
+[Slots 1–99](../captures/2026-02-20-audit-001-099.jsonl), [Slots 100–199](../captures/2026-02-20-audit-100-199.jsonl)
 
-### Endianness & 14-bit splits
-- Mixing `pack_7bit` payloads with explicit 14-bit splits `((val >> 7) & 0x7F)` breaks at higher values.
-- Uploads expect raw 16-bit/32-bit values **inside** the packed payload.
+## Third-party sources
 
-### The working upload sequence
-1. **INIT (0x6C/0x7E family)**: slot, parent node (1000), size BE, name, JSON metadata.
-2. **CHUNKS (0x6C)**: 433-byte data chunks, wait for ACK response (0x2C), short delay.
-3. **SENTINEL + VERIFY**: empty `PUT_DATA` sentinel chunk, then VERIFY.
-4. **`_initialize()` reset**: client sends the 3-message init sequence after upload completes.
-
-### Device state after completed downloads (CONFIRMED 2026-03-06)
-After all download chunks are received, **the device remains in download mode** and silently
-drops the next command rather than processing it. Confirmed from
-`captures/evidence-download-state-bug.jsonl` (excerpt from a 314 MB session log):
-both `DELETE TX` events are immediately followed by stale `op=GET` responses
-from the device (it echoes download data) instead of a `DELETE ACK`.
-
-**Consequence:** Any operation sent directly after `_download_data()` completes (delete, put,
-rename) will be silently ignored by the device.
-
-**Fix:** `client.get()` calls `self._initialize()` after saving the WAV file, identical to
-what `put()` already does. Internal helpers `_download_data()` and `probe_channels()` do NOT
-call `_initialize()` — callers are responsible (only `get()` is the public exit point for
-completed downloads).
-
-**Partial downloads** (`probe_channels()`, `_get_file_size()`) leave the device in an
-incomplete download-init state. The device auto-abandons these sessions after a timeout.
-This is safe for current usage (both helpers are only called from read-only paths with no
-immediate stateful follow-up), but if either is ever called before a `delete()` or `put()`,
-the caller must add `_initialize()` explicitly.
-
----
-
-## 4. Metadata corruption risks
-
-There are multiple sources of truth on the device, and they can diverge:
-
-1. **Filesystem entry name** from `/sounds` (via `FileOp.LIST`).
-2. **Filesystem node metadata** (via `FileOp.METADATA GET` on a node_id).
-3. **Slot metadata** (via legacy `GET_META` 0x75).
-
-### Known risks
-- **No Active +128 Bug:** Earlier revisions incorrectly reported a `GET_META` slot-offset bug for slots >127. Root cause was host-side encoding mistakes (U14 bytes interpreted by device as BE16). With correct BE16 + 7-bit packing, slot mapping behaves as expected.
-- **Stale Metadata:** The device can return `GET_META` responses for deleted slots, resulting in "ghost" names.
-- **Lost Sound Params:** Move/Copy via download+upload resets sound parameters (start/end/loop/pitch) because the upload only carries name + channels + samplerate.
-
-### 2026-02-20 audit summary (decoded)
-- `captures/2026-02-20-audit-001-099.jsonl` (99 slots)
-  - `name:diff`: 37, `channels:diff`: 5, `node-name-empty`: 23, `stale`: 3, clean: 47
-- `captures/2026-02-20-audit-100-199.jsonl` (100 slots)
-  - `stale`: 57, `name:diff`: 22, clean: 21
-
-### Implemented mitigations
-- `ko2 info` and `ko2 ls` now use `/sounds` + node metadata (`FileOp.METADATA GET`) only.
-- `GET_META` is retained only as an explicit legacy audit/debug source (`ko2 audit` path).
-- The inventory command (`ko2 ls`) relies entirely on the filesystem listing (`/sounds`), ensuring empty slots are reported accurately.
-- `ko2 audit` exists to compare the three sources and flag `name:diff` or `stale` states.
+| Source | Evidence to reuse |
+|---|---|
+| [kmorrill/ep-series-sysex](https://github.com/kmorrill/ep-series-sysex) | Best lead for shared 2.5.1 device fixtures. EP-133 and EP-40 hardware work covers project TAR I/O, pad mapping, FILE behavior, and measured playback. [Test method](https://github.com/kmorrill/ep-series-sysex/blob/main/docs/hardware-testing.md), [Coverage and provenance](https://github.com/kmorrill/ep-series-sysex/blob/main/docs/coverage.md) |
+| [phones24/ep133-export-to-daw](https://github.com/phones24/ep133-export-to-daw) | Independent AGPL-3.0 WebMIDI codec for checking GET, STAT and LIST. Supports EP-133, EP-1320 and EP-40. [FILE codec](https://github.com/phones24/ep133-export-to-daw/blob/main/src/lib/midi/fsSysex.ts) |
+| [seajaysec/ep-unity](https://github.com/seajaysec/ep-unity) | Bundled Kotu client independently points to `/sounds` metadata for storage. [Storage query](https://github.com/seajaysec/ep-unity/blob/main/web/lib/kotu.bundle.js#L767-L775) |
+| [ZacharySBrown/ep133-ppak](https://github.com/ZacharySBrown/ep133-ppak) | Complementary MIT archive and pad-record tooling. Reports 2.0.5 sample-mode hardware validation and credits Krate for prior SysEx research. [Prior work and test status](https://github.com/ZacharySBrown/ep133-ppak#building-on-prior-work) |
+| [trusch/ko2-io](https://github.com/trusch/ko2-io) | Rust CLI, FUSE and project editor. Its FILE implementation follows ep-series-sysex. Useful for comparing end-to-end behavior. [FILE client](https://github.com/trusch/ko2-io/blob/main/src/fileclient.rs) |
+| [propann/EP-133-KO-II-Studio](https://github.com/propann/EP-133-KO-II-Studio) | Companion app built on epsysex. Reports a real-device clone and checksum-verified inventory for nine projects and 527 sounds. Candidate for exchanging workflow fixtures. [Clone results and bridge](https://github.com/propann/EP-133-KO-II-Studio/blob/main/README.md#clone--biblioth%C3%A8que-sonore) |
+| [wmealing/KO2-SYSEX](https://github.com/wmealing/KO2-SYSEX/blob/main/SAMPLE-TOOL-START.md) | Independent OS 1.1.2 startup capture for historical GREET, INIT and root LIST. |
+| [garrettjwilke/ep_133_sysex_thingy](https://github.com/garrettjwilke/ep_133_sysex_thingy) | Pre-2.0 `.syx` examples for playback, upload, delete and switching. |
+| [abrilstudios/rcy](https://github.com/abrilstudios/rcy/issues/179), [benjaminr/mcp-koii](https://github.com/benjaminr/mcp-koii/blob/main/TECHNICAL_REFERENCE.md) | Earlier sample-upload tooling and adjacent MIDI note-to-pad reference. |

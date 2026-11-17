@@ -1,396 +1,162 @@
-# EP-133 SysEx Protocol (Reverse Engineered)
+# EP-133 SysEx protocol
 
-## Message Structure
+Krate's version-stamped captures are from the EP-133 on OS **2.0.5**.
+Community bench tests extend coverage to **2.5.1**. See the [firmware
+comparison, operation coverage and captures](docs/protocol-evidence.md) and the
+[remaining capture scenarios](docs/capture-wishlist.md).
 
-File-group commands use a semantic payload that is packed7-encoded for MIDI transport.
+## Message structure
 
-Wire format:
-```
-F0 00 20 76 33 40 [cmd] [seq] 05 <packed7(raw_payload)> F7
-```
-
-Fields:
-- `F0` = SysEx start
-- `00 20 76` = Teenage Engineering manufacturer ID
-- `33 40` = Device family (EP-133)
-- `[cmd]` = Session/device identifier byte — device echoes back with -0x40 offset in responses. Values like 0x61, 0x7E, 0x68 all work; the device does not enforce a specific value per operation.
-- `[seq]` = Sequence byte (increments per message)
-- `05` = CMD_FILE (file operations command group)
-- `raw_payload` = semantic bytes (typically `[op][subop][data...]`)
-- `packed7(...)` = transport encoding for MIDI safety
-- `F7` = SysEx end
-
-### Packed7 Transport Encoding
-- Build `raw_payload` first.
-- Encode it with packed7 for transport.
-- On receive, unpack first, then parse fields.
-- For each group: control bit `i` (0..6) corresponds to payload byte `i`.
-- Final group may contain fewer than 7 payload bytes.
-
-## SysEx Commands (cmd byte)
-
-| ID | Name | Usage |
-|----|------|-------|
-| 0x61 | INIT | Initialization sequence |
-| 0x77 | INFO | Device info, metadata queries |
-| 0x7C | PROJECT | Project switching (NEW) |
-| 0x7D | DOWNLOAD | File download (GET) |
-| 0x7E | UPLOAD | File upload (PUT), DELETE |
-| 0x6A | FILE | File ops (LIST/METADATA) — used by ko2 tools |
-| 0x6B | FILE_ALT | File ops (LIST/METADATA) — used by official tool |
-| 0x6F | FILE_META | File meta GET/SET — used by official tool (rename) |
-| 0x60-0x6A | FILE_RANGE | File ops (LIST/METADATA) — observed in official app polling |
-| 0x37 | RESPONSE | Standard device response |
-| 0x3D | RESPONSE_ALT | Alternative response (downloads) |
-
-## File Operations
-
-| Op | Name | Usage |
-|----|------|-------|
-| 0x01 | INIT | Initialize communication |
-| 0x02 | PUT | Upload file |
-| 0x03 | GET | Download file |
-| 0x04 | LIST | List files |
-| 0x05 | PLAYBACK | Playback/audition control |
-| 0x06 | DELETE | Delete sample |
-| 0x07 | METADATA | Metadata operations |
-| 0x0B | VERIFY | Verify commit (upload) |
-
-## Official App Behavior (Observed)
-
-From hunter captures (e.g. `captures/sniffer-2026-02-20-220918.jsonl`):
-- Uses FileOp.LIST and FileOp.METADATA GET heavily; **does not use GET_META (0x75)**.
-- Sends FileOp.METADATA GET/SET with device IDs in the **0x60–0x6A range** (rotating).
-- Uses FileOp.METADATA SET with JSON payloads to drive UI navigation and pad assignment.
-- `{"active":<node>}` toggles active child nodes (UI selection/navigation).
-- `{"sym":<n>}` appears to assign a sample slot to a pad node (needs more confirmation).
-- `{"sample.start":..., "sample.end":...}` used for trim edits (see pad-trim capture).
-- META_GET targets nodes that match **sample slot numbers** (e.g. 53, 67, 77, 220, 434, 442, 568, 569, 572, 807 in `captures/sniffer-2026-02-20-220918.jsonl`), suggesting sample nodes may be addressed by slot id (not fully confirmed).
-
-## Common Commands
-
-### Device Identity Request
-```
-F0 7E 7F 06 01 F7
-```
-Universal MIDI device inquiry.
-
-### Initialization Sequence (Required before operations)
-```
-F0 00 20 76 33 40 61 17 01 F7
-F0 00 20 76 33 40 61 18 05 00 01 01 00 40 00 00 F7
-```
-- Device ID: `0x61` (INIT)
-- Second message sets up communication parameters
-
-### Get Device Info
-```
-F0 00 20 76 33 40 77 14 01 F7
-```
-- Device ID: `0x77` (INFO)
-- Response contains device information
-
-### Get Sample Metadata
-```
-F0 00 20 76 33 40 75 [seq] 05 <packed_payload> F7
-```
-- Device ID: `0x75` (GET_META)
-- Raw payload: `07 02 [slot_hi] [slot_lo] 00 00`
-- Returns JSON with: name, sym, samplerate, format
-- This legacy API still uses normal packed7 encoding.
-- **Slot Encoding:** `slot_hi slot_lo` are BE16 bytes in the raw payload before packed7.
-- GET_META appears unreliable/stale in OS 2.0+ (returning ghost data for deleted slots). The official app relies entirely on `/sounds` (FILE LIST) and Node `METADATA GET` instead. Treat `GET_META` as legacy/debug only.
-
-### Delete Sample
-```
-F0 00 20 76 33 40 7E [seq] 05 00 06 [slot_hi] [slot_lo] F7
-```
-- Device ID: `0x7E` (UPLOAD)
-- Operation: `0x06` (DELETE)
-- Slot encoding: big-endian (confirmed from captures)
-- Device may return a "failed" status in the response, but the operation completes — file data is removed, though GET_META may still return stale metadata for the deleted slot.
-
-### Switch Project (NEW)
-```
-F0 00 20 76 33 40 7C [seq] 05 08 07 01 07 50 [json_data] 00 F7
-```
-- Device ID: `0x7C` (PROJECT)
-- JSON payload: `{"active":8000}` for project 8
-- Project numbers are encoded as value * 1000
-
-## Upload Protocol (PUT)
-
-The upload consists of a sequence of messages. The official app uses chunking and expects an ACK for each message.
-
-### 1. Upload Init
-```
-F0 00 20 76 33 40 7E [seq] 05 <packed_payload> F7
-```
-- Command byte: `0x7E` (UPLOAD) — confirmed from tests/fixtures/sniffer-upload21.jsonl
-- Group byte: `0x05` (CMD_FILE)
-- Raw payload before packed7 encoding:
-  - `0x02` (PUT)
-  - `0x00` (PUT_INIT)
-  - `0x05` (audio file type)
-  - `slot_hi`, `slot_lo` (Big-endian)
-  - `node_hi`, `node_lo` (Parent node, usually `0x03E8` for 1000)
-  - `size` (4 bytes, big-endian)
-  - `name` (UTF-8, null-terminated)
-  - `metadata JSON` (e.g. `{"channels":1,"samplerate":44100}`)
-
-### 2. Upload Data Chunk
-```
-F0 00 20 76 33 40 7E [seq] 05 <packed_payload> F7
-```
-- Raw payload before packed7 encoding starts with:
-  - `0x02` (PUT)
-  - `0x01` (PUT_DATA)
-  - `chunk_index_hi`, `chunk_index_lo` (16-bit big-endian index, NOT byte offset)
-  - audio data: **raw LE s16 PCM** — WAV frames sent as-is, no byte swap.
-    Confirmed SOLID: byte-for-byte match between official TE app upload capture
-    (`tests/fixtures/sniffer-upload-kick-official.jsonl`) and `tests/fixtures/kick-46875hz.wav`.
-- Device responds with an ACK (usually echoing the command in the `0x2x` response range). It does **not** return a standard `status=0x00` response, so clients should only check that an ACK was received.
-
-### 3. Commit/Verify Steps (Observed)
-```
-F0 00 20 76 33 40 7E [seq] 05 00 02 01 00 01 F7           # Commit 1
-F0 00 20 76 33 40 7E [seq] 05 00 0B 00 01 F7              # Verify
-F0 00 20 76 33 40 7E [seq] 05 00 01 01 00 40 00 00 F7     # Re-init
-F0 00 20 76 33 40 7E [seq] 05 00 0B 00 01 F7              # Verify again
+```text
+request  F0 00 20 76 33 40 [60 | id_hi] [id_lo] [command] <packed7 body> F7
+reply    F0 00 20 76 33 40 [20 | id_hi] [id_lo] [command] [status] <packed7 body> F7
+event    F0 00 20 76 33 40 40 00 05 <packed7 event body> F7
 ```
 
-### 7. Metadata Operation (observed)
-```
-F0 00 20 76 33 40 7E [seq] 05 <packed_payload> F7
-```
-- Operation: `0x07` (METADATA)
-- Sub-op: `0x02` (observed)
-  - Seen with slot and node variants during official tool uploads.
-  - Responses may be plain JSON with interleaved null bytes (no packed7 encoding),
-    prefixed by 4 bytes (observed as `page_hi page_lo node_hi node_lo`).
-    Example capture: `captures/sniffer-rename54.jsonl` (RX-only).
-- Official tool also sends METADATA SET (0x07 0x01) after upload:
-  - Node = slot number
-  - JSON contains at least `channels` and `samplerate`, and may include `sound.loopstart`, `sound.loopend`, `sound.rootnote` (see `captures/sniffer-upload-clean-hi.bin`, `captures/sniffer-upload-clean-lo.bin`).
+- Bytes 4–5 are the EP-133 product byte `33` and normal protocol marker
+  `40`. The EP-40 uses product byte `3C`. A marker of `33` carries firmware
+  debug text. Upstream reports that FILE traffic should stop if the device
+  enters a debug loop. [Debug frame evidence](https://github.com/kmorrill/ep-series-sysex/blob/main/docs/errors.md)
+- The 12-bit request ID is `((byte6 & 0x1F) << 7) | byte7`. Match replies by
+  ID and command. Krate's `SysExCmd` names such as `DOWNLOAD = 0x7D` are
+  fixed choices for byte 6. The command is byte 8 (`01` GREET, `05` FILE).
+- The reply status is a raw byte. Status `00` is success. Unsolicited events
+  use the captured header above and have no reply status. Examples are
+  `0A <fid:u16be>` for deletion and `03 <fid:u16be> <JSON>` for a metadata
+  update. [Decoded event and reply pairs](docs/protocol-evidence.md#download-completion-and-recovery)
 
-### 8. Finalize
-```
-F0 00 20 76 33 40 7E [seq] 05 08 07 02 <packed_size> 00 00 F7
-```
-- Flags: `0x08` (finalize mode)
-- Final packed7-encoded size value
+### Packed7
 
-## Pad Assignment + Trim (Observed)
+Build the raw body with full-width integers. Each group of up to seven
+bytes is sent as a control byte followed by the low seven bits of each
+byte. Control bit `i` carries the high bit for raw byte `i`. For example,
+`07 D0 00 2C` becomes `02 07 50 00 2C`. Decode after the reply status or
+immediately after the command on requests and on the captured unsolicited
+events.
 
-Captured in `captures/sniffer-padtrim.jsonl` (slot 74 upload + pad assign + trim):
+## Startup and device info
 
-### Assign sample to pad
-- Uses FileOp.METADATA SET (0x07 0x01) with JSON payloads:
-  - `{"active":9502}` on node `9500` (selects active pad node)
-  - `{"sym":74}` on node `9502` (assigns slot 74 to pad)
+Krate starts with universal MIDI identity (`F0 7E 7F 06 01 F7`), then sends
+GREET with an empty body, then FILE INIT. GREET returns a Packed7 string of
+semicolon-separated `key:value` pairs such as `product`, `sku`,
+`os_version`, and `serial`. Use GREET for the firmware version. The USB
+identity reply carries zero version bytes in the cited captures.
+[OS 2.0.5 startup exchanges](captures/sniffer-readmeta.jsonl#L1-L9)
 
-### Trim sample on pad
-- Uses FileOp.METADATA SET on node `9502`:
-  - `{"sample.start":0,"sample.end":8006}`
-  - `{"sample.start":2318,"sample.end":8006}`
+An observed FILE INIT body is `01 01 00 40 00 00`. After operation `01`,
+the request contains flags and a four-byte big-endian length limit (4 MiB
+in this example). It returns `0C 00 00 02 00`. The final four bytes report
+a 512-byte chunk size in this exchange. The meaning of the leading `0C`
+and the full flags map need targeted captures.
+[Upstream FILE INIT](https://github.com/kmorrill/ep-series-sysex/blob/main/docs/file-protocol.md#sub-commands)
 
-### Notes
-- Pad nodes appear to be in the 9500+ range.
-- Official tool uses FileOp.METADATA GET (0x07 0x02) for these nodes before/after updates.
-- Field names observed: `sym`, `sample.start`, `sample.end`, `active`.
-- Additional META_SET observations from `captures/sniffer-2026-02-20-220918.jsonl`:
-  - `{"active":<node>}` toggles active child nodes (UI navigation/group selection).
-  - Examples: `2000 -> 5000`, `5100 -> 5300/5400`, `9100 -> 9300/9400`, `9500 -> 9501/9503/9506`.
-  - `{"sym":807}` on node `5407` suggests a pad/sample assignment outside the 9500+ range (needs confirmation).
-- META_GET also targets nodes that match slot numbers (e.g., `53`, `67`, `77`, `220`, `434`, `442`, `568`, `569`, `572`, `807`), suggesting sample nodes may be addressed by slot id.
-- User report: this capture corresponded to pad labeled `8` in group `D`.
-- Pad labels are `0-9` plus `.` and `Enter` (12 pads total).
-- TX+RX capture shows pad node `9506` assigned with `{"sym":53}` and sample rename via node `53` (see `captures/sniffer-rename54-txrx.jsonl`); user reports this was pad `6` in group `D`.
-- **Pad-to-node formula:** `node = 2000 + (project × 1000) + 100 + group_offset + file_num`
-  - `group_offset`: A=100, B=200, C=300, D=400
-  - `file_num`: 1–12, mapped from physical pad via row inversion (pads numbered bottom-to-top, files stored top-to-bottom):
-    ```
-    Physical:  10 11 12    Files:  01 02 03
-                7  8  9            04 05 06
-                4  5  6            07 08 09
-                1  2  3            10 11 12
-    ```
-  - Group A fully confirmed from captures; B/C/D confirmed at 2 points each — all follow the same +100 offset pattern.
+## FILE operations
 
-## Download Protocol (GET)
+Payloads below are decoded. `fid` is a 16-bit file ID. `u16be` and
+`u32be` are big-endian integers. The reply column starts after status.
 
-### 1. Get Init
-```
-F0 00 20 76 33 40 7D [seq] 05 00 03 00 [slot_hi] [slot_lo] [offset: 5 bytes] F7
-```
-- Device ID: `0x7D` (DOWNLOAD)
-- Operation: `0x03` (GET)
-- Sub-op: `0x00` (GET_INIT)
-- Slot encoding: **big-endian**
-- Offset: 5 zero bytes
-- Response: packed7-encoded metadata. The payload structure mirrors upload init: `[0x03, 0x00, 0x05, size_hi, size_mh, size_ml, size_lo, filename...]`
-  - `0x03` = GET
-  - `0x00` = INIT
-  - `0x05` = Audio file type
-  - Size: 4-byte big-endian value at decoded bytes [3:7]. **Size = raw PCM byte count (no RIFF header); use as trim target.**
-  - Filename: Null-terminated string (usually ending in `.pcm`).
+| Operation | Request body | Reply body |
+|---|---|---|
+| INIT | `01 <flags:u8> <maxlen:u32be>` | Leading byte, then chunk size as `u32be` |
+| LIST | `04 <page:u16be> <fid:u16be>` | `<page:u16be>`, then zero or more `<fid:u16be> <flags:u8> <size:u32be> <name> 00` entries. Flag bit 1 marks a directory. |
+| STAT | `0B <fid:u16be>` | `<fid:u16be> <parent:u16be> <flags:u8> <size:u32be> <name> 00` |
+| METADATA GET | `07 02 <fid:u16be> <page:u16be>` | `<page:u16be>` and a JSON fragment. The last fragment ends with NUL in the captured example. |
+| METADATA SET | `07 01 <fid:u16be> <JSON> 00` | Empty on success. The JSON fields merge with the existing record. |
+| PLAY | `05 01 <fid:u16be>` with an optional suffix in the captured tool | Empty on success |
+| DELETE | `06 <fid:u16be>` | Empty on success. A separate FILE_DELETED event can arrive before the reply. |
+| GET open | `03 00 <fid:u16be> <offset:u32be>` in the reference client | Starts with `<fid:u16be> <flags:u8> <size:u32be> <name> 00` |
+| GET page | `03 01 <page:u16be>` in the reference client | `<page echo:u16be> <data>` |
+| PUT open | `02 00 <flags:u8> <fid:u16be> <parent:u16be> <size:u32be> <name> 00` | The official-tool sound example returns the file ID. |
+| PUT page | `02 01 <page:u16be> <data>` | Empty on success. An empty data page at the next index ends the upload. |
 
-### 2. Get Data Chunk
-```
-F0 00 20 76 33 40 7D [seq] 05 00 03 01 [page_lo] [page_hi] F7
-```
-- Sub-op: `0x01` (GET_DATA)
-- Page: 14-bit value split into two 7-bit bytes (`page_lo`, `page_hi`)
-  - `page_lo = page & 0x7F`
-  - `page_hi = (page >> 7) & 0x7F`
-  - Max page: 16383 (14 bits)
-- Response: packed7-encoded chunk; assembled pages are **raw LE s16 PCM** (not RIFF WAV)
-  - Each decoded chunk starts with a 2-byte page-number echo `[page_lo, page_hi]` — must strip
-  - After stripping prefix, bytes are LE s16 — write directly, no byte swap needed.
-  - Confirmed: downloaded bytes from slot 21 (official TE sample) match original WAV exactly.
-  - Trim to `file_info["size"]` bytes (= raw PCM byte count from GET_INIT response)
-  - Confirmed SOLID by `test_encoding.py` sample-level roundtrip (440 Hz sine, 30+ slots)
+Some clients add a NUL-terminated key to METADATA GET to read a single
+field. For sound inventory and post-delete checks, use LIST on `/sounds`.
+The repository's older slot-audit path sometimes returns stale metadata.
+[Metadata audit](docs/protocol-evidence.md#metadata-audit), [Reference codec](https://github.com/kmorrill/ep-series-sysex/blob/main/docs/file-protocol.md)
 
-## Numeric Encoding Rules
+### Storage and audition
 
-- Slot and node identifiers in raw payloads are standard **BE16** (`hi`, then `lo`) unless a command explicitly uses another format.
-- Download `GET_DATA` page echo/request uses a 14-bit page number split into two 7-bit bytes (`page_lo`, then `page_hi`).
-- Do not pre-split BE16 fields into 7-bit pieces; packed7 already handles MSB transport.
+Read METADATA GET page 0 on `/sounds` with `07 02 03 E8 00 00`. The JSON
+contains `max_capacity`, `free_space_in_bytes`, and `formats`. Krate's CLI
+status currently derives usage from sample sizes and assumes 64 MiB when
+capacity is unavailable. [Storage exchange on 2.0.5](captures/sniffer-readmeta.jsonl#L12-L15)
 
-## WAV File Requirements
+The official tool sends `05 01 <slot:u16be> 00 00 00 00 00 00 03 E8` on
+2.0.5. Krate uses this form. The four-byte form is bench-tested upstream
+on 2.5.1, where it plays raw slot audio without pad trim or envelope.
+[PLAY on 2.0.5](captures/sniffer-rename54-txrx.jsonl#L117-L118), [PLAY on 2.5.1](https://github.com/kmorrill/ep-series-sysex/blob/main/docs/file-protocol.md#play--audition-0x05-0x01)
 
-### Format
-- Sample rate: **46875 Hz** (official TE spec; 24 MHz / 512, Cirrus Logic CS42L52 codec).
-  OS 2.0+: samples below 46875 Hz are stored at their original rate. Samples above are
-  downsampled on import. No need to force-convert to 46875 Hz.
-- Bit depth: 16-bit
-- Channels: Mono or stereo
-- Sample format: Little-endian signed 16-bit
+### Download protocol
 
-### Required WAV Header
+GET transfers raw little-endian signed 16-bit PCM for samples or TAR bytes
+for projects. Stop at the size reported by GET open. Reference clients
+use offset zero for whole files. Krate appends five zero bytes after the
+file ID and uses a little-endian 14-bit page field. Its 2.0.5 trace shows
+324 data bytes per full page and echoes the requested page bytes.
 
-Standard WAV headers work, but EP-133 adds:
+The official tool on **the same 2.0.5 device** uses a 21-byte preview open,
+big-endian page numbers and 320-byte pages for a 16,000-byte preview.
+Reference whole-file reads on **2.5.1** use big-endian pages and a shorter
+open request. The meaning of the extended open fields and the effect of
+Krate's page encoding on whole-file byte order remain open.
+[Preview trace](captures/sniffer-rename54-txrx.jsonl#L15-L25), [Reference whole-file read](https://github.com/kmorrill/ep-series-sysex/blob/main/epsysex/fileclient.py#L361-L397)
 
-1. **smpl chunk** (36 bytes) - Sample loop information
-2. **LIST/INFO/TNGE chunk** - JSON metadata
+Completed 2.0.5 GETs in the archive are followed by successful FILE
+requests. Krate currently reinitializes after `get()`. Interrupted
+transfer recovery still needs validation.
+[Download completion and recovery](docs/protocol-evidence.md#download-completion-and-recovery)
 
-Required JSON metadata:
-```json
-{
-  "sound.playmode":"oneshot",
-  "sound.rootnote":60,
-  "sound.pitch":0,
-  "sound.pan":0,
-  "sound.amplitude":100,
-  "envelope.attack":0,
-  "envelope.release":255,
-  "time.mode":"off"
-}
-```
+### Upload protocol
 
-### Audio Conversion
+Use flags `05` for a sound and parent `1000`. The 2.0.5 Sample Tool fixture
+contains 433 content bytes per full PUT page for the 512-byte chunk
+configuration. It carries PCM frames without a WAV header. The PUT open
+may append JSON after the NUL-terminated name, and the tool also uses
+METADATA SET after EOF. The `0B` requests around that edit are STAT
+readbacks. Krate's upload client calls this operation `VERIFY`.
+[2.0.5 PUT data](tests/fixtures/sniffer-upload-kick-official.jsonl#L171-L173), [2.0.5 EOF, STAT and metadata](tests/fixtures/sniffer-upload-kick-official.jsonl#L458-L479)
 
-Convert to EP-133 format:
-```bash
-sox input.wav -c 1 -r 46875 -b 16 output.wav
-```
+Krate converts input to 16-bit WAV where needed, preserves channels and
+sample rates at or below 46,875 Hz, and sends frames with separate metadata.
+Recent official tool support for sub-native rates is documented in the
+[EP-133 sample tool guide](https://teenage.engineering/guides/ep-133/functions).
+The runtime path is [prepare_for_upload](src/core/ops.py), then [UploadTransaction](src/core/operations.py).
 
+## Filesystem and projects
 
-## Sample Slots
-
-- Total: **999 slots** (001-999)
-- Slot numbers encoded as described above
-- Empty slots return no metadata response
-
-## Projects
-
-- Total: **9 projects** (1-9)
-- Switch via Device ID 0x7C
-- Each project has independent samples
-- Project value in JSON is encoded as `project_num * 1000`
-
-## Implementation Notes
-
-1. **Init is required** - Always send init sequence before file operations
-2. **Sequence bytes** - Must increment for each message (0-127, wraps)
-3. **Packed7 transport** - Build semantic raw payload first, then packed7-encode it
-4. **Timing** - Delays of 20-100ms between messages are commonly needed
-5. **Response filtering** - Filter by TE header + expected response opcode
-
-## File List Response (FileOp.LIST = 0x04)
-
-Response payload (after packed7 decode): 2-byte header, then repeating entries:
-```
-[node_hi] [node_lo] [flags] [size:4 BE] [name\0]
-```
-- `flags`: bit 1 = is_dir
-- `size`: 4-byte big-endian file size
-- `name`: null-terminated UTF-8 string
-
-### Node ID encoding — confirmed BE16
-
-The `node_hi`/`node_lo` bytes in LIST responses are **big-endian 16-bit** after packed7 decoding. Confirmed 2026-03-22 from a device capture with 430 entries across slots 1–972 — all 214 divergent cases (where BE16 ≠ U14) matched BE16. Examples: slot 256 = `[0x01, 0x00]`, slot 900 = `[0x03, 0x84]`.
-
-## Known Issues
-
-1. **Upload Command IDs** - The `[cmd]` byte (position 6) is a **session identifier**, not a fixed opcode — the device accepts any value and echoes it back with a -0x40 offset in responses. Official TE app uses rotating IDs (observed: `0x68`/`0x69` in `tests/fixtures/sniffer-upload-kick-official.jsonl`, `0x7E` in `tests/fixtures/sniffer-upload21.jsonl`). Our tool uses `0x7E` consistently. All values work.
-2. **Playback** - Protocol not fully documented (Command `0x76`).
-3. **Project files** - `.ppak` format known, but SysEx extraction path unknown.
-4. **"invalid file" Error Response** - When querying a missing or invalid node (e.g., via `METADATA GET`), the device may return a non-standard error payload (including high-byte content). Clients should treat these response payloads as raw bytes and avoid strict semantic decoding.
-5. **Node ID encoding resolved** - LIST response node IDs are BE16 after packed7 decode. Confirmed 2026-03-22 (430 entries, slots 1–972). The old U14 heuristic in `decode_node_id()` has been removed.
-
-## Tools
-
-### Convert audio:
-```bash
-sox input.wav -c 1 -r 46875 -b 16 output.wav
-```
-
-### Python tools (this repo):
-```bash
-krate info <slot>      # Get sample metadata
-krate get <slot>       # Download sample
-krate put <file>       # Upload sample
-krate rm <slot>        # Delete sample
-krate ls               # List all samples
-```
-
-## References
-
-- https://github.com/garrettjwilke/ep_133_sysex_thingy - Working sysex examples (pre-FW 2.0)
-- https://github.com/benjaminr/mcp-koii - MIDI control interface; contains complete sound-to-pad mapping that may aid pad group B/C/D research
-- abrilstudios/rcy - Reference implementation (Dec 2025, FW 2.0.5); key reference for upload protocol
-
-## Slot IDs vs node IDs
-
-Two different addressing schemes exist and must not be conflated.
-
-### Slot IDs (1–999)
-
-Used for sample/audio data locations. These are the flat list of 999 sound slots.
-Upload, download, rename, and delete all address slots. Slot numbers are global across projects.
-
-### Node IDs
-
-Used for the internal filesystem: pads, projects, groups, folders.
-
-- Node `1000` = `/sounds/` directory (parent node for all uploads)
-- Pad nodes: `2000 + (project_num * 1000) + 100 + group_offset + file_num`
-  - `project_num`: 1–9
-  - `group_offset`: A=100, B=200, C=300, D=400
-  - Physical pads numbered bottom-to-top; filesystem stores top-to-bottom
-
-**Example:** Project 1, Group A, Pad 1 → node `3210`
-
-To assign a sample to a pad, set `{"sym": <slot_id>}` on the pad's node via `METADATA SET`.
-
-### Known node ranges
-
-| Range | Purpose |
+| File ID | Node |
 |---|---|
-| `1000` | `/sounds/` directory |
-| `2000` | Root filesystem node |
-| `X201–X212` | Group A pads (per formula above; X = project prefix) |
-| `X301–X312` | Group B pads |
-| `X401–X412` | Group C pads |
-| `X501–X512` | Group D pads |
+| `0` | Filesystem root |
+| `1000` | `/sounds`; children are the global sample slots `1–999` |
+| `2000` | `/projects` |
+| `2000 + 1000 × P` | Project `P`, numbered 1–9 |
+| `project_fid + 100` | Groups directory |
+| `project_fid + 200 + 100 × G` | Group `G`, with A=0, B=1, C=2, D=3 |
+| `group_fid + index` | Pad. Index 1–12 counts from the top left across each row. |
+
+```text
+Keypad       FILE pad index
+7 8 9        01 02 03
+4 5 6        04 05 06
+1 2 3        07 08 09
+. 0 Enter    10 11 12
+```
+
+List projects with `04 00 00 07 D0`. Read the active project with METADATA
+GET on node `2000`. To switch, set `active` on that node to the target
+project ID. For example, project 8 is `10000`. Set `sym` on a pad node to
+assign a sample slot. The pad stores its own `sample.start` and
+`sample.end` trim points in frames.
+[Project selection exchange on 2.0.5](tests/fixtures/sniffer-upload-kick-official.jsonl#L5-L13), [Upstream project activation](https://github.com/kmorrill/ep-series-sysex/blob/main/docs/file-protocol.md#project-reload--activation-sequence), [Pad evidence](docs/protocol-evidence.md#pad-assignment-and-trim)
+
+GET on a project file yields its TAR. A project TAR references sample
+IDs in the shared sound library. Upstream bench tests on 2.5.1 also
+replace a TAR with PUT using flags `06` and parent `2000`, then reload
+and verify the project. Krate exposes generic listing through
+`fs-ls --node 2000`. Dedicated project read, write and activation remain
+unimplemented.
+[Upstream project TAR protocol](https://github.com/kmorrill/ep-series-sysex/blob/main/docs/file-protocol.md#writing-a-project-tar), [Firmware compatibility](docs/protocol-evidence.md#firmware-changes-from-205-to-251)
+
+## Known issues
+
+See [unverified behavior and next captures](docs/capture-wishlist.md).

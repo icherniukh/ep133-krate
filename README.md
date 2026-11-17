@@ -6,11 +6,9 @@ samples means using the official EP Sample Tool — until now.
 **krate** is a full sample manager for the EP-133. The BeeWare app in
 `src/app` is now the primary product under active development; the CLI and
 terminal UI remain first-class, maintained frontends for automation,
-reverse-engineering, and power-user workflows. The MIDI SysEx protocol was
-reverse-engineered from USB captures of the official app. The full specification
-is published in [PROTOCOL.md](PROTOCOL.md) — opcodes, byte
-layouts, session state machine, confirmed findings and honest gaps — so the
-community doesn't have to start from scratch.
+reverse engineering, and power-user workflows. The [SysEx reference](PROTOCOL.md)
+documents the byte layouts and device behavior established from official
+Sample Tool captures and community hardware tests.
 
 ---
 
@@ -111,49 +109,17 @@ The protocol specification in PROTOCOL.md is the foundation for all of it.
 
 ## How It Works
 
-### Reverse-engineered protocol
-
-The EP-133 exposes no public API. Every operation — upload, download, rename,
-delete, metadata query — is implemented against a hand-written spec derived
-from USB captures of the official EP Sample Tool. [PROTOCOL.md](PROTOCOL.md)
-documents each SysEx opcode, byte offset, encoding, and message sequence,
-along with confirmation status for every finding.
-
-Notable discoveries from the capture analysis:
-
-- The device stays in download mode after a completed transfer and silently
-  drops the next command. Every `get()` call issues a re-initialization
-  sequence to reset state.
-- `GET_META (0x75)` returns stale metadata for deleted slots. Runtime inventory
-  bypasses it, querying the `/sounds` filesystem node directly.
-- Metadata pagination is stateless: each `page=N` request independently
-  returns the Nth chunk of the JSON response. The official app sends page=0
-  and page=1 simultaneously without waiting for a response.
-- Upload audio is little-endian s16, sent verbatim — confirmed by byte-for-byte
-  comparison against a real USB capture.
-
-### 7-bit encoding (Packed7)
-
-MIDI SysEx is a 7-bit-clean channel — any byte with the high bit set ends the
-message. Binary data (PCM audio, JSON metadata) must be re-encoded before
-transmission. `Packed7` does this: every 7 bytes of input become 8 bytes of
-output — a leading byte carries the MSBs, followed by the 7 data bytes masked to 7 bits. Implemented in
-`src/core/types.py`, round-trip verified in the test suite.
-
 ### Descriptor DSL for protocol messages
 
 Protocol messages are defined declaratively using field descriptors:
 
 - `src/core/types.py` — primitive wire types: `U7`, `BE16`, `Packed7`
 - `src/core/models.py` — message structures composed from typed field descriptors
-- `src/core/operations.py` — stateful multi-step transactions (e.g.
-  `UploadTransaction`: PUT_INIT → data chunks → sentinel → VERIFY →
-  METADATA_SET → VERIFY)
+- `src/core/operations.py` — multi-step transactions such as sample upload
 - `src/core/client.py` — current protocol/session entry point; owns initialization,
   response matching, and recovery, alongside workflow/file policy being reviewed
 
-Serialization and deserialization are symmetric by construction. Platform MIDI
-I/O is separated from protocol encoding through the transport abstraction.
+The transport handles platform MIDI I/O.
 
 ### Testable CLI output (View protocol)
 
@@ -189,10 +155,10 @@ See [`docs/architecture/ARCH-002-app-first-core-ui.md`](docs/architecture/ARCH-0
 
 The unit suite runs without a device; hardware end-to-end tests are separate.
 
-- Capture-based protocol tests verify serialized bytes against real USB traffic
-- Encoding tests assert round-trip symmetry for `U7`, `BE16`, `Packed7`, and
-  slot encoding variants
-- CLI tests cover all command functions via `Mock(spec=View)`
+- Capture-based tests check specific request layouts and uploaded PCM bytes
+  against recorded USB traffic
+- Encoding tests exercise `U7`, `BE16`, `Packed7` and slot encoding variants
+- CLI tests use `Mock(spec=View)` to check command output
 - Dedicated modules for waveform fingerprinting, squash algorithm, and
   optimize flow
 - Fuzz tests (`test_protocol_fuzz.py`) exercise response parsers against
@@ -200,25 +166,15 @@ The unit suite runs without a device; hardware end-to-end tests are separate.
 
 ---
 
-## Protocol Gaps
+## Protocol coverage
 
-Remaining unknowns:
+Krate's version-stamped captures cover OS **2.0.5**. Community hardware
+results cover **2.5.1**, including project TAR reads and writes. The
+[operation matrix](docs/protocol-evidence.md#operation-coverage) tracks
+evidence and implementation for each operation.
 
-1. **Playback (0x76)** — TX format, parameters, and device response all
-   unknown. Audition uses a workaround; true playback triggering is not
-   implemented.
-2. **Memory statistics** — the device sends `free_space_in_bytes` in a known
-   RX payload, but the TX command that triggers it hasn't been identified.
-   `krate` falls back to 64 MB.
-3. **Device info (0x77/0x78)** — RX response format known; TX request not
-   confirmed. `device_info()` always returns `None`.
-4. **Pad mapping (Groups B/C/D)** — Group A fully captured. Groups B/C/D
-   partial.
-5. **Project listing (0x7C)** — project switching documented; listing
-   available projects not yet captured.
-
-Contributions in the form of USB captures are welcome. See
-[CONTRIBUTING.md](CONTRIBUTING.md) for setup and capture workflow.
+See [what changed from 2.0.5 to 2.5.1](docs/protocol-evidence.md#firmware-changes-from-205-to-251)
+and the [capture scenarios for remaining gaps](docs/capture-wishlist.md).
 
 ---
 
