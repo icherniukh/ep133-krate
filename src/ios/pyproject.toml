@@ -2,13 +2,17 @@
 name = "krate-mobile"
 version = "0.1.0"
 description = "EP-133 KO-II mobile sample manager"
-license.file = "LICENSE"
+license = "MIT"
+license-files = ["LICENSE"]
 requires-python = ">=3.11"
 authors = [{name = "Ivan Cherniukh"}]
 
 # NOTE: No dependencies here — Briefcase uses [tool.briefcase.app.app.requires]
 # to install iOS-compatible packages only.
 dependencies = []
+
+[dependency-groups]
+ios-build = ["briefcase==0.4.7"]
 
 [tool.briefcase]
 project_name = "Krate"
@@ -25,18 +29,14 @@ module = "app"
 # Paths are relative to this pyproject.toml.
 sources = ["../core", "../app"]
 requires = [
-    "toga>=0.4.0",
-    "rubicon-objc>=0.5.0",
-    "std-nslog>=0.1.0",
+    "rubicon-objc==0.5.7",
+    "toga==0.5.7; sys_platform != 'darwin' and sys_platform != 'ios'",
 ]
 
 [tool.briefcase.app.app.iOS]
 template = "./ios-template"
-requires = [
-    "toga-iOS>=0.4.0",
-    "rubicon-objc>=0.5.0",
-    "std-nslog>=0.1.0",
-]
+min_os_version = "26.0"
+requires = ["toga-iOS==0.5.7"]
 
 # ---- Info.plist keys ----
 # Bluetooth for BLE MIDI (CoreMIDI uses BLE under the hood for wireless devices)
@@ -49,6 +49,6 @@ entitlement."com.apple.developer.midi" = true
 
 [tool.briefcase.app.app.macOS]
 requires = [
-    "toga-cocoa>=0.4.0",
-    "rubicon-objc>=0.5.0",
+    "toga-cocoa==0.5.7",
+    "std-nslog==2.0.0; python_version < '3.14'",
 ]

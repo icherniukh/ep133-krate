@@ -2,22 +2,10 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
 
-try:
-    import std_nslog  # noqa: F401  # pylint: disable=unused-import
-except ImportError:
-    std_nslog = None  # type: ignore[assignment]
-
 import toga
-from toga.style import Pack
-from toga.style.pack import COLUMN, ROW
 
-from core.client import EP133Client
-from .transport import create_transport
-
-# Import new screens
 from .screens.device_tab import DeviceTab
 from .screens.local_tab import LocalTab
 
@@ -26,25 +14,21 @@ class KrateApp(toga.App):
     """Main Application Entry Point."""
 
     def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
         self._transport = None
         self._client = None
-        
-        # UI Elements that need tracking
         self.device_tab = None
         self.local_tab = None
+        super().__init__(*args, **kwargs)
 
     def startup(self) -> None:
         """Called when the app starts."""
         self.main_window = toga.MainWindow(title=self.formal_name)
         
-        # Setup Tabs
-        self.tabs = toga.OptionContainer()
         self.device_tab = DeviceTab(self)
         self.local_tab = LocalTab(self)
-        
-        self.tabs.add("Device", self.device_tab)
-        self.tabs.add("Local", self.local_tab)
+        self.tabs = toga.OptionContainer(
+            content=[("Device", self.device_tab), ("Local", self.local_tab)]
+        )
 
         # Tools Menu
         tools_cmd = toga.Command(
@@ -61,9 +45,11 @@ class KrateApp(toga.App):
         
         self.main_window.show()
 
-    def action_open_tools(self, _widget):
+    async def action_open_tools(self, _command):
         """Open the tools menu for bulk ops."""
-        self.main_window.info_dialog("Tools", "Bulk operations (Squash, Optimize All) will go here.")
+        await self.main_window.dialog(
+            toga.InfoDialog("Tools", "Bulk operations (Squash, Optimize All) will go here.")
+        )
 
     def _log(self, msg: str) -> None:
         print(f"[UI] {msg}")

@@ -11,12 +11,10 @@ coverage:
 	python3 -m pytest tests/unit/ --cov=. --cov-report=term-missing
 
 # ── iOS / Briefcase ──────────────────────────────────────────────────────────
-# Venv: .venv-mobile (Python 3.12, created by: python3.12 -m venv .venv-mobile)
-# Config: src/ios/pyproject.toml
-# Simulator UUID: 446DA412-2BE7-43A6-BA99-26B85E010A93
+# See CONTRIBUTING.md for setup. IOS_SIM can be set to a simulator UDID.
 
 BRIEFCASE   := .venv-mobile/bin/briefcase
-IOS_SIM     := 446DA412-2BE7-43A6-BA99-26B85E010A93
+IOS_SIM     ?= auto
 IOS_DIR     := src/ios
 
 ios-create:
@@ -33,4 +31,4 @@ ios: ios-create ios-build ios-run
 
 # Stream simulator logs (separate terminal; useful when run is backgrounded)
 ios-logs:
-	xcrun simctl spawn $(IOS_SIM) log stream --predicate 'processImagePath contains "Krate"'
+	xcrun simctl spawn $(if $(filter auto,$(IOS_SIM)),booted,$(IOS_SIM)) log stream --predicate 'processImagePath contains "Krate"'

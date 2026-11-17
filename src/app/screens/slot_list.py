@@ -88,8 +88,8 @@ class SlotListScreen(toga.Box):
     def _fetch_slots(self) -> dict:
         return self._client.list_sounds()
 
-    def _on_slot_select(self, widget: toga.DetailedList, row=None, **kwargs) -> None:
-        self._play_btn.enabled = row is not None
+    def _on_slot_select(self, widget: toga.DetailedList) -> None:
+        self._play_btn.enabled = widget.selection is not None
 
     async def _on_play(self, widget: toga.Button) -> None:
         if not self._client:

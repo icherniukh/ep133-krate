@@ -25,7 +25,6 @@ int main(int argc, char *argv[]) {
     wchar_t *wtmp_str;
     wchar_t *app_packages_path_str;
     const char* app_module_str;
-    const char* nslog_script;
     PyObject *app_packages_path;
     PyObject *app_module;
     PyObject *module;
@@ -60,8 +59,14 @@ int main(int argc, char *argv[]) {
         // Don't write bytecode; we can't modify the app bundle
         // after it has been signed.
         config.write_bytecode = 0;
+        // Ensure that signal handlers are installed
+        config.install_signal_handlers = 1;
         // Isolated apps need to set the full PYTHONPATH manually.
         config.module_search_paths_set = 1;
+        {% if cookiecutter.python_version|minor_version >= 14 -%}
+        // Enable the use of the system logger
+        config.use_system_logger = 1;
+        {% endif -%}
         // For debugging - enable verbose mode.
         // config.verbose = 1;
 
@@ -162,30 +167,6 @@ int main(int argc, char *argv[]) {
         }
 
         @try {
-            // Set the name of the python NSLog bootstrap script
-            nslog_script = [
-                [[NSBundle mainBundle] pathForResource:@"app_packages/nslog"
-                                                ofType:@"py"] cStringUsingEncoding:NSUTF8StringEncoding];
-            if (nslog_script == NULL) {
-                NSLog(@"No Python NSLog handler found. stdout/stderr will not be captured.");
-                NSLog(@"To capture stdout/stderr, add 'std-nslog' to your app dependencies.");
-            } else {
-                NSLog(@"Installing Python NSLog handler...");
-                FILE* fd = fopen(nslog_script, "r");
-                if (fd == NULL) {
-                    crash_dialog(@"Unable to open nslog.py");
-                    exit(-1);
-                }
-
-                ret = PyRun_SimpleFileEx(fd, nslog_script, 1);
-                fclose(fd);
-                if (ret != 0) {
-                    crash_dialog(@"Unable to install Python NSLog handler");
-                    exit(ret);
-                }
-            }
-
-
             // Adding the app_packages as site directory.
             //
             // This adds app_packages to sys.path and executes any .pth
@@ -225,7 +206,6 @@ int main(int argc, char *argv[]) {
                 crash_dialog(@"Could not add app_packages directory using site.addsitedir");
                 exit(-15);
             }
-
 
             // Start the app module.
             //
@@ -327,9 +307,14 @@ int main(int argc, char *argv[]) {
             ret = -7;
         }
         @finally {
-            Py_Finalize();
+            // Force a full GC pass while the interpreter is alive and a pool is
+            // in place, so Python drops any ObjC references and anything
+            // autoreleased lands in this pool.
+            PyGC_Collect();
         }
     }
+    // Autorelease pool is drained; any Python -dealloc has run against a live interpreter.
+    Py_Finalize();
 
     exit(ret);
     return ret;

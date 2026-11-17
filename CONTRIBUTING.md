@@ -23,6 +23,23 @@ pytest
 pytest -m e2e --device "EP-133"
 ```
 
+### iOS app
+
+On macOS, install Xcode 26 or later with an iOS 26+ simulator runtime. From
+the repository root, install the Briefcase version declared in
+[`src/ios/pyproject.toml`](src/ios/pyproject.toml) and build the app.
+
+```bash
+python3.12 -m venv .venv-mobile
+.venv-mobile/bin/python -m pip install --upgrade pip
+.venv-mobile/bin/python -m pip install --group src/ios/pyproject.toml:ios-build
+make ios
+```
+
+When the iOS template or deployment target changes, run `make ios-create` and
+confirm replacement of the generated Xcode project. Use `make ios-run
+IOS_SIM=<UDID>` to select a specific iOS 26+ simulator.
+
 ## Releases
 
 1. Set the release version in `pyproject.toml`, run the unit suite, and merge

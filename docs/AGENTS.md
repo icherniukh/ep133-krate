@@ -224,8 +224,7 @@ Wraps `mido` + `rtmidi` for development/testing on macOS/Linux. This lets us ite
 - [x] Refactored screens (slot_list, upload_queue use EP133Client, not httpx)
 - [x] App.py with device picker, connect/disconnect, INIT via EP133Client
 - [x] Locale fix for iOS launch crash in krate/__main__.py
-- [x] Added std-nslog for better logging
-- [ ] **Briefcase project setup** — `pyproject.toml` [tool.briefcase] config, iOS template with MIDIBridge compiled; desktop-only `python-rtmidi` kept out of iOS build requirements
+- [x] **Briefcase project setup** — configuration in `src/ios/pyproject.toml` and an Xcode template that includes `MIDIBridge`. See [iOS app setup](../CONTRIBUTING.md#ios-app).
 - [ ] **Deploy to iOS device** — `briefcase build iOS && briefcase open iOS`, Xcode deploy
 - [ ] **End-to-end verification** — INIT handshake → device responds → list_sounds() → audition(3)
 
@@ -242,7 +241,7 @@ and the links to firmware-specific evidence.
 
 ## Conventions
 
-- Python 3.11+ (BeeWare Briefcase 0.4.x supports 3.10–3.14)
+- Python 3.11+ for the project. The iOS build workflow uses Python 3.12.
 - Follow `src/` module layout: `src/app/` is a peer of `src/cli/`, `src/core/`, `src/tui/`
 - Transport methods are synchronous — screens use `asyncio.to_thread()` for non-blocking UI
 - No bare `print()` in screen code for product behavior — use Toga widgets,

@@ -1,17 +1,19 @@
+import logging
+
 import toga
 from toga.style import Pack
 from toga.style.pack import COLUMN, ROW
 
 class LocalTab(toga.Box):
     def __init__(self, app):
-        super().__init__(style=Pack(direction=COLUMN, flex=1, padding=8))
+        super().__init__(style=Pack(direction=COLUMN, flex=1, margin=8))
         self.app = app
         
         # Header / Import Button
         self.btn_import = toga.Button(
             "+ Import from iOS Files", 
             on_press=self.on_import_files,
-            style=Pack(padding_bottom=16, font_weight="bold")
+            style=Pack(margin_bottom=16, font_weight="bold")
         )
         self.add(self.btn_import)
         
@@ -29,6 +31,7 @@ class LocalTab(toga.Box):
     def on_import_files(self, widget):
         print("Trigger iOS Document Picker")
         
-    def on_file_selected(self, widget, row):
-        if row:
-            print(f"Selected local file: {row.title}")
+    def on_file_selected(self, widget):
+        row = widget.selection
+        if row is not None:
+            logging.getLogger(__name__).info("Selected local file: %s", row.title)
