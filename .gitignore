@@ -43,6 +43,7 @@ captures/
 # Audit/debug dumps
 *.jsonl
 *.tsv
+!tests/fixtures/*.jsonl
 
 # Experiments (scratch work)
 experiments/*

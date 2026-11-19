@@ -1,0 +1,19 @@
+{"dir": "TX", "hex": "F07E7F0601F7", "source": "sounds-root-metadata-wire.jsonl:L1", "note": "MIDI identity request"}
+{"dir": "RX", "hex": "F07E3306020020762000010000000000F7", "source": "sounds-root-metadata-wire.jsonl:L2", "note": "MIDI identity reply: version bytes zero"}
+{"dir": "TX", "hex": "F00020763340611701F7", "source": "sounds-root-metadata-wire.jsonl:L3", "note": "GREET request (reply omitted: it carries the serial)"}
+{"dir": "TX", "hex": "F0002076334061180500010100400000F7", "source": "sounds-root-metadata-wire.jsonl:L5", "note": "FILE INIT 01 01 00 40 00 00"}
+{"dir": "RX", "hex": "F0002076334021180500000C00000200F7", "source": "sounds-root-metadata-wire.jsonl:L6", "note": "INIT reply: 0C, chunk size 512"}
+{"dir": "TX", "hex": "F000207633406A000508070203680000F7", "source": "sounds-root-metadata-wire.jsonl:L7", "note": "METADATA GET /sounds page 0"}
+{"dir": "RX", "hex": "F000207633402A0005000000007B0A20202000226D61785F63610070616369747922003A3632383533310032302C0A2020200022667265655F7300706163655F696E005F627974657322003A3238343138390034302C0A2020200022666F726D61740073223A5B7B0A20002020202020227400797065223A227000636D222C0A2020002020202022666F00726D617473223A005B7B0A20202020002020202020227300616D706C6572610074652E72616E670065223A5B312C3600353533355D2C0A00202020202020200020202273616D70006C65726174652E006E617469766522003A34363837352C000A2020202020200020202022636861006E6E656C73223A005B312C325D2C0A002020202020202000202022666F726D006174223A5B2273003136225D0A202000202020207D5D0A0020207D5D0A7D00F7", "source": "sounds-root-metadata-wire.jsonl:L8", "note": "METADATA GET reply: capacity, free space, formats"}
+{"dir": "TX", "hex": "F000207633406A0005000400000000F7", "source": "hardware-tests-wire.jsonl:L47194", "note": "LIST root (fid 0) page 0"}
+{"dir": "RX", "hex": "F000207633402A00050008000003680E0000000000736F756E6408730007500E000000000070726F6A650063747300F7", "source": "hardware-tests-wire.jsonl:L47195", "note": "LIST reply: sounds 1000 and projects 2000, flags 0E"}
+{"dir": "TX", "hex": "F000207633406A0105000400010000F7", "source": "hardware-tests-wire.jsonl:L47196", "note": "LIST root page 1"}
+{"dir": "RX", "hex": "F000207633402A010500000001F7", "source": "hardware-tests-wire.jsonl:L47197", "note": "LIST reply page 1: no entries, end"}
+{"dir": "TX", "hex": "F000207633407A650508030000780000000000F7", "source": "official-backup-tx-spy-20261110T095310Z.jsonl:L229", "note": "official tool GET open, 8-byte form, fid 248"}
+{"dir": "RX", "hex": "F000207633403A6505004200781D00024414003234382E70636D00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000F7", "source": "official-backup-passive-20261110T095111Z.jsonl:L50952", "note": "GET open reply: fid, flags 1D, size 148628, name 248.pcm, zero padded"}
+{"dir": "TX", "hex": "F000207633407A66050003010000F7", "source": "official-backup-tx-spy-20261110T095310Z.jsonl:L230", "note": "GET data page 0 (BE16)"}
+{"dir": "TX", "hex": "F000207633407A67050003010001F7", "source": "official-backup-tx-spy-20261110T095310Z.jsonl:L231", "note": "GET data page 1"}
+{"dir": "TX", "hex": "F000207633407B66050803010000F7", "source": "official-backup-tx-spy-20261110T095310Z.jsonl:L358", "note": "GET data page 128 (00 80)"}
+{"dir": "TX", "hex": "F000207633407C66050003010100F7", "source": "official-backup-tx-spy-20261110T095310Z.jsonl:L486", "note": "GET data page 256 (01 00)"}
+{"dir": "TX", "hex": "F00020763340614D05000300000C00000000000000000000004000000100060750F7", "source": "official-backup-tx-spy-20261110T095310Z.jsonl:L103501", "note": "waveform preview open: fid 12, stride 6, 2000 points"}
+{"dir": "RX", "hex": "F00020763340214D050000000C1D00001F40003031322E70636D00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000F7", "source": "official-backup-passive-20261110T095111Z.jsonl:L154224", "note": "preview open reply: size 8000"}
