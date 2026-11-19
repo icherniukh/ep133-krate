@@ -111,6 +111,107 @@ and 57 for slots 100–199. Name differences were 37 and 22 respectively.
 Firmware is untagged in the exports. The counts describe those two audits.
 [Slots 1–99](../captures/2026-02-20-audit-001-099.jsonl), [Slots 100–199](../captures/2026-02-20-audit-100-199.jsonl)
 
+## Gap matrix
+
+How Krate's reference compares with upstream and the Sample Tool. **2.0.5**
+and **2.5.1** mean a Krate capture on that OS; the tool column names the
+Sample Tool class or function the claim comes from.
+
+| Item | Upstream (ep-series-sysex) | Sample Tool | Krate evidence | Status |
+|---|---|---|---|---|
+| Status codes other than 0 | non-zero = ASCII reason | `1`–`3`, `16–63`, `≥64`, `64` IN_PROGRESS | only 0 seen | tool |
+| Commands ECHO, DFU, PRODUCT_SPECIFIC | — | declared; only DFU enter/exit is sent | — | tool |
+| SKU in MIDI identity reply | version bytes zero | `parseIdentity`: bytes 8–11 | `TE032AS001` on 2.5.1 | 2.5.1 |
+| Client timeouts, IN_PROGRESS | — | 20 s reply, 2 s probe, 15 s project PUT | — | tool |
+| Minimum firmware per SKU | — | `validateDeviceVersion`: 2.0.5 for `TE032AS001` | — | tool |
+| Pad numbering in TARs | contradictory ("bottom-up" vs calibrated table) | — | key 8 → N = 2, key 6 → N = 6; same slots and trim found in P07 `d/p02`, `d/p06` | 2.0.5 + backup |
+| Pad trim bytes 4–11 | start, length | — | 2318 and 5688 = 8006 − 2318 | 2.0.5 + backup |
+| Pad record size | 26 native, 27 tool | — | 423 of 432 device-returned records are 27; provenance unknown | 2.5.1 backup |
+| Pad byte 25 | 255, padding | — | 0 in 425, 1–2 otherwise | 2.5.1 backup |
+| Automation byte 7 | 0 on EP-133 | — | 106–255 | 2.5.1 backup |
+| Note duration limit | 1 bar | — | up to 839 ticks | 2.5.1 backup |
+| INIT flag bit 0 | read/write | `TE_SYSEX_FILE_INIT_SUBSCRIBE` | flags `01`, events arrive | conflict |
+| INIT reply leading byte | "flags-ish" | not parsed | `0C` | open |
+| GET open, whole file | same 8-byte form | `SysExGetFileInitRequest` | 8-byte form on 2.5.1 | 2.5.1 |
+| GET page encoding | BE16 | BE16 | BE16, pages from 0, 324 bytes (2.5.1) | 2.5.1 |
+| Waveform preview | — | `iterDownloadSoundPreview` | open form on 2.0.5; point decimation on 2.5.1 | 2.0.5, 2.5.1 |
+| PLAYBACK layout | `05 01 fid`, suffix unknown | `SysExFilePlaybackRequest`: action, offset, length; STOP = 2 | long form on 2.0.5; START/STOP pair in a local capture | wire; `length` unit open |
+| MOVE `0C` | inventoried, payload unverified | `SysExFileMoveRequest` | — | tool |
+| Paged METADATA SET `07 04` | — | `SysExFileSetMetadataPaged*` | — | tool |
+| Node flag bits | `05` READ\|FILE, `06` READ\|DIR | type and capability bits | `0E`, `1D` on the wire | 2.0.5, 2.5.1 |
+| FILE_ADDED body | event code only | parser reads one byte late | `fid flags size name` | 2.0.5 |
+| Sound node names | — | — | `NNN.pcm` | 2.0.5 |
+| Slot metadata keys | 19 | validators, WAV export list | 17 on 2.0.5, 19 on 2.5.1 | 2.0.5, 2.5.1 |
+| `crc` | read-only | passed through | CRC-32 of PCM, computed by device | 2.0.5, 2.5.1 |
+| `formats` and target rate | — | `getTargetSampleRate` | same reply on 2.0.5 and 2.5.1 | 2.0.5, 2.5.1 |
+| Value ranges | amplitude 0–100, bpm 1–200 | import checks 0–200, 60–180 | — | conflict |
+| Backup WAV chunks | `smpl`, `LIST/INFO/TNGE` | `createWav` | plus `acid` when BPM is set | 2.5.1 backup |
+| Settings byte 220 | disputed | — | swing 0–12 = 50–75: 50 → `00`, 60 → `05`, 65 → `07`, 75 → `0C` | 2.5.1 |
+| Settings byte 221 | disputed | — | scene length, stored as displayed (12, 11) | 2.5.1 |
+| Settings bytes 222–223 | — | — | scale type (blues = 10, H.MI = 11), root pitch class (D = 2, G = 7) | 2.5.1 |
+| Swing scope | global, from byte-identical archives | — | project, byte 220 | refuted on 2.5.1 |
+| Record quantize | — | — | global: project TAR unchanged | 2.5.1 |
+| Global settings over SysEx | none | none | root, GREET, backup hold none | 2.5.1 |
+
+## Project settings bytes
+
+A 2.5.1 user backup (`EP-133_…_2026-11-10_backup.pak`, kept local) holds
+nine project TARs. Their `settings` members, read offline:
+
+| Project | P01 | P02 | P03 | P04 | P05 | P06 | P07 | P08 | P09 |
+|---|---|---|---|---|---|---|---|---|---|
+| Size (bytes) | 224 | 222 | 222 | 224 | 222 | 224 | 224 | 222 | 224 |
+| BPM (bytes 4–7, f32 LE) | 90 | 128 | 115 | 170 | 130 | 120 | 170 | 110 | 115 |
+| Byte 220 | 0 | 5 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| Byte 221 | 2 | 4 | 4 | 2 | 2 | 1 | 2 | 1 | 2 |
+
+Bytes 0–3 and 8–23 are zero in all nine. The 224-byte members end in two
+zero bytes. P08 has no `fx_settings` member.
+
+Controlled test on 2026-11-19 (P02, 2.5.1, local capture
+`captures/swing-quantize-20261119T113024Z/`). Each step changed one thing on
+the device, then P02 (fid 4000) was read with the official tool's GET
+sequence and diffed against the previous read:
+
+| Change on the device | Bytes changed in the 70,144-byte TAR |
+|---|---|
+| swing 65 → 50 | `settings` byte 220: `07` → `00`, nothing else |
+| root note C3 → C4, record quantize off | none |
+| swing 50 → 75, root note → G1, scale type changed | byte 220 `00` → `0C`; bytes 222–223 `00 00` → `03 07` |
+| scale type → blues, swing 75 → 60 | byte 220 `0C` → `05`; byte 222 `03` → `0A` |
+| scale type → H.MI | byte 222 `0A` → `0B` |
+| root note G1 → D3 | byte 223 `07` → `02` |
+| length one step down | byte 221 `0C` → `0B` |
+
+So byte 220 is swing, 0–12 for 50–75 (25/12 per step, rounded for
+display). Byte 222 is the scale type: it moved with each scale change and
+reads 10 for blues. That matches the pre-2.5 system codes 310–319 (12T,
+maj, min, dor, phr, lyd, mix, loc, major and minor pentatonic) as indices
+0–9, with 2.5's BLU appended at 10
+([scale index](project-format.md#scale-index)). H.MI read 11; M.MI = 12
+is unmeasured. Byte 223 is the root pitch class: G = 7, D = 2, and
+C3 → C4 left it at 0. Swing as
+project state fits TE's OS 2.0.2 fix "Swing was not updated when loading a
+new project". Record quantize is global. Byte 221 is the length setting (how long the
+scene runs): it holds the displayed value, 12 → 11 when the display went
+from 12 to 11. Some edits reached the TAR only on a later read, two
+reads after they were made, so a save delay can hide a change. P02's fader assignments (bytes 216–219) read 0 = LVL,
+matching the device's LEVEL setting. Bytes 8–23, upstream's other candidates, are zero in all nine projects
+here.
+
+The same session found no SysEx event for any of these changes: after a
+FILE INIT, the device sent nothing while swing, root note and projects were
+changed or pads pressed.
+
+## Preview decimation
+
+The 2.5.1 backup capture contains two extended GETs of slot 12 (mono,
+12,525 frames, stride 6, 2,000 points, 8,000 bytes). Decoding the preview as
+s16 little-endian gives 4,000 values in 2,000 equal pairs, and each pair
+equals the backup PCM at frame `6 × k` for all 2,000 points. Other offsets
+match 2–5% of points, as chance would. Min/max over each six-frame window
+matches none.
+
 ## Third-party sources
 
 | Source | Evidence to reuse |
