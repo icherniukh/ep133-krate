@@ -4,19 +4,17 @@ Follow the [capture guide](capture-format.md) and use one FILE client at a
 time. For cross-version comparisons, use the same action and request body on
 2.0.5 and 2.5.1 and record the GREET reply for each device.
 
-## 1. Whole-file GET page numbers and size
+## 1. Krate's GET page encoding
 
-Use a sample with known PCM bytes and enough data to cross pages 127 and 256
-(at least 100 kB of PCM). Compare separate reads of the same sample using the
-reference client's BE16 page encoding and Krate's existing encoding. Record
-GET open, page 1, the boundary pages, and the final byte count and checksum.
-Use the advertised size to end each stream.
+The official tool's encoding is settled on 2.5.1: an 8-byte open and BE16
+pages counted from 0, echoed at pages 1, 128 and 256, and 237 files read to
+their exact size ([PROTOCOL.md](../PROTOCOL.md#download-get)). What remains
+is Krate's own form: a 9-byte open and 14-bit little-endian pages.
 
-Capture BE16 requests and echoes at pages 1 (`00 01`), 128 (`00 80`), and 256
-(`01 00`). An echoed page field alone proves the device received those bytes.
-The PCM comparison checks which page it actually returned. A direct export
-from the official tool, if available, can also distinguish whole-file GET from
-its captured 16,000-byte preview with an extended open request.
+Read one sample of at least 100 kB (past pages 127 and 256) once with BE16
+pages and once with Krate's encoding. Compare the byte counts and CRC-32
+of the two results with the slot's `crc` metadata, which is CRC-32 of the
+PCM.
 
 ## 2. Recovery after interrupted GET
 
@@ -55,3 +53,33 @@ upstream activation write to a local trace.
   covers `sample.start` and `sample.end` on the pad.
 - On groups B, C and D, capture each physical pad label with the resulting
   `active` fid to complete local coverage of the [upstream map](https://github.com/kmorrill/ep-series-sysex/blob/main/docs/midi-reference.md#pad-numbering-warning).
+
+## 5. Project settings bytes 220–223
+
+Settled: byte 220 is swing, 221 the scene length as displayed, 222 the scale
+type, 223 the root pitch class.
+Still open: confirm M.MI = 12 and one of 0–9 against the
+[scale index](project-format.md#scale-index).
+Compare with the [settings table](protocol-evidence.md#project-settings-bytes).
+
+## 6. PLAYBACK length and stop
+
+Capture the official tool auditioning from the sound list and from a pad on
+2.5.1. Record whether it sends STOP (action `2`), and how long playback lasts
+for `length` 1000 versus 0 on a sample longer than a few seconds.
+
+## 7. INIT flags
+
+Compare INIT `01 00 …` with `01 01 …` on one connection and record which
+file events arrive afterwards.
+
+## 8. Upload above the native rate
+
+Upload one 48 kHz s16 WAV with the official tool and record the PUT JSON
+and the stored `samplerate`. Then audition it to compare its pitch.
+
+## 9. Stereo preview and MOVE
+
+Capture the waveform preview of a stereo sample whose PCM is known, and an
+official-tool slot move, to settle the preview channel layout and the MOVE
+body on the wire.
