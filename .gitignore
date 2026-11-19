@@ -102,3 +102,7 @@ docs/session-handoff-2026-11-11-terminal-ui.md
 # Teenage Engineering Sample Tool bundles (proprietary; local study only)
 sampleTool2.5.1.js
 st251.js
+
+# iOS (Briefcase) build output
+src/ios/build/
+src/ios/logs/
